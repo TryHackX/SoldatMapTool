@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import {
   MapIndexEntry,
   PackBuildOptions,
@@ -8,6 +8,7 @@ import {
   PackPreviewFile,
   PackPreviewResponse,
 } from '../shared/apiTypes';
+import { soldatCrc32 } from '../shared/pmsParser';
 import { APP_VERSION } from '../shared/version';
 import { SoldatMapScanner } from './soldatScanner';
 
@@ -277,11 +278,15 @@ function collectPackPlan(
 
   if (options.generateCrcManifest && selectedMaps.length > 0) {
     const listName = packCrcManifestName(options.packName || 'Soldat_Map_Pack');
+    const estimate = generateCrcManifestContent(
+      options.packName || 'Soldat_Map_Pack',
+      crcManifestEntries(Array.from(filesMap.values()), selectedMaps, false)
+    );
     filesMap.set(listName.toLowerCase(), {
       archivePath: listName,
       diskPath: '<generated>',
       category: 'generated',
-      sizeBytes: Buffer.byteLength(generateCrcManifestContent(options.packName || 'Soldat_Map_Pack', selectedMaps), 'utf-8'),
+      sizeBytes: Buffer.byteLength(estimate, 'utf-8'),
       usedByMapsCount: selectedMaps.length,
       sampleMaps: selectedMaps.slice(0, 6).map((m) => m.baseName),
     });
@@ -404,20 +409,62 @@ export function buildPackPreview(
   };
 }
 
+export interface CrcManifestEntry {
+  name: string;
+  archivePath: string;
+  crc32: number;
+  size: number;
+}
+
 /**
- * Map list with the OpenSoldat CRC32 of every .pms (the checksum client and server compare to decide whether
- * a map has to be downloaded), so a server admin can verify the pack contents.
+ * One line per map file that is really in the pack (with name collisions only one file is packed).
+ * `fromDisk` computes CRC and size from the bytes being packed instead of the last scan.
  */
-export function generateCrcManifestContent(packName: string, maps: MapIndexEntry[]): string {
+export function crcManifestEntries(
+  files: PackPreviewFile[],
+  maps: MapIndexEntry[],
+  fromDisk: boolean
+): CrcManifestEntry[] {
+  const byPath = new Map(maps.map((m) => [path.resolve(m.fullPath).toLowerCase(), m]));
+  const entries: CrcManifestEntry[] = [];
+  for (const f of files) {
+    if (f.category !== 'map') continue;
+    const map = byPath.get(path.resolve(f.diskPath).toLowerCase());
+    let crc32 = map?.crc32 ?? 0;
+    let size = f.sizeBytes;
+    if (fromDisk) {
+      try {
+        const bytes = fs.readFileSync(f.diskPath);
+        crc32 = soldatCrc32(bytes);
+        size = bytes.length;
+      } catch {
+        // The archiver reports a missing file separately; keep the indexed values here
+      }
+    }
+    entries.push({
+      name: map?.baseName ?? path.basename(f.archivePath, path.extname(f.archivePath)),
+      archivePath: f.archivePath,
+      crc32,
+      size,
+    });
+  }
+  return entries;
+}
+
+/**
+ * Map list with the OpenSoldat CRC32 of every packed .pms (the checksum client and server compare to decide
+ * whether a map has to be downloaded), so a server admin can verify the pack contents.
+ */
+export function generateCrcManifestContent(packName: string, entries: CrcManifestEntry[]): string {
   const lines = [
     `# Soldat Map Studio v${APP_VERSION} — sumy kontrolne map paczki "${packName}"`,
     `# Wygenerowano: ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC`,
     '# CRC32 w formacie OpenSoldat (ta sama suma, którą gra porównuje wersje map)',
     '# mapa;crc32;rozmiar_bajtow;plik',
   ];
-  for (const m of maps) {
-    const crc = (m.crc32 >>> 0).toString(16).toUpperCase().padStart(8, '0');
-    lines.push(`${m.baseName};${crc};${m.fileSize};maps/${m.fileName}`);
+  for (const e of entries) {
+    const crc = (e.crc32 >>> 0).toString(16).toUpperCase().padStart(8, '0');
+    lines.push(`${e.name};${crc};${e.size};${e.archivePath}`);
   }
   lines.push('');
   return lines.join('\r\n');
@@ -428,11 +475,12 @@ function generatedFileContent(
   archivePath: string,
   packName: string,
   maps: MapIndexEntry[],
-  warnings: PackMissingWarning[]
+  warnings: PackMissingWarning[],
+  files: PackPreviewFile[]
 ): string {
   const lower = archivePath.toLowerCase();
   if (lower.startsWith('mapslist')) return generateMapsListContent(maps);
-  if (lower.startsWith('maps_crc32')) return generateCrcManifestContent(packName, maps);
+  if (lower.startsWith('maps_crc32')) return generateCrcManifestContent(packName, crcManifestEntries(files, maps, true));
   return generateManifestContent(packName, maps, warnings);
 }
 
@@ -567,7 +615,13 @@ export async function executePackBuild(
         const destPath = path.join(targetFolder, ...file.archivePath.split('/'));
         await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
         if (file.category === 'generated') {
-          const content = generatedFileContent(file.archivePath, safeName, selectedMaps, plan.allMissingWarnings);
+          const content = generatedFileContent(
+            file.archivePath,
+            safeName,
+            selectedMaps,
+            plan.allMissingWarnings,
+            plan.allFiles
+          );
           await fs.promises.writeFile(destPath, content, 'utf-8');
           copied++;
         } else {
@@ -709,7 +763,7 @@ function createZipArchive(
   return new Promise((resolve, reject) => {
     const partPath = `${targetZipPath}.part`;
     const output = fs.createWriteStream(partPath);
-    const archive = archiver('zip', { zlib: { level: 6 } });
+    const archive = new ZipArchive({ zlib: { level: 6 } });
     const buildWarnings: string[] = [];
     let fileCount = 0;
     let failed = false;
@@ -747,7 +801,7 @@ function createZipArchive(
 
     for (const f of files) {
       if (f.category === 'generated') {
-        archive.append(generatedFileContent(f.archivePath, packName, selectedMaps, warnings), {
+        archive.append(generatedFileContent(f.archivePath, packName, selectedMaps, warnings, files), {
           name: f.archivePath,
         });
         fileCount++;

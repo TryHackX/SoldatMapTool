@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { MapUserData, MapUserDataPatch } from '../shared/apiTypes';
+import { readJsonStoreFile } from './jsonStoreFile';
 
 const MAX_TAGS_PER_MAP = 20;
 const MAX_TAG_LENGTH = 32;
@@ -13,15 +14,11 @@ export class UserDataStore {
   private readonly entries = new Map<string, MapUserData>();
 
   constructor(private readonly filePath: string) {
-    try {
-      const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-      const maps = raw && typeof raw === 'object' && raw.maps && typeof raw.maps === 'object' ? raw.maps : {};
-      for (const [mapId, value] of Object.entries(maps)) {
-        const clean = normalizeUserData(value as MapUserDataPatch);
-        if (clean) this.entries.set(mapId, clean);
-      }
-    } catch {
-      // Missing or damaged file: start empty (a damaged file is overwritten on the next change)
+    const raw = readJsonStoreFile(filePath) as { maps?: Record<string, unknown> } | null;
+    const maps = raw && typeof raw.maps === 'object' && raw.maps ? raw.maps : {};
+    for (const [mapId, value] of Object.entries(maps)) {
+      const clean = normalizeUserData(value as MapUserDataPatch);
+      if (clean) this.entries.set(mapId, clean);
     }
   }
 
@@ -31,9 +28,15 @@ export class UserDataStore {
 
   public update(mapId: string, patch: MapUserDataPatch): MapUserData {
     const current = this.entries.get(mapId) ?? {};
+    let tags = patch.tags !== undefined ? normalizeTags(patch.tags) : current.tags ?? [];
+    if (patch.removeTags?.length) {
+      const remove = new Set(normalizeTags(patch.removeTags).map((t) => t.toLowerCase()));
+      tags = tags.filter((t) => !remove.has(t.toLowerCase()));
+    }
+    if (patch.addTags?.length) tags = [...tags, ...normalizeTags(patch.addTags)];
     const next = normalizeUserData({
       favorite: patch.favorite !== undefined ? patch.favorite : current.favorite,
-      tags: patch.tags !== undefined ? patch.tags : current.tags,
+      tags,
     });
     if (next) this.entries.set(mapId, next);
     else this.entries.delete(mapId);

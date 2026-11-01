@@ -4,6 +4,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { execFile } from 'child_process';
 import AdmZip from 'adm-zip';
+import { extractZipSafely, isZipSymlink, ZIP_LIMITS, zipEntryProblem, ZipSafetyError } from './zipSafety';
 import sharp from 'sharp';
 import { SoldatMapScanner } from './soldatScanner';
 import { AssetCategory } from './assetResolver';
@@ -40,6 +41,7 @@ import {
   listDuplicateGroups,
   moveDuplicateMaps,
   moveUnusedScenery,
+  runLibraryOperation,
 } from './libraryTools';
 
 const PORT = Number(process.env.PORT || 4321);
@@ -315,6 +317,8 @@ app.post('/api/maps/:mapId/user-data', (req, res) => {
     const patch: MapUserDataPatch = {};
     if (typeof req.body?.favorite === 'boolean') patch.favorite = req.body.favorite;
     if (Array.isArray(req.body?.tags)) patch.tags = req.body.tags;
+    if (Array.isArray(req.body?.addTags)) patch.addTags = req.body.addTags;
+    if (Array.isArray(req.body?.removeTags)) patch.removeTags = req.body.removeTags;
     const data = userData.update(mapId, patch);
     const response: MapUserDataResponse = {
       mapId,
@@ -490,25 +494,36 @@ app.post(
 // Library tidy-up: duplicates (C2) and unused sceneries (C3). Files are moved into data/backups, never deleted.
 const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
 
-app.get('/api/library/duplicates', (_req, res) => {
-  res.json(listDuplicateGroups(scanner));
+// Library reports and moves always work on an index that matches the disk: a quick (cached) rescan first,
+// which also waits for a scan that is still running (e.g. right after start-up or a Soldat path change)
+app.get('/api/library/duplicates', async (_req, res) => {
+  try {
+    await scanner.scanAsync(false);
+    res.json(listDuplicateGroups(scanner));
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 app.post('/api/library/duplicates/move', async (req, res) => {
   try {
     const mapIds = Array.isArray(req.body?.mapIds) ? req.body.mapIds.map(String) : [];
     if (mapIds.length === 0) throw new LibraryError('Nie wybrano żadnych plików.');
-    const result = await moveDuplicateMaps(scanner, mapIds, BACKUPS_DIR);
-    console.log(`[Soldat Map Studio] Duplikaty: przeniesiono ${result.moved} plików do ${result.backupDir}`);
-    const meta = await scanner.scanAsync(true);
-    res.json({ ...result, meta });
+    const response = await runLibraryOperation(async () => {
+      await scanner.scanAsync(false);
+      const result = await moveDuplicateMaps(scanner, mapIds, BACKUPS_DIR);
+      console.log(`[Soldat Map Studio] Duplikaty: przeniesiono ${result.moved} plików do ${result.backupDir}`);
+      return { ...result, meta: await scanner.scanAsync(true) };
+    });
+    res.json(response);
   } catch (err) {
     sendError(res, err, err instanceof LibraryError ? err.status : 500);
   }
 });
 
-app.get('/api/library/unused-scenery', (_req, res) => {
+app.get('/api/library/unused-scenery', async (_req, res) => {
   try {
+    await scanner.scanAsync(false);
     const { allUnusedNames: _all, ...report } = computeUnusedScenery(scanner);
     res.json(report);
   } catch (err) {
@@ -520,10 +535,13 @@ app.post('/api/library/unused-scenery/move', async (req, res) => {
   try {
     const names = Array.isArray(req.body?.names) ? req.body.names.map(String) : [];
     if (names.length === 0) throw new LibraryError('Nie wybrano żadnych plików.');
-    const result = await moveUnusedScenery(scanner, names, BACKUPS_DIR);
-    console.log(`[Soldat Map Studio] Nieużywane scenerie: przeniesiono ${result.moved} plików do ${result.backupDir}`);
-    const meta = await scanner.scanAsync(true);
-    res.json({ ...result, meta });
+    const response = await runLibraryOperation(async () => {
+      await scanner.scanAsync(false);
+      const result = await moveUnusedScenery(scanner, names, BACKUPS_DIR);
+      console.log(`[Soldat Map Studio] Nieużywane scenerie: przeniesiono ${result.moved} plików do ${result.backupDir}`);
+      return { ...result, meta: await scanner.scanAsync(true) };
+    });
+    res.json(response);
   } catch (err) {
     sendError(res, err, err instanceof LibraryError ? err.status : 500);
   }
@@ -596,10 +614,26 @@ app.post('/api/packs/inspect-archive', (req, res) => {
     }> = [];
     const files: Array<{ path: string; size: number }> = [];
 
+    if (entries.length > ZIP_LIMITS.maxEntries) {
+      throw new ZipSafetyError(`Archiwum ma ${entries.length} wpisów (limit ${ZIP_LIMITS.maxEntries}).`);
+    }
+
+    // Only plausible map files are decompressed for the preview: a crafted archive may declare gigabytes, point
+    // thousands of entries at the same compressed data, or use encryption / unsupported compression
+    const seenDataOffsets = new Set<number>();
+    let previewBytes = 0;
     for (const e of entries) {
-      if (e.isDirectory) continue;
+      if (e.isDirectory || isZipSymlink(e)) continue;
       files.push({ path: e.entryName, size: e.header.size });
-      if (e.entryName.toLowerCase().endsWith('.pms')) {
+      if (
+        e.entryName.toLowerCase().endsWith('.pms') &&
+        e.header.size <= ZIP_LIMITS.maxPmsPreviewBytes &&
+        previewBytes + e.header.size <= ZIP_LIMITS.maxPreviewTotalBytes &&
+        !seenDataOffsets.has(e.header.offset) &&
+        !zipEntryProblem(e)
+      ) {
+        seenDataOffsets.add(e.header.offset);
+        previewBytes += e.header.size;
         try {
           const data = e.getData();
           const summary = parsePmsSummary(data);
@@ -624,7 +658,7 @@ app.post('/api/packs/inspect-archive', (req, res) => {
       files: files.slice(0, 5000),
     });
   } catch (err) {
-    sendError(res, err);
+    sendError(res, err, err instanceof ZipSafetyError ? err.status : 500);
   }
 });
 
@@ -644,18 +678,12 @@ app.post('/api/packs/extract-archive', async (req, res) => {
       ? path.resolve(targetFolderRaw)
       : path.join(EXPORTS_PACKS_DIR, 'extracted', baseArchiveName);
 
-    fs.mkdirSync(destDir, { recursive: true });
-    const zip = new AdmZip(archivePath);
-    // Refuse entries that would escape the destination folder (zip-slip)
-    const destRoot = path.resolve(destDir) + path.sep;
-    for (const e of zip.getEntries()) {
-      const target = path.resolve(destDir, e.entryName);
-      if (!target.startsWith(destRoot) && target !== path.resolve(destDir)) {
-        res.status(400).json({ error: `Niebezpieczna ścieżka w archiwum: ${e.entryName}` });
-        return;
-      }
-    }
-    zip.extractAllTo(destDir, true);
+    // Validates every entry first (zip-slip, sizes), skips symbolic links, never writes through a link
+    const extracted = extractZipSafely(archivePath, destDir);
+    console.log(
+      `[Soldat Map Studio] Wypakowano ${extracted.files} plików z ${path.basename(archivePath)} do ${destDir}` +
+        (extracted.skippedLinks > 0 ? ` (pominięto dowiązań: ${extracted.skippedLinks})` : '')
+    );
 
     if (registerAsSource) {
       const mapsSub = fs.existsSync(path.join(destDir, 'maps'))
@@ -684,7 +712,7 @@ app.post('/api/packs/extract-archive', async (req, res) => {
 
     res.json({ outputPath: destDir, meta: scanner.getMeta() });
   } catch (err) {
-    sendError(res, err);
+    sendError(res, err, err instanceof ZipSafetyError ? err.status : 500);
   }
 });
 
@@ -996,10 +1024,18 @@ app.post('/api/workshop/optimize-session/:sessionId/commit', async (req, res) =>
         : req.body?.overwrite
         ? 'always'
         : 'never';
+    const expected =
+      typeof req.body?.expectedDerivedBaseName === 'string'
+        ? {
+            derivedBaseName: String(req.body.expectedDerivedBaseName),
+            propFixes: Array.isArray(req.body?.expectedPropFixes) ? req.body.expectedPropFixes : [],
+          }
+        : undefined;
     const result = await workshop.commitOptimizeSession(
       req.params.sessionId,
       policy,
-      Boolean(req.body?.skipRescan)
+      Boolean(req.body?.skipRescan),
+      expected
     );
     res.json({ result, meta: scanner.getMeta() });
   } catch (err) {

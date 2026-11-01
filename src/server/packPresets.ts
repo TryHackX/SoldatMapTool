@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { PackBuildOptions, PackPreset } from '../shared/apiTypes';
+import { readJsonStoreFile } from './jsonStoreFile';
 
 const MAX_PRESETS = 50;
 
@@ -11,15 +12,11 @@ export class PackPresetStore {
   private presets: PackPreset[] = [];
 
   constructor(private readonly filePath: string) {
-    try {
-      const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-      const list = Array.isArray(raw?.presets) ? raw.presets : [];
-      for (const p of list) {
-        const name = sanitizePresetName(p?.name);
-        if (name) this.presets.push({ name, options: sanitizePresetOptions(p?.options), updatedAt: Number(p?.updatedAt) || 0 });
-      }
-    } catch {
-      // No presets yet
+    const raw = readJsonStoreFile(filePath) as { presets?: unknown } | null;
+    const list = Array.isArray(raw?.presets) ? raw.presets : [];
+    for (const p of list) {
+      const name = sanitizePresetName(p?.name);
+      if (name) this.presets.push({ name, options: sanitizePresetOptions(p?.options), updatedAt: Number(p?.updatedAt) || 0 });
     }
   }
 

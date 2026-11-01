@@ -263,7 +263,16 @@ export class SoldatWebGLRenderer {
     gl.disable(gl.CULL_FACE);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+    canvas.addEventListener('webglcontextlost', this.handleContextLost, false);
   }
+
+  // Every GL object of this renderer dies with a lost context. After the context is restored, deleting those
+  // stale handles would only produce "object does not belong to this context" errors, so they are forgotten.
+  private resourcesLost = false;
+  private readonly handleContextLost = (): void => {
+    this.resourcesLost = true;
+  };
 
   public isContextLost(): boolean {
     return this.gl.isContextLost();
@@ -903,7 +912,7 @@ export class SoldatWebGLRenderer {
   public disposeCurrentMap(): void {
     if (!this.prepared) return;
     const gl = this.gl;
-    if (!gl.isContextLost()) {
+    if (!gl.isContextLost() && !this.resourcesLost) {
       for (const rec of this.prepared.ownedTextures) {
         gl.deleteTexture(rec.tex);
       }
@@ -916,10 +925,13 @@ export class SoldatWebGLRenderer {
   public destroy(loseContext = false): void {
     this.loadSeq++; // Invalidate any in-flight loadMap()
     this.disposeCurrentMap();
+    this.canvas.removeEventListener('webglcontextlost', this.handleContextLost, false);
     if (!this.gl.isContextLost()) {
-      this.gl.deleteTexture(this.whiteTexture);
-      this.gl.deleteTexture(this.fallbackCheckerTexture);
-      this.gl.deleteProgram(this.program);
+      if (!this.resourcesLost) {
+        this.gl.deleteTexture(this.whiteTexture);
+        this.gl.deleteTexture(this.fallbackCheckerTexture);
+        this.gl.deleteProgram(this.program);
+      }
       if (loseContext) {
         this.gl.getExtension('WEBGL_lose_context')?.loseContext();
       }

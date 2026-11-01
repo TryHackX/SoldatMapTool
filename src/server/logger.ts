@@ -17,25 +17,25 @@ export function installFileLogger(logDir: string): void {
     return; // read-only folder: keep logging to the console only
   }
 
+  // Synchronous appends: the server logs little, and a line written right before a crash or process.exit()
+  // must already be on disk (a buffered stream would lose exactly the message needed for diagnosis)
   let currentDay = '';
-  let stream: fs.WriteStream | null = null;
+  let fd: number | null = null;
 
   const write = (level: string, args: unknown[]) => {
     const now = new Date();
     const day = localDay(now);
     try {
-      if (day !== currentDay || !stream) {
-        stream?.end();
+      if (day !== currentDay || fd === null) {
+        if (fd !== null) fs.closeSync(fd);
+        fd = null;
         currentDay = day;
-        stream = fs.createWriteStream(path.join(logDir, `server-${day}.log`), { flags: 'a' });
-        stream.on('error', () => {
-          stream = null; // e.g. disk full: stop writing until the next day / restart
-        });
+        fd = fs.openSync(path.join(logDir, `server-${day}.log`), 'a');
       }
       const time = now.toTimeString().slice(0, 8);
-      stream.write(`${time} ${level} ${format(...args)}\n`);
+      fs.writeSync(fd, `${time} ${level} ${format(...args)}\n`);
     } catch {
-      // Logging must never take the server down
+      // Logging must never take the server down (disk full, file locked...)
     }
   };
 

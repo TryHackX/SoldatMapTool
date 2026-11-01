@@ -91,6 +91,12 @@ function unreadableSummary(message: string, crc32: number): PmsSummaryData {
   };
 }
 
+/** Identity of a map file for duplicate detection: same OpenSoldat CRC32 and size. CRC 0 = the file could not be read. */
+export function duplicateIdentityKey(crc32: number, fileSize: number): string | null {
+  const crc = crc32 >>> 0;
+  return crc === 0 ? null : `${crc}:${fileSize}`;
+}
+
 function toCompact(entry: MapIndexEntry): MapCompactEntry {
   return {
     id: entry.id,
@@ -158,6 +164,7 @@ export class SoldatMapScanner {
   private defaultSortedList: InternalIndexedMap[] = [];
   private cachedMeta: IndexMetaResponse | null = null;
   private userData: UserDataStore | null = null;
+  private duplicateGroups: MapIndexEntry[][] = [];
   private activeScanPromise: Promise<IndexMetaResponse> | null = null;
   private followUpScanPromise: Promise<IndexMetaResponse> | null = null;
   private pendingForceReload = false;
@@ -302,13 +309,14 @@ export class SoldatMapScanner {
     return this.defaultSortedList.map((x) => x.full);
   }
 
-  /** Groups of maps sharing one OpenSoldat CRC32 (identical content), two or more files each */
+  /** Groups of maps with identical content (same OpenSoldat CRC32 and size), two or more files each */
   public getDuplicateEntryGroups(): MapIndexEntry[][] {
-    const groups: MapIndexEntry[][] = [];
-    for (const items of this.itemsByCrcHex.values()) {
-      if (items.length > 1) groups.push(items.map((x) => x.full));
-    }
-    return groups;
+    return this.duplicateGroups;
+  }
+
+  /** True once the first scan finished and no scan is running (library tools need a current index) */
+  public isIndexReady(): boolean {
+    return this.cachedMeta !== null && !this.scanStatus.scanning;
   }
 
   /** Map details for the client: the scanned entry plus favourite / tags */
@@ -621,15 +629,36 @@ export class SoldatMapScanner {
         }
         const nextByCrcHex = new Map<string, InternalIndexedMap[]>();
         for (const [crc, group] of byCrc.entries()) {
-          const dupCount = group.length;
-          const ids = dupCount > 1 ? group.map((g) => g.full.id) : [];
-          for (const g of group) {
-            g.full.duplicateCount = dupCount;
-            g.compact.duplicateCount = dupCount;
-            g.full.duplicateMapIds = dupCount > 1 ? ids.filter((id) => id !== g.full.id) : [];
-          }
           nextByCrcHex.set((crc >>> 0).toString(16), group);
         }
+
+        // Duplicates = same CRC32 and same size. CRC 0 marks files that could not be read at all.
+        const byIdentity = new Map<string, InternalIndexedMap[]>();
+        for (const item of nextIndexed.values()) {
+          item.full.duplicateCount = 1;
+          item.compact.duplicateCount = 1;
+          item.full.duplicateMapIds = [];
+          const key = duplicateIdentityKey(item.full.crc32, item.full.fileSize);
+          if (!key) continue;
+          let arr = byIdentity.get(key);
+          if (!arr) {
+            arr = [];
+            byIdentity.set(key, arr);
+          }
+          arr.push(item);
+        }
+        const nextDuplicateGroups: MapIndexEntry[][] = [];
+        for (const group of byIdentity.values()) {
+          if (group.length < 2) continue;
+          const ids = group.map((g) => g.full.id);
+          for (const g of group) {
+            g.full.duplicateCount = group.length;
+            g.compact.duplicateCount = group.length;
+            g.full.duplicateMapIds = ids.filter((id) => id !== g.full.id);
+          }
+          nextDuplicateGroups.push(group.map((g) => g.full));
+        }
+        this.duplicateGroups = nextDuplicateGroups;
 
         // Default natural A-Z sort
         const sorted = Array.from(nextIndexed.values()).sort((a, b) =>
@@ -1075,7 +1104,7 @@ export class SoldatMapScanner {
       case 'height':
         return m.polyHeight;
       case 'sizeKb':
-        return m.fileSize / 1024;
+        return Math.round(m.fileSize / 1024); // whole KB, so size:120 / kb=120 can match
       case 'missing':
         return m.missingAssetsCount;
       case 'medikits':

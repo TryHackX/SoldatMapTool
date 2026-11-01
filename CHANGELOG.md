@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.3.1 — 2026-11-01
+
+Domknięcie luk po 2.3.0 — szczegóły w rozdziale 5 `docs/AUDYT.md`.
+
+### Bezpieczeństwo
+- Zależności bez znanych podatności (`npm audit`: 0): `adm-zip` 0.6.1, `sharp` 0.35.5, `archiver` 8.0.0,
+  `minimatch` 11 (przez `overrides`).
+- Bezpieczne wypakowywanie paczek map z internetu: walidacja całego archiwum przed zapisem (zip-slip, dowiązania,
+  szyfrowanie, nieobsługiwana kompresja, „zip-bomby”), rozpakowanie do folderu tymczasowego.
+
+### Naprawione (przegląd kodu 2.3.0)
+- Minimapa po zmianie mapy była pusta albo pokazywała poprzednią mapę.
+- Wznowiona seria screenów zaczyna od właściwej mapy i nie zmienia ustawień (wcześniej wymuszała „pomiń istniejące”).
+- Gwiazdka w liście z filtrem nie przeładowuje już mapy i nie czyści wierszy.
+- „Porządki”: przed przeniesieniem duplikatu sprawdzany jest dysk (kopia, która zostaje, musi istnieć i być identyczna),
+  raport nieużywanych scenerii działa na aktualnym indeksie, jedna operacja naraz.
+- Nazwa `_f_o` dla długich nazw map nie gubi już `_f` i nigdy nie powtarza nazwy źródła; zapis `_o` jest odrzucany,
+  gdy mapa zmieniła się od przygotowania planu.
+- Manifest CRC32 zgodny z zawartością paczki, dziennik serwera zapisuje się natychmiast, uszkodzone pliki ustawień
+  nie są nadpisywane, poprawki w tagach, wyszukiwaniu, menu „Porównaj” i obsłudze błędów okien.
+- Renderer nie usuwa już obiektów utraconego kontekstu WebGL (ostrzeżenia po resecie karty graficznej).
+
+### Testy
+- 50 testów automatycznych (18 nowych).
+
 ## 2.3.0 — 2026-11-01
 
 Druga iteracja planu rozwoju — wszystkie pozostałe pozycje z `docs/PLAN_ROZWOJU.md`.

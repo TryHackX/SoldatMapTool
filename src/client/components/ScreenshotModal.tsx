@@ -177,7 +177,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
     setCustomFolder(b.customFolder ?? '');
   };
 
-  const handleGenerate = async (resume?: SavedBatchJob) => {
+  const handleGenerate = async (resume?: { job: SavedBatchJob; processed: number }) => {
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -220,9 +220,10 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
         setLastResult(res);
       } else {
         setStatusText('Pobieranie listy map do wsadowego renderowania...');
-        // A resumed batch uses its own saved settings and always skips screens that already exist
+        // A resumed batch uses exactly its saved settings (also "skip existing": the user may have chosen to
+        // overwrite old screens) and continues after the maps it had already processed
         const batch: BatchSettings = resume
-          ? { ...resume.settings, skipExisting: true }
+          ? resume.job.settings
           : {
               scale,
               boundsMode,
@@ -236,11 +237,22 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
               customFolder: customFolder || undefined,
             };
         if (resume) applyBatchSettings(batch);
-        const candidates = resume
-          ? await queryMatchingMapCompacts({ statusFilter: 'in_pack', packMapIds: resume.ids })
+        let candidates = resume
+          ? await queryMatchingMapCompacts({ statusFilter: 'in_pack', packMapIds: resume.job.ids })
           : await onResolveBatchCandidates();
-        if (candidates.length === 0) {
-          if (resume) clearSavedBatchJob();
+        if (resume) {
+          // The server returns its own order: restore the batch order and drop what was already done
+          const order = new Map(resume.job.ids.map((id, i) => [id, i]));
+          candidates = candidates
+            .filter((c) => (order.get(c.id) ?? -1) >= resume.processed)
+            .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+          if (candidates.length === 0) {
+            clearSavedBatchJob();
+            setSavedJob(null);
+            setStatusText('Ta seria była już ukończona.');
+            return;
+          }
+        } else if (candidates.length === 0) {
           throw new Error('Brak map do wsadowego wygenerowania screenów.');
         }
         if (!resume) {
@@ -248,7 +260,9 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
         }
         setSavedJob(null);
 
-        let completed = 0;
+        // Progress is counted over the whole batch, so a second interruption still resumes at the right map
+        const total = resume ? resume.job.total : candidates.length;
+        let completed = resume ? Math.min(resume.processed, total) : 0;
         let skipped = 0;
         let failed = 0;
         let consecutiveFailures = 0;
@@ -260,11 +274,11 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
           if (controller.signal.aborted) break;
 
           setStatusText(
-            `[${completed + 1} / ${candidates.length}] ${entry.baseName} (${Math.round(
+            `[${completed + 1} / ${total}] ${entry.baseName} (${Math.round(
               entry.polyWidth * batch.scale
             )}×${Math.round(entry.polyHeight * batch.scale)} px)...`
           );
-          setProgress(completed / candidates.length);
+          setProgress(completed / total);
 
           try {
             const parsed = await fetchAndParseMap(entry.id);
@@ -299,20 +313,20 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
             }
           }
 
-          setProgress(completed / candidates.length);
+          setProgress(completed / total);
           storeBatchProgress(completed);
           // Yield event loop so Stop button & progress bar stay responsive across thousands of maps
           await new Promise((r) => setTimeout(r, 8));
         }
 
-        setBatchStats({ done: completed, skipped, failed, total: candidates.length, firstError, stoppedEarly });
+        setBatchStats({ done: completed, skipped, failed, total, firstError, stoppedEarly });
         // Finished batches are forgotten; stopped or interrupted ones stay resumable
         if (!controller.signal.aborted && !stoppedEarly) clearSavedBatchJob();
         else setSavedJob(loadSavedBatchJob());
         setLastResult(lastOut);
         setStatusText(
           controller.signal.aborted
-            ? `Zatrzymano po przetworzeniu ${completed} / ${candidates.length} map.`
+            ? `Zatrzymano po przetworzeniu ${completed} / ${total} map.`
             : `Zakończono! Przetworzono ${completed} map (pominięto istniejących: ${skipped}, błędy: ${failed}).`
         );
       }
@@ -387,13 +401,14 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
                   Przerwana seria: {Math.min(savedJob.processed, savedJob.job.total).toLocaleString('pl-PL')} z{' '}
                   {savedJob.job.total.toLocaleString('pl-PL')} map (start{' '}
                   {new Date(savedJob.job.startedAt).toLocaleString('pl-PL', { dateStyle: 'short', timeStyle: 'short' })}
-                  ). Gotowe screeny zostaną pominięte.
+                  ). Wznowienie zacznie od mapy {Math.min(savedJob.processed, savedJob.job.total) + 1}, z tymi samymi
+                  ustawieniami.
                 </span>
               </div>
               <div className="flex gap-1.5 shrink-0">
                 <button
                   type="button"
-                  onClick={() => handleGenerate(savedJob.job)}
+                  onClick={() => handleGenerate(savedJob)}
                   className="px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white font-semibold cursor-pointer"
                 >
                   Wznów

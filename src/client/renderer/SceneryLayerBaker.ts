@@ -657,7 +657,13 @@ export async function executeSceneryOptimization(
     onProgress?.(0.95, `Zapisywanie ${plan.derivedBaseName}.pms oraz ${tiles.length} warstw PNG...`);
     const saveData = await postJson<{ result: OptimizeSaveResponse; meta: IndexMetaResponse }>(
       `/api/workshop/optimize-session/${encodeURIComponent(sessionId)}/commit`,
-      { overwrite, overwritePolicy: commit?.overwritePolicy, skipRescan: commit?.skipRescan },
+      {
+        overwrite,
+        overwritePolicy: commit?.overwritePolicy,
+        skipRescan: commit?.skipRescan,
+        expectedDerivedBaseName: plan.derivedBaseName,
+        expectedPropFixes: plan.appliedPropFixes ?? [],
+      },
       signal
     );
 

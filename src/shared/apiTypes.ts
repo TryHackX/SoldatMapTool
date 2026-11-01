@@ -94,7 +94,9 @@ export interface MapUserData {
 
 export interface MapUserDataPatch {
   favorite?: boolean;
-  tags?: string[];
+  tags?: string[]; // replaces the whole list
+  addTags?: string[]; // applied on the server to its current list, so quick edits never overwrite each other
+  removeTags?: string[];
 }
 
 export interface UserTagCount {

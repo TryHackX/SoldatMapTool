@@ -22,6 +22,40 @@ export class LibraryError extends Error {
   }
 }
 
+let libraryOperationRunning = false;
+
+/** Runs one tidy-up operation (move + rescan) at a time; a second request gets 409 instead of racing */
+export async function runLibraryOperation<T>(operation: () => Promise<T>): Promise<T> {
+  if (libraryOperationRunning) {
+    throw new LibraryError('Trwa inna operacja porządkowania — poczekaj, aż się skończy.', 409);
+  }
+  libraryOperationRunning = true;
+  try {
+    return await operation();
+  } finally {
+    libraryOperationRunning = false;
+  }
+}
+
+function samePhysicalFile(a: string, b: string): boolean {
+  try {
+    const x = fs.statSync(a, { bigint: true });
+    const y = fs.statSync(b, { bigint: true });
+    return x.ino !== 0n && x.dev === y.dev && x.ino === y.ino;
+  } catch {
+    return false;
+  }
+}
+
+function sameBytes(a: string, b: string): boolean {
+  try {
+    if (fs.statSync(a).size !== fs.statSync(b).size) return false;
+    return fs.readFileSync(a).equals(fs.readFileSync(b));
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------------------------------
 // C2: duplicate maps (identical OpenSoldat CRC32)
 // ---------------------------------------------------------------------------------------------------
@@ -102,6 +136,35 @@ export async function moveDuplicateMaps(
     if (!group) throw new LibraryError(`Mapa ${id} nie ma duplikatów — nie można jej przenieść tym narzędziem.`);
     if (group.every((e) => remove.has(e.id))) {
       throw new LibraryError(`Grupa ${group[0].baseName} straciłaby ostatnią kopię — zostaw przynajmniej jeden plik.`);
+    }
+  }
+
+  // The groups come from the last scan: right before moving, each file must be unchanged on disk and a
+  // byte-identical copy that stays (a different physical file, not the same one seen through a link) must exist
+  for (const id of remove) {
+    const group = groupOf.get(id)!;
+    const entry = group.find((e) => e.id === id)!;
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(entry.fullPath);
+    } catch {
+      throw new LibraryError(`Plik ${entry.fullPath} już nie istnieje — odśwież listę.`, 409);
+    }
+    if (stat.size !== entry.fileSize || Math.abs(stat.mtimeMs - entry.mtimeMs) > 2) {
+      throw new LibraryError(`Plik ${entry.fullPath} zmienił się od ostatniego skanu — odśwież listę.`, 409);
+    }
+    const keeper = group.find(
+      (e) =>
+        !remove.has(e.id) &&
+        fs.existsSync(e.fullPath) &&
+        !samePhysicalFile(e.fullPath, entry.fullPath) &&
+        sameBytes(e.fullPath, entry.fullPath)
+    );
+    if (!keeper) {
+      throw new LibraryError(
+        `Dla ${entry.fileName} nie ma już identycznej kopii, która zostaje — nic nie przeniesiono. Odśwież listę.`,
+        409
+      );
     }
   }
 

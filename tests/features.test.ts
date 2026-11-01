@@ -15,7 +15,7 @@ import {
   moveUnusedScenery,
 } from '../src/server/libraryTools';
 import { SoldatMapWorkshop } from '../src/server/mapFixerOptimizer';
-import { generateCrcManifestContent } from '../src/server/packBuilder';
+import { crcManifestEntries, generateCrcManifestContent } from '../src/server/packBuilder';
 import { PackPresetStore } from '../src/server/packPresets';
 import { SoldatMapScanner } from '../src/server/soldatScanner';
 import { normalizeTags, UserDataStore } from '../src/server/userDataStore';
@@ -162,7 +162,17 @@ test('CRC32 manifest lists every map with its OpenSoldat checksum and size', asy
   const scanner = new SoldatMapScanner(env.root, [], [], env.cache, env.thumbs);
   await scanner.scanAsync(true);
   const entry = scanner.getMapEntry('ctf_alpha')!;
-  const text = generateCrcManifestContent('Test', [entry]);
+  const packed = [
+    {
+      archivePath: 'maps/ctf_alpha.pms',
+      diskPath: entry.fullPath,
+      category: 'map' as const,
+      sizeBytes: entry.fileSize,
+      usedByMapsCount: 1,
+      sampleMaps: ['ctf_alpha'],
+    },
+  ];
+  const text = generateCrcManifestContent('Test', crcManifestEntries(packed, [entry], true));
   const crc = (entry.crc32 >>> 0).toString(16).toUpperCase().padStart(8, '0');
   assert.ok(text.includes(`ctf_alpha;${crc};${entry.fileSize};maps/ctf_alpha.pms`));
 });

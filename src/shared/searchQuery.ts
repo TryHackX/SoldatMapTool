@@ -125,6 +125,7 @@ const FLAG_VALUES: Record<string, SearchFlag> = {
   vanilla: 'vanilla',
   oryginalne: 'vanilla',
   domyslne: 'vanilla',
+  domyślne: 'vanilla',
   custom: 'custom',
   wlasne: 'custom',
   własne: 'custom',
@@ -216,13 +217,13 @@ function parseToken(raw: string): SearchTerm | null {
       const w = WEATHER_VALUES[value];
       return w !== undefined ? { kind: 'weather', value: w, negate } : plainText(raw);
     }
-    const textField = TEXT_KEYS[key];
-    if (textField) return { kind: 'field', field: textField, value, negate };
-    // "props:300" = "props=300"
+    // "props:300" = "props=300" (also for "scen", which is a scenery name only when the value is not a number)
     const numField = NUMERIC_KEYS[key];
     if (numField && /^\d+(\.\d+)?$/.test(value)) {
       return { kind: 'num', field: numField, op: '=', value: Number(value), negate };
     }
+    const textField = TEXT_KEYS[key];
+    if (textField) return { kind: 'field', field: textField, value, negate };
     return plainText(raw);
   }
 

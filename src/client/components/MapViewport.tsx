@@ -203,26 +203,27 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     }
   }, [prefs]);
 
-  // B2: props with 1.7.1 size problems of the current map file
-  const [fixAnalysis, setFixAnalysis] = useState<{ mapKey: string; analysis: MapFixAnalysisResponse | null } | null>(
+  // B2: props with 1.7.1 size problems of the current map file (keyed by id + CRC, so an edited file is re-analyzed)
+  const analysisKey = mapKey ? `${mapKey}:${mapEntry?.crc32 ?? ''}` : null;
+  const [fixAnalysis, setFixAnalysis] = useState<{ key: string; analysis: MapFixAnalysisResponse | null } | null>(
     null
   );
   useEffect(() => {
-    if (!prefs.showFixIssues || !mapKey || fixAnalysis?.mapKey === mapKey) return;
+    if (!prefs.showFixIssues || !mapKey || !analysisKey || fixAnalysis?.key === analysisKey) return;
     let cancelled = false;
     fetch(`/api/workshop/fix-analyze/${encodeURIComponent(mapKey)}?maxLen=24`)
       .then((r) => (r.ok ? r.json() : null))
       .then((analysis: MapFixAnalysisResponse | null) => {
-        if (!cancelled) setFixAnalysis({ mapKey, analysis });
+        if (!cancelled) setFixAnalysis({ key: analysisKey, analysis });
       })
       .catch(() => {
-        if (!cancelled) setFixAnalysis({ mapKey, analysis: null });
+        if (!cancelled) setFixAnalysis({ key: analysisKey, analysis: null });
       });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prefs.showFixIssues, mapKey]);
+  }, [prefs.showFixIssues, analysisKey]);
 
   // B4: minimap snapshot of the whole map, taken from the main renderer when the map or layers change
   const minimapCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -234,6 +235,9 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   });
   const [minimapVersion, setMinimapVersion] = useState(0);
   const minimapDragRef = useRef(false);
+  // What the main renderer really holds: loadMap() is async and keeps the previous map until it is applied,
+  // so the minimap must never be captured from a frame that still shows the old map or old textures
+  const gpuMapRef = useRef<PmsMapData | null>(null);
 
   // B5: compare renderer (own WebGL context on its own canvas, remounted per compared map)
   const compareCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -476,11 +480,13 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       fitMapToViewport(mapData);
     }
 
+    gpuMapRef.current = null;
     rendererRef.current
       .loadMap(mapData, { preferClassicBmp: layers.preferClassicBmp })
       .then((applied) => {
         // `applied` is false when a newer map load superseded this one (fast keyboard navigation)
         if (!cancelled && applied) {
+          gpuMapRef.current = mapData;
           setMapReadyOnGpu(true);
           if (!isDifferentMap && rendererRef.current) {
             setTransform((t) => ({ ...t }));
@@ -515,7 +521,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   // Outlines are only meaningful while mapData has the file's prop order (not for an `_o` preview)
   const issueOverlay = useMemo(() => {
     if (!prefs.showFixIssues || previewModeBanner || !mapData || !fixAnalysis?.analysis) return null;
-    if (fixAnalysis.mapKey !== mapKey) return null;
+    if (fixAnalysis.key !== analysisKey) return null;
     const outlines: number[][] = [];
     const byProp = new Map<number, SceneryFixIssueGroup>();
     for (const issue of fixAnalysis.analysis.issues) {
@@ -527,7 +533,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       }
     }
     return { outlines, byProp };
-  }, [prefs.showFixIssues, previewModeBanner, mapData, fixAnalysis, mapKey]);
+  }, [prefs.showFixIssues, previewModeBanner, mapData, fixAnalysis, analysisKey]);
 
   // Render WebGL2 + 2D Tactical Overlay whenever camera, layers, or map changes
   useEffect(() => {
@@ -553,7 +559,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     }
 
     if (mapData && mapReadyOnGpu) {
-      if (prefs.showMinimap) {
+      if (prefs.showMinimap && gpuMapRef.current === mapData) {
         const key = [
           layers.showBackground,
           layers.showPolygons,
@@ -637,7 +643,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     ctx.lineWidth = 1.5;
     ctx.strokeStyle = '#34d399';
     ctx.strokeRect(x, y, rw, rh);
-  }, [prefs.showMinimap, minimapVersion, currentWorldBounds, mapData]);
+  }, [prefs.showMinimap, minimapVersion, currentWorldBounds, mapData, mapReadyOnGpu]);
 
   const moveCameraFromMinimap = (clientX: number, clientY: number) => {
     const canvas = minimapCanvasRef.current;

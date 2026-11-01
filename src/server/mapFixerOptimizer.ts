@@ -1123,7 +1123,8 @@ export class SoldatMapWorkshop {
   public async commitOptimizeSession(
     sessionId: string,
     overwrite: OverwritePolicy,
-    skipRescan = false
+    skipRescan = false,
+    expected?: { derivedBaseName: string; propFixes: OptimizePropFix[] }
   ): Promise<OptimizeSaveResponse> {
     const session = this.optimizeSessions.get(sessionId);
     if (!session || session.committing) throw new WorkshopError('Sesja optymalizacji wygasła lub nie istnieje.', 404);
@@ -1148,6 +1149,19 @@ export class SoldatMapWorkshop {
         options,
         fixes
       );
+      // The tiles were baked (and the overwrite confirmed) for the client's plan: a map or scenery image
+      // changed since then would give a different name or different fixes — refuse instead of guessing
+      if (
+        expected &&
+        (expected.derivedBaseName !== plan.derivedBaseName ||
+          JSON.stringify(expected.propFixes.map((f) => [f.propIndex, f.width, f.height])) !==
+            JSON.stringify(fixes.map((f) => [f.propIndex, f.width, f.height])))
+      ) {
+        throw new WorkshopError(
+          'Mapa lub jej scenerie zmieniły się od przygotowania planu — przygotuj podgląd lub plan ponownie.',
+          409
+        );
+      }
 
       const { mapsDir, sceneryDir } = this.resolveTargetOptimizeDirs(
         options.destination,

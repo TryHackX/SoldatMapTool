@@ -1095,7 +1095,7 @@ export function encodePascalShortString(str: string, maxSize: number): Uint8Arra
  */
 export function makeDerivedMapName(
   baseName: string,
-  suffix: '_f' | '_o',
+  suffix: '_f' | '_o' | '_f_o',
   maxBaseLength = 24
 ): string {
   const safeMax = Math.max(6, Math.min(44, Math.floor(maxBaseLength || 24)));
@@ -1419,12 +1419,12 @@ export function serializePms(map: PmsMapData): Uint8Array {
  * Clones a `PmsMapData` with updated prop dimensions (for instant 0ms Live Before/After _f repair preview in WebGL2!).
  */
 /**
- * Name of an Optimize Sceneries result: `<map>_o`, or `<map>_f_o` when 1.7.1 size fixes were applied first
- * (the same name the two-step `_f` then `_o` workflow produces).
+ * Name of an Optimize Sceneries result: `<map>_o`, or `<map>_f_o` when 1.7.1 size fixes were applied first.
+ * Built in one step, so a long name is shortened once and the result can never fall back onto the source name
+ * (two separate `_f` + `_o` truncations could drop the `_f` or reproduce the source).
  */
 export function makeOptimizeOutputName(baseName: string, fixesApplied: boolean, maxBaseLength: number): string {
-  const source = fixesApplied ? makeDerivedMapName(baseName, '_f', maxBaseLength) : baseName;
-  return makeDerivedMapName(source, '_o', maxBaseLength);
+  return makeDerivedMapName(baseName, fixesApplied ? '_f_o' : '_o', maxBaseLength);
 }
 
 export function cloneMapWithPropFixes(

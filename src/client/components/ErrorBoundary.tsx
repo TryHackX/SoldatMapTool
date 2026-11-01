@@ -4,6 +4,8 @@ import { AlertTriangle, RotateCcw } from 'lucide-react';
 interface ErrorBoundaryProps {
   children: React.ReactNode;
   fallbackTitle?: string;
+  // Modal variant: drawn over the app, recovery by reloading (React keeps a failed lazy import cached)
+  overlay?: boolean;
 }
 
 interface ErrorBoundaryState {
@@ -35,7 +37,13 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   public render(): React.ReactNode {
     if (this.state.hasError) {
       return (
-        <div className="flex-1 h-full w-full bg-zinc-950 text-zinc-100 flex items-center justify-center p-6">
+        <div
+          className={
+            this.props.overlay
+              ? 'fixed inset-0 z-50 bg-black/75 backdrop-blur-sm text-zinc-100 flex items-center justify-center p-6'
+              : 'flex-1 h-full w-full bg-zinc-950 text-zinc-100 flex items-center justify-center p-6'
+          }
+        >
           <div className="max-w-md w-full bg-zinc-900 border border-red-800/70 rounded-xl p-5 shadow-2xl space-y-3">
             <div className="flex items-center gap-2.5 text-red-400">
               <AlertTriangle className="w-5 h-5 shrink-0" />
@@ -49,11 +57,11 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
             <div className="flex justify-end">
               <button
                 type="button"
-                onClick={this.handleReset}
+                onClick={this.props.overlay ? () => window.location.reload() : this.handleReset}
                 className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                Przywróć widok
+                {this.props.overlay ? 'Odśwież stronę' : 'Przywróć widok'}
               </button>
             </div>
           </div>

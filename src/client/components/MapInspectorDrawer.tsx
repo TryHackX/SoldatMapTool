@@ -56,7 +56,7 @@ export const MapInspectorDrawer: React.FC<MapInspectorDrawerProps> = ({
     const tag = raw.replace(/[",]+/g, ' ').replace(/\s+/g, ' ').trim();
     if (!map || !tag) return;
     if (!mapTags.some((t) => t.toLowerCase() === tag.toLowerCase())) {
-      onUpdateUserData(map.id, { tags: [...mapTags, tag] });
+      onUpdateUserData(map.id, { addTags: [tag] });
     }
     setTagInput('');
   };
@@ -196,7 +196,7 @@ export const MapInspectorDrawer: React.FC<MapInspectorDrawerProps> = ({
               #{t}
               <button
                 type="button"
-                onClick={() => onUpdateUserData(map.id, { tags: mapTags.filter((x) => x !== t) })}
+                onClick={() => onUpdateUserData(map.id, { removeTags: [t] })}
                 aria-label={`Usuń tag ${t}`}
                 className="text-zinc-500 hover:text-red-300 cursor-pointer"
               >

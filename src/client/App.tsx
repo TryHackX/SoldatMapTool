@@ -9,7 +9,9 @@ import {
   ScanProgressStatus,
 } from '@shared/apiTypes';
 import { PmsMapData } from '@shared/pmsParser';
+import { isSameMapFamily, stripDerivedSuffix } from '@shared/mapFamily';
 import { CustomPrefixRule } from '@shared/prefixUtils';
+import { parseSearchQuery } from '@shared/searchQuery';
 import { APP_VERSION } from '@shared/version';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MapBrowserPanel, MapSortField } from './components/MapBrowserPanel';
@@ -162,6 +164,9 @@ export const App: React.FC = () => {
   const [, setCacheTick] = useState(0);
   const [resetScrollToken, setResetScrollToken] = useState(0);
   const [metaRevision, setMetaRevision] = useState(0);
+  // Re-runs only the list query (favourites / tags changed) without reloading the active map
+  const [listRevision, setListRevision] = useState(0);
+  const lastEnsureRangeRef = useRef<[number, number] | null>(null);
 
   const itemsByIndexRef = useRef<Map<number, MapCompactEntry>>(new Map());
   const loadedPagesRef = useRef<Set<number>>(new Set());
@@ -434,6 +439,9 @@ export const App: React.FC = () => {
         setQueryDurationMs(res.queryDurationMs);
         if (filtersChanged) setResetScrollToken((t) => t + 1);
         setCacheTick((t) => t + 1);
+        // A refresh that keeps the scroll position must refill the rows on screen, not only page 0
+        const range = lastEnsureRangeRef.current;
+        if (!filtersChanged && range) handleEnsureRange(range[0], range[1]);
 
         if (!currentActiveId && res.items.length > 0) {
           setActiveMapId(res.items[0].id);
@@ -451,10 +459,11 @@ export const App: React.FC = () => {
       controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseQueryRequest, metaRevision]);
+  }, [baseQueryRequest, metaRevision, listRevision]);
 
   const handleEnsureRange = useCallback(
     (startIdx: number, endIdx: number) => {
+      lastEnsureRangeRef.current = [startIdx, endIdx];
       const startPage = Math.max(0, Math.floor(startIdx / PAGE_SIZE));
       const endPage = Math.max(0, Math.floor(endIdx / PAGE_SIZE));
       const gen = queryGenRef.current;
@@ -738,11 +747,14 @@ export const App: React.FC = () => {
       setLoadedDetails((d) => (d && d.id === mapId ? apply(d) : d));
       setMeta((prev) => (prev ? { ...prev, favoriteMapsCount: res.favoriteMapsCount, userTags: res.userTags } : prev));
       setCacheTick((t) => t + 1);
-      // A list filtered by favourites / tags must re-run its query to add or drop this map
+      // Only a list that depends on favourites / tags re-runs its query (and the active map is not reloaded)
       const q = userDataQueryRef.current;
-      if (q.statusFilter === 'favorites' || /(^|\s)-?(tag|tagi|is|jest):/i.test(q.search)) {
-        setMetaRevision((r) => r + 1);
-      }
+      const dependsOnUserData =
+        q.statusFilter === 'favorites' ||
+        parseSearchQuery(q.search).terms.some(
+          (t) => (t.kind === 'flag' && t.flag === 'fav') || (t.kind === 'field' && t.field === 'tag')
+        );
+      if (dependsOnUserData) setListRevision((r) => r + 1);
     } catch (err) {
       setScanError(err instanceof Error ? err.message : String(err));
     }
@@ -752,8 +764,14 @@ export const App: React.FC = () => {
     [handleUpdateUserData]
   );
   const handleSearchTag = useCallback((tag: string) => {
-    const token = /\s/.test(tag) ? `tag:"${tag}"` : `tag:${tag}`;
-    setSearchQuery((q) => (q.toLowerCase().includes(token.toLowerCase()) ? q : `${q.trim()} ${token}`.trim()));
+    setSearchQuery((q) => {
+      const present = parseSearchQuery(q).terms.some(
+        (t) => t.kind === 'field' && t.field === 'tag' && !t.negate && t.value === tag.toLowerCase()
+      );
+      if (present) return q;
+      const token = /\s/.test(tag) ? `tag:"${tag}"` : `tag:${tag}`;
+      return `${q.trim()} ${token}`.trim();
+    });
   }, []);
   const knownTags = useMemo(() => (meta?.userTags ?? []).map((t) => t.tag), [meta?.userTags]);
 
@@ -764,16 +782,16 @@ export const App: React.FC = () => {
       setCompareCandidates([]);
       return;
     }
-    const root = activeBaseName.replace(/(_f_o|_f|_o)$/i, '');
-    const family = new Set([root, `${root}_f`, `${root}_o`, `${root}_f_o`].map((n) => n.toLowerCase()));
+    const root = stripDerivedSuffix(activeBaseName);
     let cancelled = false;
     const timer = setTimeout(() => {
-      queryMatchingMapCompacts({ searchQuery: `name:${root.toLowerCase()}` })
+      // Long names are shortened when `_f` / `_o` is added, so the query uses only the beginning of the name
+      queryMatchingMapCompacts({ searchQuery: `name:${root.slice(0, 12).toLowerCase()}` })
         .then((items) => {
           if (cancelled) return;
           setCompareCandidates(
             items
-              .filter((m) => m.id !== activeMapId && family.has(m.baseName.toLowerCase()))
+              .filter((m) => m.id !== activeMapId && isSameMapFamily(activeBaseName, m.baseName))
               .map((m) => ({ id: m.id, baseName: m.baseName }))
           );
         })
@@ -1155,6 +1173,7 @@ export const App: React.FC = () => {
       </div>
 
       {/* Modals */}
+      <ErrorBoundary overlay fallbackTitle="Nie udało się wczytać okna aplikacji (np. po aktualizacji) — odśwież stronę">
       <Suspense fallback={null}>
       {workshopMounted && (
       <MapWorkshopModal
@@ -1237,6 +1256,7 @@ export const App: React.FC = () => {
       />
       )}
       </Suspense>
+      </ErrorBoundary>
     </div>
   );
 };

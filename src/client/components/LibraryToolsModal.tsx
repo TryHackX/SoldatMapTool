@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   DuplicateGroup,
   DuplicatesResponse,
@@ -19,6 +19,13 @@ interface LibraryToolsModalProps {
 
 const GROUPS_PAGE = 150;
 const UNUSED_PAGE = 400;
+
+async function getJson<T>(url: string, isValid: (data: T) => boolean): Promise<T> {
+  const res = await fetch(url);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !isValid(data as T)) throw new Error((data as { error?: string }).error || `HTTP ${res.status}`);
+  return data as T;
+}
 
 async function postJson<T>(url: string, body: unknown): Promise<T> {
   const res = await fetch(url, {
@@ -53,20 +60,10 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
   const [selectedNames, setSelectedNames] = useState<Set<string>>(() => new Set());
   const [unusedShown, setUnusedShown] = useState(UNUSED_PAGE);
 
-  useEffect(() => {
-    if (open) {
-      setTab(initialTab);
-      setResult(null);
-      setError(null);
-      setConfirming(false);
-    }
-  }, [open, initialTab]);
-
   const loadDuplicates = () => {
     setError(null);
-    fetch('/api/library/duplicates')
-      .then((r) => r.json())
-      .then((d: DuplicatesResponse) => {
+    getJson<DuplicatesResponse>('/api/library/duplicates', (d) => Array.isArray(d?.groups))
+      .then((d) => {
         setDups(d);
         setKeepByCrc(Object.fromEntries(d.groups.map((g) => [g.crcHex, g.suggestedKeepId])));
         // Exact copies (one name) are pre-selected; groups with different names stay untouched by default
@@ -78,12 +75,7 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
 
   const loadUnused = () => {
     setError(null);
-    fetch('/api/library/unused-scenery')
-      .then(async (r) => {
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
-        return d as UnusedSceneryReport;
-      })
+    getJson<UnusedSceneryReport>('/api/library/unused-scenery', (d) => Array.isArray(d?.items))
       .then((d) => {
         setUnused(d);
         setSelectedNames(new Set());
@@ -92,12 +84,33 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   };
 
+  // The modal stays mounted between openings: every opening starts from fresh lists (maps and files change)
+  const wasOpenRef = useRef(false);
+  const loadedRef = useRef({ duplicates: false, unused: false });
   useEffect(() => {
-    if (!open) return;
-    if (tab === 'duplicates' && !dups) loadDuplicates();
-    if (tab === 'unused' && !unused) loadUnused();
+    if (!open) {
+      wasOpenRef.current = false;
+      return;
+    }
+    let which = tab;
+    if (!wasOpenRef.current) {
+      wasOpenRef.current = true;
+      loadedRef.current = { duplicates: false, unused: false };
+      which = initialTab;
+      setTab(initialTab);
+      setDups(null);
+      setUnused(null);
+      setResult(null);
+      setError(null);
+      setConfirming(false);
+    }
+    if (!loadedRef.current[which]) {
+      loadedRef.current[which] = true;
+      if (which === 'duplicates') loadDuplicates();
+      else loadUnused();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, tab]);
+  }, [open, tab, initialTab]);
 
   const dupMoveIds = useMemo(() => {
     if (!dups) return [];
