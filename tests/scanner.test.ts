@@ -56,3 +56,14 @@ test('summaries of deleted maps are pruned from the cache', async () => {
   assert.equal(meta.totalMaps, 1);
   assert.equal(scanner.getMapEntry('ctf_gone'), null);
 });
+
+test('sidebar selections on different levels add up instead of excluding each other', async () => {
+  const env = makeTempSoldat(['ctf_cs_alpha', 'tw_bravo', 'kz_charlie']);
+  const scanner = new SoldatMapScanner(env.root, [], [], env.cache, env.thumbs);
+  await scanner.scanAsync(true);
+
+  // RSCS group (Ctrl+click) + the tw_ prefix of another group: used to match nothing (AND)
+  const ids = scanner.queryMatchingIds({ modeGroupIds: ['rscs'], prefixes: ['tw_'] }).sort();
+  assert.deepEqual(ids, ['ctf_cs_alpha', 'tw_bravo']);
+  assert.deepEqual(scanner.queryMatchingIds({ prefixes: ['kz_'] }), ['kz_charlie']);
+});

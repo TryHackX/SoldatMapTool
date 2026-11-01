@@ -515,7 +515,7 @@ export const PackBuilderModal: React.FC<PackBuilderModalProps> = ({
                     checked={fixLinuxCase}
                     onChange={setFixLinuxCase}
                     label="Napraw wielkość liter pod serwery Linux"
-                    hint="Dopasowuje nazwy plików w ZIP dokładnie do wpisów w .pms"
+                    hint="Nazwy plików w ZIP dokładnie jak w .pms; plik zapisany w mapach na kilka sposobów trafia do paczki pod każdą nazwą"
                   />
                   <PackOptionCheckbox
                     checked={includePngOverrides}
@@ -705,10 +705,16 @@ export const PackBuilderModal: React.FC<PackBuilderModalProps> = ({
                       >
                         <div className="min-w-0 pr-3">
                           <div className="text-zinc-200 truncate">{f.archivePath}</div>
-                          {f.caseRenamedFrom && (
+                          {f.caseAliasOf ? (
                             <div className="text-[10px] text-orange-300">
-                              Linux fix z: {f.caseRenamedFrom}
+                              Druga pisownia dla Linuksa — ten sam plik co {f.caseAliasOf.split('/').pop()}
                             </div>
+                          ) : (
+                            f.caseRenamedFrom && (
+                              <div className="text-[10px] text-orange-300">
+                                Linux fix z: {f.caseRenamedFrom}
+                              </div>
+                            )
                           )}
                         </div>
                         <div className="flex items-center gap-3 shrink-0 text-zinc-400">

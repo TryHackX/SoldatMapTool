@@ -89,6 +89,7 @@ interface PrefixSidebarProps {
   onChangeStatusFilter: (mode: StatusFilterMode) => void;
   extraFilters: ExtraFilterState;
   onChangeExtraFilters: (next: ExtraFilterState) => void;
+  onOpenCaseTools?: () => void;
 }
 
 export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
@@ -123,6 +124,7 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
   onChangeStatusFilter,
   extraFilters,
   onChangeExtraFilters,
+  onOpenCaseTools,
 }) => {
   const [navTab, setNavTab] = useState<'modes' | 'prefixes' | 'series'>('modes');
   const [prefixQuery, setPrefixQuery] = useState('');
@@ -699,17 +701,29 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
           Posiada ścieżki Botów
         </label>
 
-        <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer hover:text-zinc-100">
-          <input
-            type="checkbox"
-            checked={extraFilters.requireCaseMismatch}
-            onChange={(e) =>
-              onChangeExtraFilters({ ...extraFilters, requireCaseMismatch: e.target.checked })
-            }
-            className="rounded border-zinc-700 bg-zinc-900 text-emerald-500 focus:ring-0"
-          />
-          <span className="text-[11px] text-orange-300">Różna wielkość liter (Linux)</span>
-        </label>
+        <div className="flex items-center justify-between gap-2">
+          <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer hover:text-zinc-100">
+            <input
+              type="checkbox"
+              checked={extraFilters.requireCaseMismatch}
+              onChange={(e) =>
+                onChangeExtraFilters({ ...extraFilters, requireCaseMismatch: e.target.checked })
+              }
+              className="rounded border-zinc-700 bg-zinc-900 text-emerald-500 focus:ring-0"
+            />
+            <span className="text-[11px] text-orange-300">Różna wielkość liter (Linux)</span>
+          </label>
+          {onOpenCaseTools && (
+            <button
+              type="button"
+              onClick={onOpenCaseTools}
+              title="Pokaż pliki z inną wielkością liter niż w mapach i popraw ich nazwy"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-orange-200 cursor-pointer"
+            >
+              Napraw…
+            </button>
+          )}
+        </div>
       </div>
     </aside>
   );

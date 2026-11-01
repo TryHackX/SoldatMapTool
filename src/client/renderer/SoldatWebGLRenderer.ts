@@ -37,16 +37,25 @@ in vec4 vColor;
 
 uniform sampler2D uTex;
 uniform float uOpacityMul;
+uniform float uLodBias;
 
 out vec4 fragColor;
 
 void main() {
-  vec4 tex = texture(uTex, vUV);
+  vec4 tex = texture(uTex, vUV, uLodBias);
   float a = vColor.a * uOpacityMul;
   vec4 vc = vec4(vColor.rgb * a, a);
   fragColor = tex * vc;
 }
 `;
+
+/**
+ * OpenSoldat samples mipmapped textures with a global LOD bias (`r_mipmapbias`, default -0.5, applied with
+ * glTexEnvf(GL_TEXTURE_FILTER_CONTROL, GL_TEXTURE_LOD_BIAS)): minified sceneries use a sharper mip level than
+ * plain trilinear filtering would. Without it the preview, the screenshots and the baked `_o` layers come out
+ * softer than the game draws the same sprites.
+ */
+const GAME_MIPMAP_BIAS = -0.5;
 
 interface PropDrawCall {
   texture: WebGLTexture;
@@ -232,6 +241,7 @@ export class SoldatWebGLRenderer {
   private uBoundsLoc: WebGLUniformLocation;
   private uTexLoc: WebGLUniformLocation;
   private uOpacityMulLoc: WebGLUniformLocation;
+  private uLodBiasLoc: WebGLUniformLocation;
   private whiteTexture: WebGLTexture;
   private fallbackCheckerTexture: WebGLTexture;
   private prepared: PreparedGpuMap | null = null;
@@ -255,6 +265,7 @@ export class SoldatWebGLRenderer {
     this.uBoundsLoc = gl.getUniformLocation(this.program, 'uBounds')!;
     this.uTexLoc = gl.getUniformLocation(this.program, 'uTex')!;
     this.uOpacityMulLoc = gl.getUniformLocation(this.program, 'uOpacityMul')!;
+    this.uLodBiasLoc = gl.getUniformLocation(this.program, 'uLodBias')!;
 
     this.whiteTexture = this.createSolidTexture(255, 255, 255, 255);
     this.fallbackCheckerTexture = this.createMissingCheckerTexture();
@@ -699,6 +710,7 @@ export class SoldatWebGLRenderer {
     gl.uniform4f(this.uBoundsLoc, bounds.left, bounds.right, bounds.top, bounds.bottom);
     gl.uniform1i(this.uTexLoc, 0);
     gl.uniform1f(this.uOpacityMulLoc, 1.0);
+    gl.uniform1f(this.uLodBiasLoc, GAME_MIPMAP_BIAS);
     gl.activeTexture(gl.TEXTURE0);
 
     // 1. Background gradient

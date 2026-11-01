@@ -36,11 +36,13 @@ import { installFileLogger } from './logger';
 import { UserDataStore } from './userDataStore';
 import { PackPresetStore } from './packPresets';
 import {
+  computeCaseMismatches,
   computeUnusedScenery,
   LibraryError,
   listDuplicateGroups,
   moveDuplicateMaps,
   moveUnusedScenery,
+  renameCaseMismatches,
   runLibraryOperation,
 } from './libraryTools';
 
@@ -539,6 +541,37 @@ app.post('/api/library/unused-scenery/move', async (req, res) => {
       await scanner.scanAsync(false);
       const result = await moveUnusedScenery(scanner, names, BACKUPS_DIR);
       console.log(`[Soldat Map Studio] Nieużywane scenerie: przeniesiono ${result.moved} plików do ${result.backupDir}`);
+      return { ...result, meta: await scanner.scanAsync(true) };
+    });
+    res.json(response);
+  } catch (err) {
+    sendError(res, err, err instanceof LibraryError ? err.status : 500);
+  }
+});
+
+// Letter case of scenery / texture names (C4): checked against a fresh asset index (files renamed in Explorer)
+app.get('/api/library/case-mismatches', async (_req, res) => {
+  try {
+    await scanner.scanAsync(true);
+    res.json(computeCaseMismatches(scanner));
+  } catch (err) {
+    sendError(res, err, err instanceof LibraryError ? err.status : 500);
+  }
+});
+
+app.post('/api/library/case-mismatches/rename', async (req, res) => {
+  try {
+    const files = Array.isArray(req.body?.files)
+      ? (req.body.files as Array<{ category?: unknown; diskName?: unknown }>).map((f) => ({
+          category: String(f?.category ?? ''),
+          diskName: String(f?.diskName ?? ''),
+        }))
+      : [];
+    if (files.length === 0) throw new LibraryError('Nie wybrano żadnych plików.');
+    const response = await runLibraryOperation(async () => {
+      await scanner.scanAsync(true);
+      const result = await renameCaseMismatches(scanner, files, BACKUPS_DIR);
+      console.log(`[Soldat Map Studio] Wielkość liter: zmieniono nazwy ${result.moved} plików (${result.backupDir})`);
       return { ...result, meta: await scanner.scanAsync(true) };
     });
     res.json(response);

@@ -176,6 +176,29 @@ export interface UnusedSceneryReport {
   truncated: boolean;
 }
 
+export interface CaseMismatchSpelling {
+  name: string; // the file name as maps write it
+  mapCount: number;
+  sampleMaps: string[];
+}
+
+export interface CaseMismatchFile {
+  category: 'textures' | 'scenery-gfx';
+  diskName: string;
+  folder: string;
+  spellings: CaseMismatchSpelling[]; // most used first; may include the name on disk itself
+  // The one spelling every map uses: renaming the file fixes them all. Null when maps spell it several ways
+  // (only a pack or a Linux disk can hold every spelling) or the file is outside the game folder
+  renameTo: string | null;
+}
+
+export interface CaseMismatchReport {
+  files: CaseMismatchFile[]; // renamable first
+  renamableCount: number;
+  severalSpellingsCount: number;
+  affectedMaps: number;
+}
+
 export interface LibraryMoveResult {
   moved: number;
   failed: Array<{ name: string; error: string }>;
@@ -328,6 +351,9 @@ export interface PackPreviewFile {
   usedByMapsCount: number;
   sampleMaps: string[];
   caseRenamedFrom?: string;
+  // Another spelling of a file already in the pack: maps write its name differently and a case-sensitive
+  // (Linux) server needs each spelling; on Windows both unpack to one file
+  caseAliasOf?: string;
 }
 
 export interface PackMissingWarning {
@@ -473,7 +499,7 @@ export interface OptimizePreservedPropInfo {
   propIndex: number;
   level: 0 | 1 | 2;
   sceneryName: string;
-  reason: 'animated_gif' | 'giant_skybox' | 'layer_disabled' | 'single_isolated' | 'zero_size';
+  reason: 'animated_gif' | 'giant_skybox' | 'layer_disabled' | 'single_isolated' | 'zero_size' | 'off_map';
 }
 
 export interface MapOptimizePlanResponse {
@@ -486,7 +512,8 @@ export interface MapOptimizePlanResponse {
   estimatedTotalPropsAfter: number;
   groups: OptimizeLayerGroupPlan[];
   preservedSample: OptimizePreservedPropInfo[];
-  // Upper bound of baked texture area (sum of group bounds) in megapixels at 1x..4x supersampling
+  // Baked texture area in megapixels at 1x..4x supersampling, from the props' bounding boxes in each tile
+  // (slightly above the real size: the baker crops to the drawn pixels)
   estimatedMegapixelsBySupersample: [number, number, number, number];
   // Exact draw order of the resulting `_o` map: preserved original props and baked groups, per level
   layout: Array<{ level: 0 | 1 | 2; propIndex?: number; groupId?: string }>;

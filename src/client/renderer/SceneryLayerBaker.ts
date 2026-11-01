@@ -7,17 +7,13 @@ import {
   OptimizeSaveResponse,
   OverwritePolicy,
 } from '@shared/apiTypes';
-import { cloneMapWithPropFixes, PmsMapData } from '@shared/pmsParser';
+import { bakeTilesFor, MAX_BAKE_TILES, TILE_OVERLAP_WORLD } from '@shared/bakeTiling';
+import { cloneMapWithPropFixes, computePropAabb, PmsMapData } from '@shared/pmsParser';
 import { clearSoldatAssetCache, clearVirtualAssets, registerVirtualAsset } from './assetLoader';
 import { SoldatWebGLRenderer } from './SoldatWebGLRenderer';
 import { RenderLayerVisibility } from './types';
 
 const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
-
-// World units of cross-fade overlap on each side of a seam between two baked tiles of the same layer.
-// Soldat's sprite atlas has transparent padding, so a plain edge-to-edge tile join would show a faint seam
-// (both tiles fade by half a texel); the alpha-split cross-fade below makes the join mathematically exact.
-const TILE_OVERLAP_WORLD = 2;
 
 const CRC32_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -193,7 +189,8 @@ async function postJson<T>(url: string, body: unknown, signal?: AbortSignal): Pr
 
 export type SupersampleChoice = 'auto' | 1 | 2 | 3 | 4;
 
-// "Auto" picks the sharpest supersampling whose baked layers stay under this texture budget (~190 MB RGBA)
+// "Auto" picks the sharpest supersampling whose baked layers stay under this texture budget (~190 MB RGBA).
+// 3x is the sharpest in-game at 1080p (~2.25 px per world unit); 4x only pays off at 1440p and above.
 export const AUTO_SUPERSAMPLE_BUDGET_MP = 48;
 
 export function resolveSupersample(
@@ -253,10 +250,7 @@ export async function bakeSceneryTiles(
   const mapData = applyPlanPropFixes(sourceMap, plan);
   const supersample = Math.max(1, Math.min(4, Math.round(options.supersample || 2)));
   const maxTilePx = options.maxTilePx === 4096 ? 4096 : 2048;
-  const overlap = TILE_OVERLAP_WORLD;
-  // Integer world units per tile core, so every tile edge and crop lands on whole world coordinates
-  const tileWorldSpan = Math.max(64, Math.floor(maxTilePx / supersample) - 2 * overlap);
-  const bandTexels = 2 * overlap * supersample;
+  const bandTexels = 2 * TILE_OVERLAP_WORLD * supersample;
   const invScale = 1 / supersample;
 
   const glCanvas = document.createElement('canvas');
@@ -313,73 +307,65 @@ export async function bakeSceneryTiles(
         showGrid: false,
       };
 
-      const wb = grp.worldBounds;
-      const cols = Math.max(1, Math.ceil(wb.width / tileWorldSpan));
-      const rows = Math.max(1, Math.ceil(wb.height / tileWorldSpan));
+      const propBounds = grp.propIndices.map((idx) => computePropAabb(mapData.props[idx]));
+      const groupTiles = bakeTilesFor(grp.worldBounds, supersample, maxTilePx, propBounds);
+      if (!groupTiles) {
+        throw new Error(
+          `Warstwa ${levelLabel} #${grp.runIndex} wymaga ponad ${MAX_BAKE_TILES} kafelków przy jakości ${supersample}× ` +
+            '(mapa przekroczyłaby limit scenerii gry) — wybierz niższą jakość albo kafelek 4096 px.'
+        );
+      }
 
-      for (let ry = 0; ry < rows; ry++) {
-        for (let cx = 0; cx < cols; cx++) {
-          throwIfAborted();
+      for (const tile of groupTiles) {
+        throwIfAborted();
+        const { left: tLeft, right: tRight, top: tTop, bottom: tBottom, sides } = tile;
 
-          const coreLeft = wb.left + cx * tileWorldSpan;
-          const coreRight = Math.min(wb.right, coreLeft + tileWorldSpan);
-          const coreTop = wb.top + ry * tileWorldSpan;
-          const coreBottom = Math.min(wb.bottom, coreTop + tileWorldSpan);
-          if (coreRight <= coreLeft || coreBottom <= coreTop) continue;
+        const pxW = Math.max(1, Math.round((tRight - tLeft) * supersample));
+        const pxH = Math.max(1, Math.round((tBottom - tTop) * supersample));
 
-          const sides = { left: cx > 0, right: cx < cols - 1, top: ry > 0, bottom: ry < rows - 1 };
-          const tLeft = coreLeft - (sides.left ? overlap : 0);
-          const tRight = coreRight + (sides.right ? overlap : 0);
-          const tTop = coreTop - (sides.top ? overlap : 0);
-          const tBottom = coreBottom + (sides.bottom ? overlap : 0);
+        const readback = glRenderer.renderOffscreenUnpremultiplied(
+          { left: tLeft, right: tRight, top: tTop, bottom: tBottom },
+          layerVis,
+          pxW,
+          pxH
+        );
+        if (!readback.nonEmptyBounds) continue; // Completely transparent tile — no PNG needed
 
-          const pxW = Math.max(1, Math.round((tRight - tLeft) * supersample));
-          const pxH = Math.max(1, Math.round((tBottom - tTop) * supersample));
+        applySeamCrossFade(readback.rgba, pxW, pxH, bandTexels, sides);
+        const nb = findNonEmptyBounds(readback.rgba, pxW, pxH);
+        if (!nb) continue;
 
-          const readback = glRenderer.renderOffscreenUnpremultiplied(
-            { left: tLeft, right: tRight, top: tTop, bottom: tBottom },
-            layerVis,
-            pxW,
-            pxH
-          );
-          if (!readback.nonEmptyBounds) continue; // Completely transparent tile — no PNG needed
+        // Snap crop to whole world units; never crop into a shared seam band that holds content
+        let cropMinX = Math.max(0, Math.floor(nb.minX / supersample) * supersample);
+        let cropMinY = Math.max(0, Math.floor(nb.minY / supersample) * supersample);
+        let cropMaxX = Math.min(pxW, Math.ceil((nb.maxX + 1) / supersample) * supersample);
+        let cropMaxY = Math.min(pxH, Math.ceil((nb.maxY + 1) / supersample) * supersample);
+        if (sides.left && nb.minX < bandTexels) cropMinX = 0;
+        if (sides.top && nb.minY < bandTexels) cropMinY = 0;
+        if (sides.right && nb.maxX >= pxW - bandTexels) cropMaxX = pxW;
+        if (sides.bottom && nb.maxY >= pxH - bandTexels) cropMaxY = pxH;
 
-          applySeamCrossFade(readback.rgba, pxW, pxH, bandTexels, sides);
-          const nb = findNonEmptyBounds(readback.rgba, pxW, pxH);
-          if (!nb) continue;
+        const cropW = cropMaxX - cropMinX;
+        const cropH = cropMaxY - cropMinY;
+        if (cropW <= 0 || cropH <= 0) continue;
 
-          // Snap crop to whole world units; never crop into a shared seam band that holds content
-          let cropMinX = Math.max(0, Math.floor(nb.minX / supersample) * supersample);
-          let cropMinY = Math.max(0, Math.floor(nb.minY / supersample) * supersample);
-          let cropMaxX = Math.min(pxW, Math.ceil((nb.maxX + 1) / supersample) * supersample);
-          let cropMaxY = Math.min(pxH, Math.ceil((nb.maxY + 1) / supersample) * supersample);
-          if (sides.left && nb.minX < bandTexels) cropMinX = 0;
-          if (sides.top && nb.minY < bandTexels) cropMinY = 0;
-          if (sides.right && nb.maxX >= pxW - bandTexels) cropMaxX = pxW;
-          if (sides.bottom && nb.maxY >= pxH - bandTexels) cropMaxY = pxH;
+        tileSeqByLevel[grp.level]++;
+        const lvlShort = grp.level === 0 ? 'b' : grp.level === 1 ? 'm' : 'f';
+        const png = await rgbaRectToPng(readback.rgba, pxW, cropMinX, cropMinY, cropW, cropH);
 
-          const cropW = cropMaxX - cropMinX;
-          const cropH = cropMaxY - cropMinY;
-          if (cropW <= 0 || cropH <= 0) continue;
-
-          tileSeqByLevel[grp.level]++;
-          const lvlShort = grp.level === 0 ? 'b' : grp.level === 1 ? 'm' : 'f';
-          const png = await rgbaRectToPng(readback.rgba, pxW, cropMinX, cropMinY, cropW, cropH);
-
-          tiles.push({
-            tileFileName: `${stemSafe}_${lvlShort}${tileSeqByLevel[grp.level]}.png`,
-            level: grp.level,
-            insertOrderKey: grp.insertOrderKey,
-            worldX: tLeft + cropMinX / supersample,
-            worldY: tTop + cropMinY / supersample,
-            pngWidth: cropW,
-            pngHeight: cropH,
-            scaleX: invScale,
-            scaleY: invScale,
-            floatPrecision: readback.floatPrecision,
-            png,
-          });
-        }
+        tiles.push({
+          tileFileName: `${stemSafe}_${lvlShort}${tileSeqByLevel[grp.level]}.png`,
+          level: grp.level,
+          insertOrderKey: grp.insertOrderKey,
+          worldX: tLeft + cropMinX / supersample,
+          worldY: tTop + cropMinY / supersample,
+          pngWidth: cropW,
+          pngHeight: cropH,
+          scaleX: invScale,
+          scaleY: invScale,
+          floatPrecision: readback.floatPrecision,
+          png,
+        });
       }
 
       completedGroups++;
@@ -442,6 +428,9 @@ export function composeOptimizedMap(
 export interface FidelityReport {
   meanAbsDiff: number;     // average per-pixel max channel difference (0..255)
   pctPixelsOver8: number;  // share of pixels differing by more than 8 levels
+  // Edge energy of the result vs the original (100 = equally sharp). Blur of fine detail such as foliage barely
+  // moves the average difference, so it is measured separately.
+  sharpnessPct: number;
   maxDiff: number;
   sampledMegapixels: number;
   worstArea: { left: number; top: number; width: number; height: number; meanAbsDiff: number } | null;
@@ -513,6 +502,8 @@ export async function measureFidelity(
     let over8 = 0;
     let maxDiff = 0;
     let pixels = 0;
+    let edgeOrig = 0;
+    let edgeCand = 0;
     let worst: FidelityReport['worstArea'] = null;
 
     for (const w of sampled) {
@@ -529,6 +520,8 @@ export async function measureFidelity(
         if (d > 8) over8++;
         if (d > maxDiff) maxDiff = d;
       }
+      edgeOrig += edgeEnergy(a, pxW, pxH);
+      edgeCand += edgeEnergy(b, pxW, pxH);
       const n = a.length / 4;
       sum += wSum;
       pixels += n;
@@ -540,6 +533,7 @@ export async function measureFidelity(
     return {
       meanAbsDiff: Math.round((sum / Math.max(1, pixels)) * 100) / 100,
       pctPixelsOver8: Math.round((1000 * over8) / Math.max(1, pixels)) / 10,
+      sharpnessPct: edgeOrig > 0 ? Math.round((1000 * edgeCand) / edgeOrig) / 10 : 100,
       maxDiff,
       sampledMegapixels: Math.round(pixels / 1e4) / 100,
       worstArea: worst,
@@ -548,6 +542,20 @@ export async function measureFidelity(
     rOrig.destroy(true);
     rCand.destroy(true);
   }
+}
+
+/** Sum of absolute luminance differences between neighbouring pixels (a simple sharpness measure) */
+function edgeEnergy(rgba: Uint8Array | Uint8ClampedArray, width: number, height: number): number {
+  const lum = (i: number) => rgba[i] * 0.299 + rgba[i + 1] * 0.587 + rgba[i + 2] * 0.114;
+  let total = 0;
+  for (let y = 0; y < height - 1; y++) {
+    for (let x = 0; x < width - 1; x++) {
+      const i = (y * width + x) * 4;
+      const l = lum(i);
+      total += Math.abs(l - lum(i + 4)) + Math.abs(l - lum(i + width * 4));
+    }
+  }
+  return total;
 }
 
 export interface OptimizePreview {

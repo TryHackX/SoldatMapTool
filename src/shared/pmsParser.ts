@@ -487,6 +487,46 @@ export function computePropCorners(
   return computeTransformCorners(x, y, w, h, sx, sy, 0, 1, -rotation);
 }
 
+// Props farther than this from the origin hold garbage coordinates (e.g. x = -2^63 in ctf_LaaF-Run) and are
+// never on screen; map bounds and scenery merging ignore them
+export const PROP_COORD_LIMIT = 200000;
+
+/** World-space bounding box of a prop's quad (zero width/height counts as 64, as everywhere in the app) */
+export function computePropAabb(p: PmsProp): PmsBounds {
+  const w = p.width !== 0 ? p.width : 64;
+  const h = p.height !== 0 ? p.height : 64;
+  const corners = computePropCorners(p.x, p.y, w, h, p.scaleX, p.scaleY, p.rotation);
+  let left = Infinity;
+  let right = -Infinity;
+  let top = Infinity;
+  let bottom = -Infinity;
+  for (let i = 0; i < 8; i += 2) {
+    const cx = corners[i];
+    const cy = corners[i + 1];
+    if (cx < left) left = cx;
+    if (cx > right) right = cx;
+    if (cy < top) top = cy;
+    if (cy > bottom) bottom = cy;
+  }
+  return {
+    left,
+    right,
+    top,
+    bottom,
+    width: Math.max(1, right - left),
+    height: Math.max(1, bottom - top),
+  };
+}
+
+export function isPropAabbOnMap(b: PmsBounds): boolean {
+  return (
+    Math.abs(b.left) < PROP_COORD_LIMIT &&
+    Math.abs(b.right) < PROP_COORD_LIMIT &&
+    Math.abs(b.top) < PROP_COORD_LIMIT &&
+    Math.abs(b.bottom) < PROP_COORD_LIMIT
+  );
+}
+
 function finalizeBounds(left: number, right: number, top: number, bottom: number): PmsBounds {
   if (!Number.isFinite(left) || !Number.isFinite(right) || !Number.isFinite(top) || !Number.isFinite(bottom)) {
     return { left: -320, right: 320, top: -240, bottom: 240, width: 640, height: 480 };
@@ -638,14 +678,14 @@ export function parsePmsFull(input: ArrayBuffer | Uint8Array): PmsMapData {
     const p = props[i];
     if (!isPropRenderable(p, sceneryCount)) continue;
     scenery[p.style - 1].usedCount++;
-    if (Math.abs(p.x) < 200000 && Math.abs(p.y) < 200000) {
+    if (Math.abs(p.x) < PROP_COORD_LIMIT && Math.abs(p.y) < PROP_COORD_LIMIT) {
       const w = p.width > 0 ? p.width : 64;
       const h = p.height > 0 ? p.height : 64;
       const corners = computePropCorners(p.x, p.y, w, h, p.scaleX, p.scaleY, p.rotation);
       for (let c = 0; c < 8; c += 2) {
         const cx = corners[c];
         const cy = corners[c + 1];
-        if (Math.abs(cx) < 200000 && Math.abs(cy) < 200000) {
+        if (Math.abs(cx) < PROP_COORD_LIMIT && Math.abs(cy) < PROP_COORD_LIMIT) {
           if (cx < fLeft) fLeft = cx;
           if (cx > fRight) fRight = cx;
           if (cy < fTop) fTop = cy;
@@ -940,14 +980,14 @@ export function parsePmsSummary(input: ArrayBuffer | Uint8Array): PmsSummaryData
       activePropCount++;
       propLevelCounts[p.level as 0 | 1 | 2]++;
       scenery[p.style - 1].usedCount++;
-      if (Math.abs(p.x) < 200000 && Math.abs(p.y) < 200000) {
+      if (Math.abs(p.x) < PROP_COORD_LIMIT && Math.abs(p.y) < PROP_COORD_LIMIT) {
         const w = p.width > 0 ? p.width : 64;
         const h = p.height > 0 ? p.height : 64;
         const corners = computePropCorners(p.x, p.y, w, h, p.scaleX, p.scaleY, p.rotation);
         for (let c = 0; c < 8; c += 2) {
           const cx = corners[c];
           const cy = corners[c + 1];
-          if (Math.abs(cx) < 200000 && Math.abs(cy) < 200000) {
+          if (Math.abs(cx) < PROP_COORD_LIMIT && Math.abs(cy) < PROP_COORD_LIMIT) {
             if (cx < fLeft) fLeft = cx;
             if (cx > fRight) fRight = cx;
             if (cy < fTop) fTop = cy;

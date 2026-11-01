@@ -488,7 +488,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
     onApplyLivePreviewMap(
       optPreview.previewMap,
       `Podgląd wyniku Optimize (${derivedOptName}.pms, ${supersample}×, bez zapisu)` +
-        (f ? ` — zgodność: śr. różnica ${f.meanAbsDiff}, ${f.pctPixelsOver8}% pikseli > 8` : '')
+        (f ? ` — ostrość ${f.sharpnessPct}% oryginału, śr. różnica ${f.meanAbsDiff}` : '')
     );
     onClose();
   };
@@ -1244,19 +1244,19 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                     className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 focus:outline-none focus:border-emerald-500"
                   >
                     <option value="auto">
-                      Auto — najostrzejsza w limicie pamięci (teraz: {supersample}×)
+                      Auto — 3×, przy bardzo dużych warstwach mniej (teraz: {supersample}×)
                     </option>
                     <option value={1}>1× Ekonomiczna — w grze rozmyta (cienkie detale bledną)</option>
-                    <option value={2}>2× Ostra — zalecana dla 1080p (scale 0.5)</option>
-                    <option value={3}>3× Bardzo ostra — 1440p (scale 0.333)</option>
-                    <option value={4}>4× Maksymalna — 4K (duże pliki, scale 0.25)</option>
+                    <option value={2}>2× Średnia — na 1080p nieco miększa (scale 0.5)</option>
+                    <option value={3}>3× Ostra — najlepsza dla 1080p (scale 0.333)</option>
+                    <option value={4}>4× Maksymalna — 1440p i 4K (duże pliki, scale 0.25)</option>
                   </select>
                   {optPlan && (
                     <div className="text-[10px] text-zinc-500 mt-1">
-                      Maks. rozmiar warstw: {optPlan.estimatedMegapixelsBySupersample[supersample - 1].toFixed(1)} MPx
+                      Rozmiar warstw: do {optPlan.estimatedMegapixelsBySupersample[supersample - 1].toFixed(1)} MPx
                       (~{Math.round(optPlan.estimatedMegapixelsBySupersample[supersample - 1] * 4)} MB VRAM, puste
-                      obszary są przycinane). Gra wyświetla świat w ok. 2.25 px/jednostkę na 1080p — przy 1× warstwy
-                      są powiększane i tracą ostrość.
+                      obszary są przycinane). Na 1080p gra pokazuje ok. 2.25 px na jednostkę świata: 3× wychodzi
+                      najostrzej, 2× nieco miękko, 1× wyraźnie rozmyte; 4× przydaje się od 1440p.
                     </div>
                   )}
                 </div>
@@ -1569,6 +1569,8 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                               ? 'Pojedyncza'
                               : pr.reason === 'zero_size'
                               ? 'Rozmiar 0'
+                              : pr.reason === 'off_map'
+                              ? 'Poza mapą'
                               : 'Wył.'}
                             )
                           </span>
@@ -1908,6 +1910,13 @@ const OptimizeBatchPanel: React.FC<{
 };
 
 function rateFidelity(f: FidelityReport): { label: string; cls: string } {
+  const sharp = f.sharpnessPct ?? 100;
+  if (sharp < 85) {
+    return { label: 'Niska — warstwy są wyraźnie miększe niż oryginał', cls: 'text-red-200 border-red-500/40 bg-red-950/40' };
+  }
+  if (sharp < 94 && f.meanAbsDiff <= 3) {
+    return { label: 'Dobra — kolory zgodne, ale warstwy nieco miększe niż oryginał', cls: 'text-amber-200 border-amber-500/40 bg-amber-950/30' };
+  }
   if (f.meanAbsDiff <= 1.5 && f.pctPixelsOver8 <= 3) {
     return { label: 'Bardzo wysoka — wynik praktycznie nieodróżnialny od oryginału', cls: 'text-emerald-300 border-emerald-500/40 bg-emerald-950/40' };
   }
@@ -1947,8 +1956,8 @@ const FidelityCard: React.FC<{
             Zgodność z oryginałem (render w skali ekranu 1080p): <strong>{rating.label}</strong>
           </div>
           <div className="text-[10px] font-mono opacity-80">
-            śr. różnica {f.meanAbsDiff} / 255 • pikseli z różnicą &gt; 8: {f.pctPixelsOver8}% • maks. {f.maxDiff} •
-            próbka {f.sampledMegapixels} MPx
+            ostrość {f.sharpnessPct ?? '—'}% oryginału • śr. różnica {f.meanAbsDiff} / 255 • pikseli z różnicą &gt; 8:{' '}
+            {f.pctPixelsOver8}% • maks. {f.maxDiff} • próbka {f.sampledMegapixels} MPx
             {f.worstArea &&
               ` • najgorszy obszar x=${Math.round(f.worstArea.left)}, y=${Math.round(f.worstArea.top)} (śr. ${f.worstArea.meanAbsDiff})`}
           </div>

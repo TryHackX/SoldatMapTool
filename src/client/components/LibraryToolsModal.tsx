@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  CaseMismatchReport,
   DuplicateGroup,
   DuplicatesResponse,
   IndexMetaResponse,
@@ -8,11 +9,13 @@ import {
 } from '@shared/apiTypes';
 import { formatBytes, openPathInExplorer } from '../utils/mapCache';
 import { useModalDismiss } from '../utils/useModalDismiss';
-import { AlertTriangle, Archive, CheckCircle2, Copy, FolderOpen, ImageOff, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, Archive, CaseSensitive, CheckCircle2, Copy, FolderOpen, ImageOff, RefreshCw, X } from 'lucide-react';
+
+export type LibraryToolsTab = 'duplicates' | 'unused' | 'case';
 
 interface LibraryToolsModalProps {
   open: boolean;
-  initialTab: 'duplicates' | 'unused';
+  initialTab: LibraryToolsTab;
   onClose: () => void;
   onMetaUpdated: (meta: IndexMetaResponse) => void;
 }
@@ -43,7 +46,7 @@ function formatDate(ms: number): string {
 }
 
 export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, initialTab, onClose, onMetaUpdated }) => {
-  const [tab, setTab] = useState<'duplicates' | 'unused'>(initialTab);
+  const [tab, setTab] = useState<LibraryToolsTab>(initialTab);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<LibraryMoveResult | null>(null);
@@ -59,6 +62,10 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
   const [unused, setUnused] = useState<UnusedSceneryReport | null>(null);
   const [selectedNames, setSelectedNames] = useState<Set<string>>(() => new Set());
   const [unusedShown, setUnusedShown] = useState(UNUSED_PAGE);
+
+  // Letter case of file names (Linux)
+  const [caseReport, setCaseReport] = useState<CaseMismatchReport | null>(null);
+  const [selectedCase, setSelectedCase] = useState<Set<string>>(() => new Set());
 
   const loadDuplicates = () => {
     setError(null);
@@ -84,9 +91,26 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   };
 
+  const loadCase = () => {
+    setError(null);
+    getJson<CaseMismatchReport>('/api/library/case-mismatches', (d) => Array.isArray(d?.files))
+      .then((d) => {
+        setCaseReport(d);
+        // Renaming to the one spelling all maps use is safe, so every such file starts selected
+        setSelectedCase(new Set(d.files.filter((f) => f.renameTo).map(caseKey)));
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
+  };
+
+  const loadTab = (which: LibraryToolsTab) => {
+    if (which === 'duplicates') loadDuplicates();
+    else if (which === 'unused') loadUnused();
+    else loadCase();
+  };
+
   // The modal stays mounted between openings: every opening starts from fresh lists (maps and files change)
   const wasOpenRef = useRef(false);
-  const loadedRef = useRef({ duplicates: false, unused: false });
+  const loadedRef = useRef({ duplicates: false, unused: false, case: false });
   useEffect(() => {
     if (!open) {
       wasOpenRef.current = false;
@@ -95,19 +119,19 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
     let which = tab;
     if (!wasOpenRef.current) {
       wasOpenRef.current = true;
-      loadedRef.current = { duplicates: false, unused: false };
+      loadedRef.current = { duplicates: false, unused: false, case: false };
       which = initialTab;
       setTab(initialTab);
       setDups(null);
       setUnused(null);
+      setCaseReport(null);
       setResult(null);
       setError(null);
       setConfirming(false);
     }
     if (!loadedRef.current[which]) {
       loadedRef.current[which] = true;
-      if (which === 'duplicates') loadDuplicates();
-      else loadUnused();
+      loadTab(which);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, tab, initialTab]);
@@ -139,13 +163,18 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
       const res =
         tab === 'duplicates'
           ? await postJson<LibraryMoveResult>('/api/library/duplicates/move', { mapIds: dupMoveIds })
-          : await postJson<LibraryMoveResult>('/api/library/unused-scenery/move', {
+          : tab === 'unused'
+          ? await postJson<LibraryMoveResult>('/api/library/unused-scenery/move', {
               names: Array.from(selectedNames),
+            })
+          : await postJson<LibraryMoveResult>('/api/library/case-mismatches/rename', {
+              files: (caseReport?.files ?? [])
+                .filter((f) => selectedCase.has(caseKey(f)))
+                .map((f) => ({ category: f.category, diskName: f.diskName })),
             });
       setResult(res);
       if (res.meta) onMetaUpdated(res.meta);
-      if (tab === 'duplicates') loadDuplicates();
-      else loadUnused();
+      loadTab(tab);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -154,7 +183,9 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
     }
   };
 
-  const moveCount = tab === 'duplicates' ? dupMoveIds.length : selectedNames.size;
+  const moveCount =
+    tab === 'duplicates' ? dupMoveIds.length : tab === 'unused' ? selectedNames.size : selectedCase.size;
+  const isRename = tab === 'case';
 
   return (
     <div
@@ -187,6 +218,7 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
             [
               ['duplicates', 'Duplikaty CRC32', <Copy key="d" className="w-3.5 h-3.5" />],
               ['unused', 'Nieużywane scenerie', <ImageOff key="u" className="w-3.5 h-3.5" />],
+              ['case', 'Wielkość liter (Linux)', <CaseSensitive key="c" className="w-3.5 h-3.5" />],
             ] as const
           ).map(([id, label, icon]) => (
             <button
@@ -209,7 +241,7 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
           <button
             type="button"
             disabled={busy}
-            onClick={() => (tab === 'duplicates' ? loadDuplicates() : loadUnused())}
+            onClick={() => loadTab(tab)}
             title="Odśwież listę"
             aria-label="Odśwież listę"
             className="ml-auto p-1.5 rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 cursor-pointer"
@@ -277,6 +309,8 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
                 )}
               </>
             )
+          ) : tab === 'case' ? (
+            <CaseMismatchPanel report={caseReport} selected={selectedCase} onSelect={setSelectedCase} />
           ) : !unused ? (
             <div className="text-zinc-500">Liczenie plików scenerii używanych przez mapy...</div>
           ) : (
@@ -363,7 +397,7 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
           {result && (
             <div className="bg-emerald-950/60 border border-emerald-500/40 rounded px-3 py-2 text-emerald-100 flex items-center justify-between gap-3">
               <span>
-                Przeniesiono {result.moved} plików
+                {isRename ? 'Zmieniono nazwy' : 'Przeniesiono'} {result.moved} plików
                 {result.failed.length > 0 && `, nie udało się: ${result.failed.length} (${result.failed[0].name}: ${result.failed[0].error})`}
                 .
               </span>
@@ -373,7 +407,7 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
                   onClick={() => openPathInExplorer(result.backupDir!)}
                   className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-100 flex items-center gap-1 shrink-0 cursor-pointer"
                 >
-                  <FolderOpen className="w-3.5 h-3.5" /> Kopia
+                  <FolderOpen className="w-3.5 h-3.5" /> {isRename ? 'Lista zmian' : 'Kopia'}
                 </button>
               )}
             </div>
@@ -382,11 +416,17 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
             <span className="text-zinc-400">
               {tab === 'duplicates'
                 ? `Do przeniesienia: ${moveCount} plików map`
-                : `Zaznaczone: ${moveCount} plików (${formatBytes(unusedSelectedBytes)})`}
+                : tab === 'unused'
+                ? `Zaznaczone: ${moveCount} plików (${formatBytes(unusedSelectedBytes)})`
+                : `Do zmiany nazwy: ${moveCount} plików`}
             </span>
             {confirming ? (
               <div className="flex items-center gap-2">
-                <span className="text-amber-200">Przenieść {moveCount} plików do kopii zapasowej?</span>
+                <span className="text-amber-200">
+                  {isRename
+                    ? `Zmienić nazwy ${moveCount} plików (tylko wielkość liter)?`
+                    : `Przenieść ${moveCount} plików do kopii zapasowej?`}
+                </span>
                 <button
                   type="button"
                   disabled={busy}
@@ -401,7 +441,7 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
                   onClick={runMove}
                   className="px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-500 text-white font-semibold cursor-pointer disabled:opacity-50"
                 >
-                  {busy ? 'Przenoszenie...' : 'Tak, przenieś'}
+                  {busy ? (isRename ? 'Zmiana nazw...' : 'Przenoszenie...') : isRename ? 'Tak, zmień' : 'Tak, przenieś'}
                 </button>
               </div>
             ) : (
@@ -411,13 +451,112 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
                 onClick={() => setConfirming(true)}
                 className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold disabled:opacity-40 cursor-pointer"
               >
-                Przenieś do kopii zapasowej
+                {isRename ? 'Zmień nazwy plików' : 'Przenieś do kopii zapasowej'}
               </button>
             )}
           </div>
         </div>
       </div>
     </div>
+  );
+};
+
+const caseKey = (f: { category: string; diskName: string }) => `${f.category}/${f.diskName}`;
+
+/** "1 mapa", "3 mapy", "5 map" */
+function mapsLabel(n: number): string {
+  if (n === 1) return '1 mapa';
+  const few = n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14);
+  return `${n} ${few ? 'mapy' : 'map'}`;
+}
+
+const CaseMismatchPanel: React.FC<{
+  report: CaseMismatchReport | null;
+  selected: Set<string>;
+  onSelect: (next: Set<string>) => void;
+}> = ({ report, selected, onSelect }) => {
+  if (!report) return <div className="text-zinc-500">Sprawdzanie nazw plików scenerii i tekstur...</div>;
+  if (report.files.length === 0) {
+    return (
+      <div className="text-emerald-300 flex items-center gap-2">
+        <CheckCircle2 className="w-4 h-4" /> Nazwy wszystkich plików zgadzają się z mapami, także wielkością liter.
+      </div>
+    );
+  }
+  const renamable = report.files.filter((f) => f.renameTo);
+  const others = report.files.filter((f) => !f.renameTo);
+  const kind = (category: string) => (category === 'textures' ? 'tekstura' : 'sceneria');
+  const mapsOf = (f: CaseMismatchReport['files'][number]) => f.spellings.reduce((acc, s) => acc + s.mapCount, 0);
+  return (
+    <>
+      <div className="text-zinc-400 leading-relaxed">
+        Plików z inną wielkością liter w mapach niż na dysku: {report.files.length} (dotyczy:{' '}
+        {mapsLabel(report.affectedMaps)}).
+        Windows i klient OpenSoldat tego nie rozróżniają, ale serwer na Linuksie, z którego gracze pobierają mapy, szuka
+        dokładnej nazwy. Mapy nie są zmieniane — zmienia się tylko nazwa pliku.
+      </div>
+      {renamable.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="font-semibold text-zinc-200">
+            Wystarczy zmienić nazwę ({renamable.length}) — wszystkie mapy zapisują plik tak samo
+          </div>
+          <div className="divide-y divide-zinc-800/70 border border-zinc-800 rounded-lg">
+            {renamable.map((f) => (
+              <label
+                key={caseKey(f)}
+                className="px-3 py-1.5 flex items-center justify-between gap-3 hover:bg-zinc-800/40 cursor-pointer"
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(caseKey(f))}
+                    onChange={() => {
+                      const next = new Set(selected);
+                      if (next.has(caseKey(f))) next.delete(caseKey(f));
+                      else next.add(caseKey(f));
+                      onSelect(next);
+                    }}
+                    className="rounded border-zinc-700 bg-zinc-900 text-emerald-500"
+                  />
+                  <span className="font-mono text-zinc-400 truncate">{f.diskName}</span>
+                  <span className="text-zinc-600">→</span>
+                  <span className="font-mono text-emerald-300 truncate">{f.renameTo}</span>
+                </span>
+                <span className="text-zinc-500 shrink-0" title={f.spellings[0].sampleMaps.join(', ')}>
+                  {kind(f.category)} • {mapsLabel(mapsOf(f))}
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+      {others.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="font-semibold text-zinc-200">Zapisane w mapach na kilka sposobów ({others.length})</div>
+          <div className="text-zinc-400 leading-relaxed">
+            Na Windowsie plik może mieć tylko jedną z tych nazw. Kreator paczek z opcją „Napraw wielkość liter pod
+            serwery Linux” dołącza go pod każdą pisownią, więc serwer z rozpakowaną paczką znajdzie go dla każdej mapy.
+          </div>
+          <div className="divide-y divide-zinc-800/70 border border-zinc-800 rounded-lg">
+            {others.map((f) => (
+              <div key={caseKey(f)} className="px-3 py-1.5 flex items-start justify-between gap-3">
+                <span className="min-w-0">
+                  <span className="font-mono text-zinc-200">{f.diskName}</span>
+                  <span className="block text-[11px] text-zinc-500 font-mono">
+                    {f.spellings.length > 1
+                      ? f.spellings.map((s) => `${s.name} (${s.mapCount})`).join(' • ')
+                      : `plik poza folderem gry: ${f.folder}`}
+                  </span>
+                </span>
+                <span className="text-zinc-500 shrink-0">
+                  {kind(f.category)} • {mapsLabel(mapsOf(f))}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 

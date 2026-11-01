@@ -66,13 +66,35 @@ function collectPackPlan(
     const key = archivePath.toLowerCase();
     const existing = filesMap.get(key);
     if (existing) {
+      const sameDiskFile =
+        existing.diskPath === diskPath ||
+        path.resolve(existing.diskPath).toLowerCase() === path.resolve(diskPath).toLowerCase();
+      // Linux fix: maps spell the same file differently (e.g. "fx_P_cloud5.png" / "fx_p_cloud5.png"), so the file
+      // is packed once per spelling — a case-sensitive server finds each one
+      if (options.fixLinuxCase && sameDiskFile && existing.archivePath !== archivePath) {
+        const aliasKey = `alias:${archivePath}`;
+        const alias = filesMap.get(aliasKey);
+        if (alias) {
+          alias.usedByMapsCount++;
+          if (alias.sampleMaps.length < 6 && !alias.sampleMaps.includes(mapBaseName)) alias.sampleMaps.push(mapBaseName);
+          return;
+        }
+        caseFixedCount++;
+        filesMap.set(aliasKey, {
+          archivePath,
+          diskPath,
+          category,
+          sizeBytes,
+          usedByMapsCount: 1,
+          sampleMaps: [mapBaseName],
+          caseRenamedFrom,
+          caseAliasOf: existing.archivePath,
+        });
+        return;
+      }
       // Same archive path but a different file on disk (two sources, or case-only differences):
       // only one can be packed, so report it instead of silently dropping the other
-      if (
-        existing.diskPath !== diskPath &&
-        path.resolve(existing.diskPath).toLowerCase() !== path.resolve(diskPath).toLowerCase() &&
-        collisionWarnings.length < 500
-      ) {
+      if (!sameDiskFile && collisionWarnings.length < 500) {
         collisionWarnings.push(
           `${archivePath}: spakowano ${existing.diskPath}, pominięto ${diskPath} (${mapBaseName})`
         );
@@ -608,8 +630,19 @@ export async function executePackBuild(
     const warnings: string[] = [...plan.collisionWarnings];
     let copied = 0;
 
+    // A Windows / macOS folder holds one spelling of a name, so the extra Linux spellings would only overwrite
+    // the same file (and race between parallel copies)
+    const caseInsensitiveTarget = process.platform === 'win32' || process.platform === 'darwin';
+    const aliases = plan.allFiles.filter((f) => f.caseAliasOf);
+    if (caseInsensitiveTarget && aliases.length > 0) {
+      warnings.push(
+        `${aliases.length} plików mapy zapisują inną wielkością liter (np. ${aliases[0].archivePath}) — ten folder ` +
+          'ma jedną nazwę każdego pliku; na serwer Linux wyślij paczkę ZIP, która zawiera wszystkie pisownie.'
+      );
+    }
+
     // Async copies, 8 at a time, so a 20k-file folder export never freezes the server
-    const queue = [...plan.allFiles];
+    const queue = plan.allFiles.filter((f) => !(caseInsensitiveTarget && f.caseAliasOf));
     const worker = async () => {
       for (let file = queue.shift(); file; file = queue.shift()) {
         const destPath = path.join(targetFolder, ...file.archivePath.split('/'));

@@ -14,6 +14,7 @@ import { CustomPrefixRule } from '@shared/prefixUtils';
 import { parseSearchQuery } from '@shared/searchQuery';
 import { APP_VERSION } from '@shared/version';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import type { LibraryToolsTab } from './components/LibraryToolsModal';
 import { MapBrowserPanel, MapSortField } from './components/MapBrowserPanel';
 import { MapInspectorDrawer } from './components/MapInspectorDrawer';
 import { MapViewport } from './components/MapViewport';
@@ -296,7 +297,7 @@ export const App: React.FC = () => {
     banner: string;
   } | null>(null);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
-  const [libraryToolsState, setLibraryToolsState] = useState<{ open: boolean; tab: 'duplicates' | 'unused' }>({
+  const [libraryToolsState, setLibraryToolsState] = useState<{ open: boolean; tab: LibraryToolsTab }>({
     open: false,
     tab: 'duplicates',
   });
@@ -557,34 +558,28 @@ export const App: React.FC = () => {
   }, [activeMapId, metaRevision]);
 
   // Taxonomy & Filter Handlers
-  const handleToggleModeGroup = (groupId: string, multi: boolean) => {
-    setSelectedModeGroupIds((prev) => {
-      if (multi) {
-        return prev.includes(groupId) ? prev.filter((x) => x !== groupId) : [...prev, groupId];
-      }
-      return prev.length === 1 && prev[0] === groupId ? [] : [groupId];
-    });
+  // Plain click: the entry becomes the only selection on every level (clicking the sole selection clears it).
+  // Ctrl+click adds or removes it; the server shows maps matching any selected entry.
+  const handleToggleTaxonomy = (level: 'group' | 'prefix' | 'subprefix', value: string, multi: boolean) => {
+    const current = { group: selectedModeGroupIds, prefix: selectedPrefixes, subprefix: selectedSubprefixes };
+    if (multi) {
+      const setter = { group: setSelectedModeGroupIds, prefix: setSelectedPrefixes, subprefix: setSelectedSubprefixes }[level];
+      setter((prev) => (prev.includes(value) ? prev.filter((x) => x !== value) : [...prev, value]));
+      return;
+    }
+    const isSoleSelection =
+      current[level].length === 1 &&
+      current[level][0] === value &&
+      selectedModeGroupIds.length + selectedPrefixes.length + selectedSubprefixes.length === 1;
+    const pick = (l: typeof level) => (l === level && !isSoleSelection ? [value] : []);
+    setSelectedModeGroupIds(pick('group'));
+    setSelectedPrefixes(pick('prefix'));
+    setSelectedSubprefixes(pick('subprefix'));
   };
-
-  const handleTogglePrefix = (prefix: string, multi: boolean) => {
-    setSelectedPrefixes((prev) => {
-      if (multi) {
-        return prev.includes(prefix) ? prev.filter((p) => p !== prefix) : [...prev, prefix];
-      }
-      return prev.length === 1 && prev[0] === prefix ? [] : [prefix];
-    });
-  };
-
-  const handleToggleSubprefix = (subprefix: string, multi: boolean) => {
-    setSelectedSubprefixes((prev) => {
-      if (multi) {
-        return prev.includes(subprefix)
-          ? prev.filter((s) => s !== subprefix)
-          : [...prev, subprefix];
-      }
-      return prev.length === 1 && prev[0] === subprefix ? [] : [subprefix];
-    });
-  };
+  const handleToggleModeGroup = (groupId: string, multi: boolean) => handleToggleTaxonomy('group', groupId, multi);
+  const handleTogglePrefix = (prefix: string, multi: boolean) => handleToggleTaxonomy('prefix', prefix, multi);
+  const handleToggleSubprefix = (subprefix: string, multi: boolean) =>
+    handleToggleTaxonomy('subprefix', subprefix, multi);
 
   const handleToggleSource = (sourceId: string) => {
     setSelectedSourceIds((prev) =>
@@ -950,7 +945,7 @@ export const App: React.FC = () => {
             type="button"
             onClick={() => setLibraryToolsState({ open: true, tab: 'duplicates' })}
             disabled={!meta || isBgScanning}
-            title="Porządki: duplikaty map (identyczne CRC32) i nieużywane pliki scenerii — przenoszone do kopii zapasowej"
+            title="Porządki: duplikaty map (identyczne CRC32), nieużywane pliki scenerii i wielkość liter w nazwach plików (Linux)"
             className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs text-zinc-300 flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
           >
             <Archive className="w-3.5 h-3.5 text-emerald-400" />
@@ -1093,6 +1088,7 @@ export const App: React.FC = () => {
           onChangeStatusFilter={setStatusFilter}
           extraFilters={extraFilters}
           onChangeExtraFilters={setExtraFilters}
+          onOpenCaseTools={() => setLibraryToolsState({ open: true, tab: 'case' })}
         />
         )}
 

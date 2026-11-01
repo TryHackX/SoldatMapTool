@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import {
+  CaseMismatchFile,
+  CaseMismatchReport,
   DuplicateGroup,
   DuplicateMapFile,
   DuplicatesResponse,
@@ -268,6 +270,139 @@ export async function moveUnusedScenery(
 }
 
 // ---------------------------------------------------------------------------------------------------
+// C4: letter case of scenery / texture names (Linux)
+// ---------------------------------------------------------------------------------------------------
+
+/**
+ * Custom scenery and texture files whose name differs in letter case from what maps write. Windows and the
+ * OpenSoldat client ignore the difference; a case-sensitive Linux server serving map downloads does not.
+ */
+export function computeCaseMismatches(scanner: SoldatMapScanner): CaseMismatchReport {
+  const root = path.resolve(scanner.getSoldatPath()).toLowerCase();
+  const byFile = new Map<
+    string,
+    { category: CaseMismatchFile['category']; diskName: string; fullPath: string; spellings: Map<string, string[]> }
+  >();
+  let affectedMaps = 0;
+  for (const entry of scanner.getAllEntries()) {
+    if (entry.caseMismatchCount > 0) affectedMaps++;
+    for (const a of [entry.textureInfo, ...entry.sceneryAssets]) {
+      if (!a.diskName || !a.diskFullPath || !a.referencedName || a.isVanilla || a.usedCount === 0) continue;
+      if (a.status !== 'case-mismatch' && a.status !== 'custom') continue;
+      if (a.category !== 'textures' && a.category !== 'scenery-gfx') continue;
+      const key = path.resolve(a.diskFullPath).toLowerCase();
+      let file = byFile.get(key);
+      if (!file) {
+        file = { category: a.category, diskName: a.diskName, fullPath: a.diskFullPath, spellings: new Map() };
+        byFile.set(key, file);
+      }
+      const maps = file.spellings.get(a.referencedName) ?? [];
+      if (!maps.includes(entry.baseName)) maps.push(entry.baseName);
+      file.spellings.set(a.referencedName, maps);
+    }
+  }
+
+  const files: CaseMismatchFile[] = [];
+  for (const f of byFile.values()) {
+    if (Array.from(f.spellings.keys()).every((name) => name === f.diskName)) continue;
+    const spellings = Array.from(f.spellings.entries())
+      .map(([name, maps]) => ({ name, mapCount: maps.length, sampleMaps: maps.slice(0, 5) }))
+      .sort((a, b) => b.mapCount - a.mapCount || a.name.localeCompare(b.name));
+    const folder = path.dirname(f.fullPath);
+    const inGameFolder = path.resolve(folder).toLowerCase() === path.join(root, f.category);
+    const only = spellings.length === 1 ? spellings[0].name : null;
+    const renameTo =
+      only && inGameFolder && path.basename(only) === only && only.toLowerCase() === f.diskName.toLowerCase()
+        ? only
+        : null;
+    files.push({ category: f.category, diskName: f.diskName, folder, spellings, renameTo });
+  }
+  const mapsUsing = (f: CaseMismatchFile) => f.spellings.reduce((acc, s) => acc + s.mapCount, 0);
+  files.sort(
+    (a, b) => Number(!a.renameTo) - Number(!b.renameTo) || mapsUsing(b) - mapsUsing(a) || a.diskName.localeCompare(b.diskName)
+  );
+  return {
+    files,
+    renamableCount: files.filter((f) => f.renameTo).length,
+    severalSpellingsCount: files.filter((f) => f.spellings.length > 1).length,
+    affectedMaps,
+  };
+}
+
+/**
+ * Renames the chosen files to the one spelling their maps use (letter case only, content untouched). Each file
+ * is re-checked first; the old and new names go to a restore list in `data/backups/case-renames-<time>/`.
+ */
+export async function renameCaseMismatches(
+  scanner: SoldatMapScanner,
+  requested: Array<{ category: string; diskName: string }>,
+  backupsRoot: string
+): Promise<LibraryMoveResult> {
+  const report = computeCaseMismatches(scanner);
+  const byKey = new Map(report.files.map((f) => [`${f.category}/${f.diskName}`.toLowerCase(), f]));
+  const renamed: Array<{ from: string; to: string }> = [];
+  const failed: Array<{ name: string; error: string }> = [];
+  for (const req of requested) {
+    const name = path.basename(req.diskName);
+    const file = byKey.get(`${req.category}/${name}`.toLowerCase());
+    if (!file) {
+      failed.push({ name, error: 'nazwa jest już zgodna z mapami albo pliku nie ma' });
+      continue;
+    }
+    if (!file.renameTo) {
+      failed.push({
+        name,
+        error: file.spellings.length > 1 ? 'mapy zapisują tę nazwę na kilka sposobów' : 'plik jest poza folderem gry',
+      });
+      continue;
+    }
+    const from = path.join(file.folder, file.diskName);
+    const to = path.join(file.folder, file.renameTo);
+    try {
+      // On a case-sensitive disk another file may already have the target name
+      if ((await fs.promises.readdir(file.folder)).includes(file.renameTo)) {
+        throw new Error('w folderze jest już plik o tej nazwie');
+      }
+      // A case-only rename through a temporary name works on every file system (NTFS, APFS, ext4)
+      const tmp = `${from}.sms-case-${process.pid}-${Date.now()}`;
+      await fs.promises.rename(from, tmp);
+      try {
+        await fs.promises.rename(tmp, to);
+      } catch (err) {
+        await fs.promises.rename(tmp, from).catch(() => undefined);
+        throw err;
+      }
+      renamed.push({ from, to });
+    } catch (err) {
+      failed.push({ name, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  let backupDir: string | null = null;
+  if (renamed.length > 0) {
+    backupDir = createStampedDir(backupsRoot, 'case-renames');
+    const lines = [
+      '# Nazwy zmienione przez Soldat Map Studio (tylko wielkość liter, zawartość bez zmian).',
+      '# Aby cofnąć, zmień nazwę pliku z powrotem na poprzednią.',
+      '# poprzednia_sciezka<TAB>nowa_sciezka',
+      ...renamed.map((r) => `${r.from}\t${r.to}`),
+      '',
+    ];
+    fs.writeFileSync(path.join(backupDir, 'PRZYWRACANIE.txt'), lines.join('\r\n'), 'utf-8');
+  }
+  return { moved: renamed.length, failed: failed.slice(0, 200), backupDir };
+}
+
+// ---------------------------------------------------------------------------------------------------
+
+/** New `<label>-<time>` folder under the backups root (suffixed when that name is taken) */
+function createStampedDir(backupsRoot: string, label: string): string {
+  const stamp = new Date().toISOString().replace(/[:T]/g, '-').replace(/\..+$/, '');
+  let dir = path.join(backupsRoot, `${label}-${stamp}`);
+  for (let n = 2; fs.existsSync(dir); n++) dir = path.join(backupsRoot, `${label}-${stamp}_${n}`);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
 
 function sanitizeSegment(name: string): string {
   return name.replace(/[<>:"/\\|?*\x00-\x1F]+/g, '_').trim() || 'source';
@@ -282,13 +417,7 @@ class MoveToBackupSession {
   constructor(private readonly backupsRoot: string, private readonly label: string) {}
 
   private ensureDir(): string {
-    if (!this.dir) {
-      const stamp = new Date().toISOString().replace(/[:T]/g, '-').replace(/\..+$/, '');
-      let dir = path.join(this.backupsRoot, `${this.label}-${stamp}`);
-      for (let n = 2; fs.existsSync(dir); n++) dir = path.join(this.backupsRoot, `${this.label}-${stamp}_${n}`);
-      fs.mkdirSync(dir, { recursive: true });
-      this.dir = dir;
-    }
+    if (!this.dir) this.dir = createStampedDir(this.backupsRoot, this.label);
     return this.dir;
   }
 

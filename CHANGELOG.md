@@ -1,5 +1,41 @@
 # Changelog
 
+## 2.3.2 — 2026-11-01
+
+Ostrość scenerii, tryb Auto i wielkość liter w nazwach plików — szczegóły w rozdziale 6 `docs/AUDYT.md`.
+
+### Naprawione
+- **Scenerie w Studio i w warstwach `_o` były miększe niż w grze** (zgłoszenie: palmy na `ctf_tw_hue`). OpenSoldat
+  wybiera mipmapy o pół poziomu ostrzej (`r_mipmapbias` = −0,5), a renderer Studio tego nie robił. Teraz podgląd,
+  porównanie, screeny, raport wierności i wypalanie `_o` rysują scenerie tak jak gra. Ostrość `_o` względem oryginału
+  na ekranie 1080p: 3× 92,7% → 96,7%, 4× 93,2% → 95,9%. Istniejące pliki `_o` warto wygenerować ponownie.
+- **Auto wybierało 1× (w grze rozmyte) dla dużych map**, bo rozmiar warstw liczyło z prostokąta obejmującego całą
+  grupę scenerii. Teraz liczy tylko kafelki, w których coś jest — te same, które wypala Studio. Na testowej kolekcji
+  (2370 map do sklejenia): 3× dla 2031 map (wcześniej 1494), 1× tylko dla 120 (wcześniej 454). `ctf_tw_hue`: 2× zamiast 1×.
+- Wypalanie pomija puste kafelki; warstwa wymagająca ponad 500 kafelków jest odrzucana z komunikatem (taka mapa
+  i tak nie wczytałaby się w grze).
+- Plan `_o` mapy z propem o błędnych współrzędnych (`ctf_LaaF-Run`, x = −9,2·10¹⁸) zawieszał serwer (brak pamięci).
+  Takie propy zostają nietknięte („Poza mapą”).
+- Kategorie w panelu bocznym: zwykłe kliknięcie dodawało pozycję do zaznaczenia zamiast ją wybrać (np. tryb RSCS
+  i prefiks `tw_` naraz, co dawało pustą listę). Teraz kliknięcie wybiera tylko tę pozycję, Ctrl+klik dodaje kolejne,
+  a zaznaczone pozycje z różnych poziomów się sumują.
+- Opisy jakości zgodne z pomiarem: 3× najostrzejsze na 1080p, 2× nieco miękkie, 4× dla 1440p i 4K.
+
+### Wielkość liter w nazwach plików (Linux)
+- Paczka z opcją „Napraw wielkość liter pod serwery Linux” zawiera plik pod każdą pisownią użytą w mapach
+  (np. `fx_P_cloud5.png` i `fx_p_cloud5.png`). Wcześniej trafiała tylko pierwsza, więc część map na serwerze
+  linuksowym nie znajdowała scenerii.
+- „Porządki” → „Wielkość liter (Linux)”: raport plików, których nazwa różni się wielkością liter od wpisów w mapach,
+  i zmiana nazwy tam, gdzie wszystkie mapy zapisują plik tak samo (lista zmian do cofnięcia w `data/backups/`).
+  Skrót „Napraw…” przy filtrze w panelu bocznym. Mapy nie są modyfikowane.
+
+### Raport wierności
+- Nowa miara „ostrość”. Średnia różnica pikseli prawie nie reaguje na rozmycie drobnych detali, więc raport mógł
+  pokazywać „Bardzo wysoka”, choć warstwy były wyraźnie miększe.
+
+### Testy
+- 58 testów automatycznych (8 nowych).
+
 ## 2.3.1 — 2026-11-01
 
 Domknięcie luk po 2.3.0 — szczegóły w rozdziale 5 `docs/AUDYT.md`.

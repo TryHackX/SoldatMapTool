@@ -1029,9 +1029,15 @@ export class SoldatMapScanner {
       if (statusFilter === 'in_pack' && (!packSet || !packSet.has(m.id))) continue;
       if (statusFilter === 'favorites' && !this.userData?.get(m.id)?.favorite) continue;
 
-      if (modeSet && !modeSet.has(m.modeGroupId)) continue;
-      if (prefixSet && !prefixSet.has(m.prefix)) continue;
-      if (subprefixSet && (!m.subprefix || !subprefixSet.has(m.subprefix))) continue;
+      // Categories, prefixes and sub-prefixes picked in the sidebar add up (Ctrl+click selects several)
+      if (
+        (modeSet || prefixSet || subprefixSet) &&
+        !modeSet?.has(m.modeGroupId) &&
+        !prefixSet?.has(m.prefix) &&
+        !(m.subprefix && subprefixSet?.has(m.subprefix))
+      ) {
+        continue;
+      }
       if (sourceSet && !sourceSet.has(m.sourceId)) continue;
 
       if (weather !== null && m.weather !== weather) continue;

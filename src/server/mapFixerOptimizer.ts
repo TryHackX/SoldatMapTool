@@ -21,8 +21,9 @@ import {
 } from '../shared/apiTypes';
 import {
   checkSoldatMapLimits,
-  computePropCorners,
+  computePropAabb,
   currentDosTimestamp,
+  isPropAabbOnMap,
   isPropRenderable,
   makeDerivedMapName,
   makeOptimizeOutputName,
@@ -34,6 +35,7 @@ import {
   PmsSceneryDef,
   soldatCrc32,
 } from '../shared/pmsParser';
+import { bakeTilesFor, estimateTileCrop, MAX_BAKE_TILES } from '../shared/bakeTiling';
 import { decodeBmpToRgba } from './bmpDecoder';
 import { SoldatMapScanner } from './soldatScanner';
 
@@ -890,11 +892,24 @@ export class SoldatMapWorkshop {
 
         const width = Math.max(4, right - left);
         const height = Math.max(4, bottom - top);
-        const cols = Math.max(1, Math.ceil((width * supersample) / maxTilePx));
-        const rows = Math.max(1, Math.ceil((height * supersample) / maxTilePx));
-        const tileCount = cols * rows;
+        const worldBounds = { left, right, top, bottom, width, height };
+        // Same tiles and cropping as the baker: a run spread over the map costs only the tiles it touches
+        const propBounds = currentRun.map((item) => item.bounds);
+        let tileCount = 0;
         for (let s = 1; s <= 4; s++) {
-          estimatedMegapixelsBySupersample[s - 1] += (width * s * height * s) / 1e6;
+          const tiles = bakeTilesFor(worldBounds, s, maxTilePx, propBounds);
+          if (!tiles) {
+            // Too many tiles to bake at this quality (the baker refuses): plain upper bound
+            estimatedMegapixelsBySupersample[s - 1] += (width * s * height * s) / 1e6;
+            if (s === supersample) tileCount = MAX_BAKE_TILES + 1;
+            continue;
+          }
+          for (const tile of tiles) {
+            const crop = estimateTileCrop(tile, propBounds);
+            if (!crop) continue;
+            estimatedMegapixelsBySupersample[s - 1] += (crop.width * s * crop.height * s) / 1e6;
+            if (s === supersample) tileCount++;
+          }
         }
 
         runIdxForLevel++;
@@ -905,7 +920,7 @@ export class SoldatMapWorkshop {
           runIndex: runIdxForLevel,
           insertOrderKey: orderCounter,
           propIndices,
-          worldBounds: { left, right, top, bottom, width, height },
+          worldBounds,
           tileCount,
         });
 
@@ -966,6 +981,14 @@ export class SoldatMapWorkshop {
         }
 
         const pBounds = computePropAabb(p);
+        // Garbage coordinates are never on screen either: kept untouched, without splitting the run
+        if (!isPropAabbOnMap(pBounds)) {
+          preserved.push({ propIndex: idx, level, sceneryName: scName, reason: 'off_map' });
+          preservedOrdered.push({ level, orderKey: orderCounter, prop: { ...p } });
+          orderCounter += 10;
+          continue;
+        }
+
         if (
           options.preserveGiantProps &&
           (pBounds.width > giantLimit || pBounds.height > giantLimit)
@@ -1419,32 +1442,6 @@ function classicDimsFallback(
     return diskDims;
   }
   return null;
-}
-
-function computePropAabb(p: PmsProp): PmsBounds {
-  const w = p.width !== 0 ? p.width : 64;
-  const h = p.height !== 0 ? p.height : 64;
-  const corners = computePropCorners(p.x, p.y, w, h, p.scaleX, p.scaleY, p.rotation);
-  let left = Infinity;
-  let right = -Infinity;
-  let top = Infinity;
-  let bottom = -Infinity;
-  for (let i = 0; i < 8; i += 2) {
-    const cx = corners[i];
-    const cy = corners[i + 1];
-    if (cx < left) left = cx;
-    if (cx > right) right = cx;
-    if (cy < top) top = cy;
-    if (cy > bottom) bottom = cy;
-  }
-  return {
-    left,
-    right,
-    top,
-    bottom,
-    width: Math.max(1, right - left),
-    height: Math.max(1, bottom - top),
-  };
 }
 
 /**
