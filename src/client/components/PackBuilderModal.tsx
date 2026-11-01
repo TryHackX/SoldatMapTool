@@ -775,7 +775,7 @@ export const PackBuilderModal: React.FC<PackBuilderModalProps> = ({
                       onClick={() => openPathInExplorer(buildResult.outputPath)}
                       className="px-2.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-100 flex items-center gap-1 cursor-pointer"
                     >
-                      <FolderOpen className="w-3.5 h-3.5" /> Eksplorator
+                      <FolderOpen className="w-3.5 h-3.5" /> Pokaż folder
                     </button>
                     {buildResult.downloadUrl && (
                       <a

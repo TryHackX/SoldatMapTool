@@ -132,8 +132,8 @@ export const MapInspectorDrawer: React.FC<MapInspectorDrawerProps> = ({
               <button
                 type="button"
                 onClick={() => openPathInExplorer(map.fullPath)}
-                title={`Pokaż w Eksploratorze: ${map.fullPath}`}
-                aria-label="Pokaż plik mapy w Eksploratorze"
+                title={`Pokaż w folderze: ${map.fullPath}`}
+                aria-label="Pokaż plik mapy w folderze"
                 className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 shrink-0 cursor-pointer"
               >
                 <FolderOpen className="w-3.5 h-3.5" />

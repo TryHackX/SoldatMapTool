@@ -1,0 +1,48 @@
+Soldat Map Studio — Licencja z obowiązkiem uznania współautorstwa
+Soldat Map Studio — Co-Author Attribution License
+
+Copyright (c) 2026 TryHackX (https://github.com/TryHackX)
+
+=== Polski ===
+
+1. Każdy może bezpłatnie używać, kopiować, uruchamiać, modyfikować, łączyć z innym oprogramowaniem
+   i rozpowszechniać to oprogramowanie oraz towarzyszącą mu dokumentację („Oprogramowanie”), w dowolnym
+   celu, także komercyjnym, na warunkach opisanych poniżej.
+
+2. Każda zmodyfikowana wersja Oprogramowania oraz każde dzieło, które wykorzystuje Oprogramowanie albo
+   jakąkolwiek jego część (kod, grafikę, dokumentację lub rozwiązania przeniesione do innego kodu), musi
+   w widocznym miejscu — w pliku README, w oknie „O programie” albo w dokumentacji — wymieniać TryHackX
+   jako współautora, razem z odnośnikiem do https://github.com/TryHackX/SoldatMapTool.
+
+3. Powyższa informacja o prawach autorskich oraz treść tej licencji muszą być dołączone do wszystkich kopii
+   i istotnych części Oprogramowania.
+
+4. OPROGRAMOWANIE JEST DOSTARCZANE „TAKIE, JAKIE JEST”, BEZ JAKIEJKOLWIEK GWARANCJI, WYRAŹNEJ ANI
+   DOROZUMIANEJ, W TYM GWARANCJI PRZYDATNOŚCI HANDLOWEJ, PRZYDATNOŚCI DO OKREŚLONEGO CELU I NIENARUSZANIA
+   PRAW OSÓB TRZECICH. AUTOR NIE ODPOWIADA ZA ŻADNE ROSZCZENIA, SZKODY ANI INNĄ ODPOWIEDZIALNOŚĆ ZWIĄZANĄ
+   Z OPROGRAMOWANIEM LUB JEGO UŻYCIEM.
+
+Soldat i OpenSoldat należą do ich autorów; ten projekt nie jest z nimi oficjalnie związany.
+
+=== English ===
+
+1. Anyone may use, copy, run, modify, combine with other software and distribute this software and its
+   documentation (the "Software"), free of charge and for any purpose, including commercial use, under the
+   conditions below.
+
+2. Every modified version of the Software, and every work that uses the Software or any part of it (code,
+   graphics, documentation or solutions carried over into other code), must credit TryHackX as a co-author
+   in a visible place — the README, an "About" screen or the documentation — together with a link to
+   https://github.com/TryHackX/SoldatMapTool.
+
+3. The above copyright notice and this license must be included in all copies or substantial portions of
+   the Software.
+
+4. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+   LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. THE
+   AUTHOR SHALL NOT BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM, OUT OF OR IN
+   CONNECTION WITH THE SOFTWARE OR ITS USE.
+
+Soldat and OpenSoldat belong to their respective authors; this project is not officially affiliated with them.
+
+Obie wersje językowe mają to samo znaczenie. / Both language versions have the same meaning.

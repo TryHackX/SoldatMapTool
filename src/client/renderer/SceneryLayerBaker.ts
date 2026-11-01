@@ -105,6 +105,72 @@ async function rgbaRectToPng(
   return pngBytes;
 }
 
+// Pre-sharpening per quality, chosen with the fidelity report (ctf_tw_hue, 1080p): it brings the layers' edge
+// energy back to ~100% of the original while the colour difference stays the same or drops. A stronger setting
+// only adds overshoot (sharpness above 100% and a growing difference).
+const PRESHARPEN_BY_SUPERSAMPLE: Record<number, number> = { 1: 0.2, 2: 0.12, 3: 0.08, 4: 0.16 };
+
+/**
+ * Pre-sharpens a baked tile for the second resampling the game applies when it draws the layer (the original
+ * sprites are filtered once, the baked layer twice). 5-point unsharp kernel on premultiplied colour, so
+ * transparent pixels stay transparent and no halo grows around the sceneries. Reads three rows at a time,
+ * which keeps memory flat even for 4096 px tiles.
+ */
+export function sharpenForDisplay(rgba: Uint8ClampedArray, width: number, height: number, amount: number): void {
+  if (amount <= 0 || width < 3 || height < 3) return;
+  const rowLen = width * 4;
+  const premultiplied = (y: number, dst: Float32Array) => {
+    const base = y * rowLen;
+    for (let i = 0; i < rowLen; i += 4) {
+      const a = rgba[base + i + 3];
+      const f = a / 255;
+      dst[i] = rgba[base + i] * f;
+      dst[i + 1] = rgba[base + i + 1] * f;
+      dst[i + 2] = rgba[base + i + 2] * f;
+      dst[i + 3] = a;
+    }
+  };
+  let up = new Float32Array(rowLen);
+  let cur = new Float32Array(rowLen);
+  let down = new Float32Array(rowLen);
+  premultiplied(0, cur);
+  up.set(cur);
+  premultiplied(1, down);
+  const center = 1 + 4 * amount;
+
+  for (let y = 0; y < height; y++) {
+    const base = y * rowLen;
+    for (let x = 0; x < width; x++) {
+      const i = x * 4;
+      const o = base + i;
+      if (rgba[o + 3] === 0) continue;
+      const l = x > 0 ? i - 4 : i;
+      const r = x < width - 1 ? i + 4 : i;
+      const a = center * cur[i + 3] - amount * (cur[l + 3] + cur[r + 3] + up[i + 3] + down[i + 3]);
+      const a8 = Math.round(a < 0 ? 0 : a > 255 ? 255 : a);
+      if (a8 === 0) {
+        rgba[o] = rgba[o + 1] = rgba[o + 2] = rgba[o + 3] = 0;
+        continue;
+      }
+      // Colour from the unclamped alpha: next to transparency both rise together, so the silhouette keeps its
+      // colour instead of getting a bright rim
+      for (let c = 0; c < 3; c++) {
+        const v = center * cur[i + c] - amount * (cur[l + c] + cur[r + c] + up[i + c] + down[i + c]);
+        rgba[o + c] = Math.round((v * 255) / a); // Uint8ClampedArray clamps to 0..255
+      }
+      rgba[o + 3] = a8;
+      // Soldat's color key would punch a hole into an opaque pure #00FF00 pixel
+      if (a8 === 255 && rgba[o] === 0 && rgba[o + 1] === 255 && rgba[o + 2] === 0) rgba[o + 1] = 254;
+    }
+    const spare = up;
+    up = cur;
+    cur = down;
+    down = spare;
+    if (y + 2 < height) premultiplied(y + 2, down);
+    else down.set(cur);
+  }
+}
+
 /**
  * Splits the alpha of the overlap bands between neighbouring tiles. A texel with straight alpha `a` and
  * blend weight `w` keeps alpha 1-(1-a)^w; since both tiles store the same color and the weights of all
@@ -251,6 +317,7 @@ export async function bakeSceneryTiles(
   const supersample = Math.max(1, Math.min(4, Math.round(options.supersample || 2)));
   const maxTilePx = options.maxTilePx === 4096 ? 4096 : 2048;
   const bandTexels = 2 * TILE_OVERLAP_WORLD * supersample;
+  const sharpenAmount = PRESHARPEN_BY_SUPERSAMPLE[supersample] ?? 0;
   const invScale = 1 / supersample;
 
   const glCanvas = document.createElement('canvas');
@@ -331,6 +398,8 @@ export async function bakeSceneryTiles(
         );
         if (!readback.nonEmptyBounds) continue; // Completely transparent tile — no PNG needed
 
+        // Before the cross-fade: the band texels then see their real neighbours (the outermost one gets weight 0)
+        sharpenForDisplay(readback.rgba, pxW, pxH, sharpenAmount);
         applySeamCrossFade(readback.rgba, pxW, pxH, bandTexels, sides);
         const nb = findNonEmptyBounds(readback.rgba, pxW, pxH);
         if (!nb) continue;

@@ -868,7 +868,7 @@ export const App: React.FC = () => {
               <button
                 type="button"
                 onClick={() => openPathInExplorer(meta.soldatPath)}
-                title="Otwórz folder Soldata w Eksploratorze Windows"
+                title="Otwórz folder Soldata w menedżerze plików"
                 className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 cursor-pointer shrink-0"
               >
                 <FolderOpen className="w-3.5 h-3.5" />
@@ -1237,7 +1237,7 @@ export const App: React.FC = () => {
       <SettingsModal
         open={settingsModalOpen}
         onClose={() => setSettingsModalOpen(false)}
-        soldatPath={meta?.soldatPath ?? 'G:\\Steam\\steamapps\\common\\Soldat'}
+        soldatPath={meta?.soldatPath ?? ''}
         extraSources={meta?.extraSources ?? []}
         onSaveConfig={handleSaveConfig}
       />

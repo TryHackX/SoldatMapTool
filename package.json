@@ -1,7 +1,16 @@
 {
   "name": "soldat-map-studio",
-  "version": "2.3.2",
+  "version": "2.4.0",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "TryHackX (https://github.com/TryHackX)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TryHackX/SoldatMapTool.git"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
   "type": "module",
   "description": "Soldat Map Studio - Zaawansowane pakowanie map (MPA Pro), przeglądarka po prefixach, klasyczny podgląd WebGL2 oraz generator Full-Size Screen (100% View)",
   "scripts": {

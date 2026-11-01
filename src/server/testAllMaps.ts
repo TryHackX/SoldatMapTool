@@ -2,15 +2,16 @@ import fs from 'fs';
 import path from 'path';
 import { SoldatMapScanner } from './soldatScanner';
 import { createMapClassifier } from '../shared/prefixUtils';
+import { findDefaultSoldatPath } from './platform';
 
 function readConfiguredSoldatPath(): string {
   try {
     const cfg = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'data', 'config.json'), 'utf-8'));
     if (typeof cfg.soldatPath === 'string' && cfg.soldatPath.trim()) return cfg.soldatPath.trim();
   } catch {
-    // Fall back to the default Steam location
+    // Fall back to the Steam install found on this machine
   }
-  return 'G:\\Steam\\steamapps\\common\\Soldat';
+  return findDefaultSoldatPath();
 }
 
 async function main() {

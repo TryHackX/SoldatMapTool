@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.4.0 — 2026-11-01
+
+Pierwsze wydanie z README, licencją i obsługą Linuksa — szczegóły w rozdziale 7 `docs/AUDYT.md`.
+
+### Ostrość `_o`
+- Warstwy są przy wypalaniu lekko wyostrzane, z siłą dobraną pomiarem osobno dla każdej jakości. Gra filtruje
+  sklejoną warstwę jeszcze raz przy wyświetlaniu (oryginalne scenerie tylko raz) i to dawało lekkie zmiękczenie.
+  Ostrość względem oryginału na `ctf_tw_hue` (ekran 1080p): 3× 96,7% → 99,7%, 4× 95,9% → 99,7%,
+  2× 91,9% → 99,1%, 1× 79,1% → 97,1%; średnia różnica kolorów taka sama albo mniejsza. Istniejące pliki `_o`
+  warto wygenerować ponownie.
+
+### Linux i macOS
+- Skrypt `uruchom.sh`: sprawdza Node.js, instaluje biblioteki, buduje interfejs i otwiera przeglądarkę.
+- Otwieranie folderów oraz okna wyboru folderu i pliku działają też na Linuksie (`xdg-open`, `zenity` lub
+  `kdialog`) i macOS. Gdy brakuje programu do okien, aplikacja mówi, co doinstalować; ścieżkę można też wpisać.
+- Folder gry jest wykrywany ze wszystkich bibliotek Steama (Windows; Linux — także Proton i Flatpak; macOS)
+  zamiast ścieżki wpisanej na stałe w kod.
+
+### Projekt
+- `README.md` z instrukcją dla Windows i Linuksa, `LICENSE` (dowolne użycie; modyfikacje i wykorzystanie części
+  projektu wymagają podania TryHackX jako współautora), porządny `.gitignore`, robocze notatki usunięte
+  z repozytorium, w `package.json` licencja, autor i wymagana wersja Node (22.13+).
+
+### Testy
+- 59 testów automatycznych (1 nowy), `npm audit`: 0 podatności.
+
 ## 2.3.2 — 2026-11-01
 
 Ostrość scenerii, tryb Auto i wielkość liter w nazwach plików — szczegóły w rozdziale 6 `docs/AUDYT.md`.

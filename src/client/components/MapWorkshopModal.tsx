@@ -926,7 +926,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                         onClick={() => openPathInExplorer(fixSingleResult.outputPath)}
                         className="px-2.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-100 flex items-center gap-1 cursor-pointer"
                       >
-                        <FolderOpen className="w-3.5 h-3.5" /> Eksplorator
+                        <FolderOpen className="w-3.5 h-3.5" /> Pokaż folder
                       </button>
                       {fixSingleResult.newMapId && (
                         <button
@@ -1658,7 +1658,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                       onClick={() => openPathInExplorer(optResult.outputMapPath)}
                       className="px-2.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-100 flex items-center gap-1 cursor-pointer"
                     >
-                      <FolderOpen className="w-3.5 h-3.5" /> Eksplorator
+                      <FolderOpen className="w-3.5 h-3.5" /> Pokaż folder
                     </button>
                     {optResult.newMapId && (
                       <button
@@ -1876,7 +1876,7 @@ const OptimizeBatchPanel: React.FC<{
                 onClick={() => openPathInExplorer(summary.outputDir!)}
                 className="px-2.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-100 flex items-center gap-1 cursor-pointer"
               >
-                <FolderOpen className="w-3.5 h-3.5" /> Eksplorator
+                <FolderOpen className="w-3.5 h-3.5" /> Pokaż folder
               </button>
             </div>
           )}

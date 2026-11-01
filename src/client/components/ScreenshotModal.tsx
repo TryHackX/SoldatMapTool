@@ -790,7 +790,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
                     onClick={() => openPathInExplorer(lastResult.outputPath!)}
                     className="px-2.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-100 flex items-center gap-1 cursor-pointer"
                   >
-                    <FolderOpen className="w-3.5 h-3.5" /> Eksplorator
+                    <FolderOpen className="w-3.5 h-3.5" /> Pokaż folder
                   </button>
                 )}
                 {mode === 'single' && lastResult?.downloadUrl && (

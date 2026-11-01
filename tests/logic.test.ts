@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMapClassifier, sanitizeCustomRules } from '../src/shared/prefixUtils';
 import { decodeBmpToRgba } from '../src/server/bmpDecoder';
-import { applySeamCrossFade } from '../src/client/renderer/SceneryLayerBaker';
+import { applySeamCrossFade, sharpenForDisplay } from '../src/client/renderer/SceneryLayerBaker';
 
 test('built-in classifier: longest prefix wins (RSCS / Trenchwars / CTF)', () => {
   const c = createMapClassifier([]);
@@ -125,4 +125,29 @@ test('seam cross-fade reproduces the original alpha exactly when tiles are compo
       assert.ok(Math.abs(combined * 255 - a0) <= 1.5, `alpha ${a0}: band texel ${i} gives ${(combined * 255).toFixed(2)}`);
     }
   }
+});
+
+test('pre-sharpening raises edge contrast, keeps flat areas and transparency, and avoids the color key', () => {
+  const w = 6;
+  const h = 5;
+  const img = new Uint8ClampedArray(w * h * 4);
+  const px = (x: number, y: number) => (y * w + x) * 4;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      // Left: dark grey, right: light grey, last column fully transparent
+      if (x === w - 1) img.set([0, 0, 0, 0], px(x, y));
+      else img.set(x < 2 ? [50, 50, 50, 255] : [200, 200, 200, 255], px(x, y));
+    }
+  }
+  sharpenForDisplay(img, w, h, 0.1);
+  assert.equal(img[px(0, 2)], 50, 'flat area away from the edge is unchanged');
+  assert.ok(img[px(1, 2)] < 50 && img[px(2, 2)] > 200, 'both sides of the edge move apart');
+  assert.equal(img[px(w - 2, 2)], 200, 'no bright rim where the content meets transparency');
+  for (let y = 0; y < h; y++) assert.deepEqual([...img.slice(px(w - 1, y), px(w - 1, y) + 4)], [0, 0, 0, 0]);
+
+  // A bright green pixel among darker greens would clip to exactly #00FF00, which Soldat keys out
+  const green = new Uint8ClampedArray(3 * 3 * 4);
+  for (let i = 0; i < 9; i++) green.set([0, i === 4 ? 250 : 200, 0, 255], i * 4);
+  sharpenForDisplay(green, 3, 3, 0.1);
+  assert.deepEqual([...green.slice(16, 20)], [0, 254, 0, 255]);
 });

@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 >nul
-title Soldat Map Studio v2.2 - MPA Pro ^& 100%% Map Viewer ^& Warsztat _f/_o
+title Soldat Map Studio - MPA Pro ^& 100%% Map Viewer ^& Warsztat _f/_o
 cd /d "%~dp0"
 
 echo ============================================================
-echo   SOLDAT MAP STUDIO v2.2 (MPA Pro + 100%% Map Viewer + _f/_o)
+echo   SOLDAT MAP STUDIO (MPA Pro + 100%% Map Viewer + _f/_o)
 echo   Obsluga 50 000+ map ^| RSCS ^| Trenchwars ^| Wlasne Prefixy
 echo ============================================================
 

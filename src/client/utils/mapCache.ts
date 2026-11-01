@@ -203,24 +203,25 @@ export async function openPathInExplorer(targetPath: string): Promise<void> {
   });
 }
 
-export async function pickSystemFolder(description: string): Promise<string | null> {
-  const res = await fetch('/api/system/pick-folder', {
+async function pickSystemPath(url: string, body: unknown): Promise<string | null> {
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ description }),
+    body: JSON.stringify(body),
   });
-  if (!res.ok) return null;
-  const data = await res.json();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    // e.g. Linux without zenity / kdialog: say why nothing opened (the path can still be typed in)
+    if (data.error) window.alert(data.error);
+    return null;
+  }
   return data.path || null;
 }
 
-export async function pickSystemFile(filter?: string): Promise<string | null> {
-  const res = await fetch('/api/system/pick-file', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ filter }),
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  return data.path || null;
+export function pickSystemFolder(description: string): Promise<string | null> {
+  return pickSystemPath('/api/system/pick-folder', { description });
+}
+
+export function pickSystemFile(filter?: string): Promise<string | null> {
+  return pickSystemPath('/api/system/pick-file', { filter });
 }

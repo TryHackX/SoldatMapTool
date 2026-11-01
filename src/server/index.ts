@@ -2,7 +2,6 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { execFile } from 'child_process';
 import AdmZip from 'adm-zip';
 import { extractZipSafely, isZipSymlink, ZIP_LIMITS, zipEntryProblem, ZipSafetyError } from './zipSafety';
 import sharp from 'sharp';
@@ -33,6 +32,7 @@ import { CustomPrefixRule, sanitizeCustomRules } from '../shared/prefixUtils';
 import { makeDerivedMapName, parsePmsSummary } from '../shared/pmsParser';
 import { APP_VERSION } from '../shared/version';
 import { installFileLogger } from './logger';
+import { DialogUnavailableError, findDefaultSoldatPath, openInFileManager, pickPathDialog } from './platform';
 import { UserDataStore } from './userDataStore';
 import { PackPresetStore } from './packPresets';
 import {
@@ -54,7 +54,7 @@ const THUMB_DIR = path.join(CACHE_DIR, 'thumbnails');
 const EXPORTS_PACKS_DIR = path.join(WORKSPACE_ROOT, 'exports', 'packs');
 const EXPORTS_SCREENS_DIR = path.join(WORKSPACE_ROOT, 'exports', 'screenshots');
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
-const DEFAULT_SOLDAT_PATH = 'G:\\Steam\\steamapps\\common\\Soldat';
+const DEFAULT_SOLDAT_PATH = findDefaultSoldatPath();
 
 installFileLogger(path.join(DATA_DIR, 'logs'));
 
@@ -1081,7 +1081,7 @@ app.delete('/api/workshop/optimize-session/:sessionId', (req, res) => {
   res.json({ ok: true });
 });
 
-// 8. Native Windows OS Helpers
+// 8. System helpers: file manager and native pickers (Windows, Linux, macOS — see platform.ts)
 app.post('/api/system/open-path', (req, res) => {
   const target = String(req.body?.path || '').trim();
   if (!target || !fs.existsSync(target)) {
@@ -1089,79 +1089,28 @@ app.post('/api/system/open-path', (req, res) => {
     return;
   }
   const resolved = path.resolve(target);
-  const stat = fs.statSync(resolved);
-  if (stat.isFile()) {
-    execFile('explorer.exe', [`/select,${resolved}`]);
-  } else {
-    execFile('explorer.exe', [resolved]);
-  }
+  openInFileManager(resolved, fs.statSync(resolved).isFile());
   res.json({ ok: true });
 });
 
-/**
- * Runs a WinForms dialog script. User-supplied texts travel through environment variables (never spliced
- * into the script, so no quote can inject commands) and stdout is forced to UTF-8 for Polish paths.
- */
-function runPowerShellDialog(
-  script: string,
-  env: Record<string, string>,
-  res: express.Response
-): void {
-  const fullScript = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n${script}`;
-  execFile(
-    'powershell.exe',
-    ['-NoProfile', '-NonInteractive', '-STA', '-Command', fullScript],
-    { timeout: 300000, windowsHide: true, encoding: 'utf8', env: { ...process.env, ...env } },
-    (err, stdout) => {
-      if (err) {
-        res.status(500).json({ error: String(err) });
-        return;
-      }
-      const selected = String(stdout).trim();
-      res.json({ path: selected || null });
-    }
-  );
+async function answerPick(res: express.Response, pick: Promise<string | null>): Promise<void> {
+  try {
+    res.json({ path: await pick });
+  } catch (err) {
+    sendError(res, err, err instanceof DialogUnavailableError ? 501 : 500);
+  }
 }
 
 app.post('/api/system/pick-folder', (req, res) => {
   const description = String(req.body?.description || 'Wybierz folder').slice(0, 200);
-  runPowerShellDialog(
-    `
-    Add-Type -AssemblyName System.Windows.Forms
-    $f = New-Object System.Windows.Forms.FolderBrowserDialog
-    $f.Description = $env:SMS_DIALOG_TEXT
-    $f.ShowNewFolderButton = $true
-    $top = New-Object System.Windows.Forms.Form
-    $top.TopMost = $true
-    if ($f.ShowDialog($top) -eq [System.Windows.Forms.DialogResult]::OK) {
-      Write-Output $f.SelectedPath
-    }
-    $top.Dispose()
-  `,
-    { SMS_DIALOG_TEXT: description },
-    res
-  );
+  void answerPick(res, pickPathDialog('folder', description));
 });
 
 app.post('/api/system/pick-file', (req, res) => {
   const filter = String(
     req.body?.filter || 'Archiwa Map (*.zip;*.smap)|*.zip;*.smap|Wszystkie pliki (*.*)|*.*'
   ).slice(0, 300);
-  runPowerShellDialog(
-    `
-    Add-Type -AssemblyName System.Windows.Forms
-    $f = New-Object System.Windows.Forms.OpenFileDialog
-    $f.Filter = $env:SMS_DIALOG_TEXT
-    $top = New-Object System.Windows.Forms.Form
-    $top.TopMost = $true
-    if ($f.ShowDialog($top) -eq [System.Windows.Forms.DialogResult]::OK) {
-      Write-Output $f.FileName
-    }
-    $top.Dispose()
-  `,
-    { SMS_DIALOG_TEXT: filter },
-    res
-  );
+  void answerPick(res, pickPathDialog('file', filter));
 });
 
 // Unknown API routes answer JSON (instead of the SPA index.html fallback)
