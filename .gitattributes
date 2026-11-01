@@ -1,0 +1,3 @@
+* text=auto
+# cmd.exe wymaga końców linii CRLF w plikach .bat
+*.bat text eol=crlf
