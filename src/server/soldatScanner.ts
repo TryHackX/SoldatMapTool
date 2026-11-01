@@ -87,7 +87,7 @@ function unreadableSummary(message: string, crc32: number): PmsSummaryData {
     polyBounds: bounds,
     fullBounds: bounds,
     crc32,
-    parseWarnings: [`Nie można odczytać pliku PMS: ${message}`],
+    parseWarnings: [`Cannot read the PMS file: ${message}`],
   };
 }
 
@@ -436,7 +436,7 @@ export class SoldatMapScanner {
 
     const mainMapsDir = path.join(this.soldatPath, 'maps');
     if (fs.existsSync(mainMapsDir)) {
-      walkDir('soldat', 'Soldat (Główny)', mainMapsDir, mainMapsDir, false, 0);
+      walkDir('soldat', 'Soldat (main)', mainMapsDir, mainMapsDir, false, 0);
     }
 
     const dlMapsDir = path.join(this.soldatPath, 'downloads', 'maps');

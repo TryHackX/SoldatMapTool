@@ -247,60 +247,61 @@ export function compareNumber(actual: number, op: SearchCompareOp, expected: num
   }
 }
 
+// English chip labels; the UI passes its translator to describeSearchTerm()
 const NUMERIC_LABELS: Record<SearchNumericField, string> = {
-  props: 'scenerie',
-  polys: 'poligony',
-  colliders: 'collidery',
-  spawns: 'spawny',
-  waypoints: 'waypointy',
-  width: 'szerokość',
-  height: 'wysokość',
-  sizeKb: 'rozmiar KB',
-  missing: 'brakujące pliki',
-  medikits: 'apteczki',
-  grenades: 'granaty',
+  props: 'sceneries',
+  polys: 'polygons',
+  colliders: 'colliders',
+  spawns: 'spawns',
+  waypoints: 'waypoints',
+  width: 'width',
+  height: 'height',
+  sizeKb: 'size KB',
+  missing: 'missing files',
+  medikits: 'medikits',
+  grenades: 'grenades',
   jet: 'jet',
 };
 
 const TEXT_LABELS: Record<SearchTextField, string> = {
-  name: 'nazwa',
-  title: 'tytuł',
-  tex: 'tekstura',
-  scenery: 'sceneria',
+  name: 'name',
+  title: 'title',
+  tex: 'texture',
+  scenery: 'scenery',
   prefix: 'prefix',
-  mode: 'tryb',
-  source: 'źródło',
+  mode: 'mode',
+  source: 'source',
   crc: 'CRC',
   tag: 'tag',
 };
 
 const FLAG_LABELS: Record<SearchFlag, string> = {
-  fav: 'ulubione',
-  vanilla: 'oryginalne',
-  custom: 'własne',
-  broken: 'z brakami',
-  dup: 'duplikaty',
-  incompatible: 'nie wczytają się',
-  case: 'wielkość liter',
+  fav: 'favorites',
+  vanilla: 'default',
+  custom: 'custom',
+  broken: 'with missing files',
+  dup: 'duplicates',
+  incompatible: "won't load",
+  case: 'letter case',
 };
 
-const WEATHER_LABELS = ['brak pogody', 'deszcz', 'burza piaskowa', 'śnieg'];
+const WEATHER_LABELS = ['no weather', 'rain', 'sandstorm', 'snow'];
 
-/** Short Polish label of a parsed term, for the filter chips under the search box */
-export function describeSearchTerm(term: SearchTerm): string {
-  const not = term.negate ? 'nie ' : '';
+/** Short label of a parsed term, for the filter chips under the search box; `tr` translates the English words */
+export function describeSearchTerm(term: SearchTerm, tr: (en: string) => string = (en) => en): string {
+  const not = term.negate ? `${tr('not')} ` : '';
   switch (term.kind) {
     case 'text':
-      return `${not}„${term.value}”`;
+      return `${not}“${term.value}”`;
     case 'field':
       return term.field === 'prefix'
-        ? `${not}${TEXT_LABELS.prefix}: ${term.value}…`
-        : `${TEXT_LABELS[term.field]}: ${not}${term.value}`;
+        ? `${not}${tr(TEXT_LABELS.prefix)}: ${term.value}…`
+        : `${tr(TEXT_LABELS[term.field])}: ${not}${term.value}`;
     case 'num':
-      return `${not}${NUMERIC_LABELS[term.field]} ${term.op} ${term.value}`;
+      return `${not}${tr(NUMERIC_LABELS[term.field])} ${term.op} ${term.value}`;
     case 'flag':
-      return `${not}${FLAG_LABELS[term.flag]}`;
+      return `${not}${tr(FLAG_LABELS[term.flag])}`;
     case 'weather':
-      return `${not}${WEATHER_LABELS[term.value] ?? `pogoda ${term.value}`}`;
+      return `${not}${WEATHER_LABELS[term.value] !== undefined ? tr(WEATHER_LABELS[term.value]) : `${tr('weather')} ${term.value}`}`;
   }
 }

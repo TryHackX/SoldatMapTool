@@ -11,6 +11,7 @@ import {
 } from '@shared/apiTypes';
 import { parsePmsFull, PmsMapData } from '@shared/pmsParser';
 import { CustomPrefixRule } from '@shared/prefixUtils';
+import { t } from '../i18n';
 
 const parsedMapLru = new Map<string, PmsMapData>();
 const inFlight = new Map<string, Promise<PmsMapData>>();
@@ -39,7 +40,8 @@ export async function fetchAndParseMap(mapId: string): Promise<PmsMapData> {
   const promise = (async () => {
     const res = await fetch(`/api/maps/${encodeURIComponent(mapId)}/raw`);
     if (!res.ok) {
-      throw new Error(`Nie udało się wczytać pliku mapy ${mapId} (${res.status})`);
+      // App.tsx recognizes a missing map by "(404)" at the end of this message: keep "({status})" in every language
+      throw new Error(t('Could not load the map file {id} ({status})', { id: mapId, status: res.status }));
     }
     const buf = await res.arrayBuffer();
     const parsed = parsePmsFull(buf);
@@ -71,7 +73,7 @@ export async function fetchMapDetails(mapId: string, force = false): Promise<Map
   }
   const res = await fetch(`/api/maps/${encodeURIComponent(mapId)}/details`);
   if (!res.ok) {
-    throw new Error(`Nie udało się pobrać szczegółów mapy ${mapId} (${res.status})`);
+    throw new Error(t('Could not load the details of map {id} ({status})', { id: mapId, status: res.status }));
   }
   const entry: MapIndexEntry = await res.json();
   if (mapDetailsLru.size >= MAX_CACHED_DETAILS) {
@@ -90,7 +92,7 @@ export async function updateMapUserData(mapId: string, patch: MapUserDataPatch):
     body: JSON.stringify(patch),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Nie udało się zapisać ulubionych / tagów (HTTP ${res.status})`);
+  if (!res.ok) throw new Error(data.error || t('Could not save favorites / tags (HTTP {status})', { status: res.status }));
   const cached = mapDetailsLru.get(mapId);
   if (cached) mapDetailsLru.set(mapId, { ...cached, favorite: data.favorite, tags: data.tags });
   return data as MapUserDataResponse;
@@ -137,7 +139,7 @@ export async function queryMatchingMapIds(req: MapQueryRequest): Promise<string[
     body: JSON.stringify(req),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Nie udało się pobrać listy map (HTTP ${res.status})`);
+  if (!res.ok) throw new Error(data.error || t('Could not load the map list (HTTP {status})', { status: res.status }));
   return Array.isArray(data.ids) ? data.ids : [];
 }
 
@@ -150,7 +152,7 @@ export async function queryMatchingMapCompacts(
     body: JSON.stringify(req),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Nie udało się pobrać listy map (HTTP ${res.status})`);
+  if (!res.ok) throw new Error(data.error || t('Could not load the map list (HTTP {status})', { status: res.status }));
   return Array.isArray(data.items) ? data.items : [];
 }
 

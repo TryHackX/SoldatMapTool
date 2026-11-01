@@ -7,9 +7,10 @@ import {
   loadSoldatObjectSprites,
   ObjectSpritesBundle,
 } from '../renderer/assetLoader';
-import { renderMapOverlays, RulerMeasurement } from '../renderer/OverlayRenderer';
+import { renderMapOverlays, RulerMeasurement, spawnTypeName } from '../renderer/OverlayRenderer';
 import { SoldatWebGLRenderer } from '../renderer/SoldatWebGLRenderer';
 import { RenderLayerVisibility } from '../renderer/types';
+import { polyTypeName, t, tText } from '../i18n';
 import {
   AlertTriangle,
   Bot,
@@ -773,7 +774,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       if (!sp.active) continue;
       if (Math.hypot(sp.x - w.x, sp.y - w.y) <= hitRadius) {
         const meta = SPAWN_TYPES[sp.team];
-        setHoverHint(`${meta?.namePl || `Spawn Team ${sp.team}`} (${sp.x}, ${sp.y})`);
+        setHoverHint(`${meta ? spawnTypeName(meta) : `Spawn Team ${sp.team}`} (${sp.x}, ${sp.y})`);
         return;
       }
     }
@@ -782,7 +783,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       for (const col of mapData.colliders) {
         if (!col.active) continue;
         if (Math.hypot(col.x - w.x, col.y - w.y) <= Math.max(hitRadius, col.radius * 0.5)) {
-          setHoverHint(`Colider #${col.index + 1} • Średnica: ${Math.round(col.radius)} px`);
+          setHoverHint(t('Collider #{n} • Diameter: {d} px', { n: col.index + 1, d: Math.round(col.radius) }));
           return;
         }
       }
@@ -797,9 +798,10 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         const pMeta = POLY_TYPES[poly.polyType];
         const bounceInfo =
           poly.polyType === 18 && poly.bounciness > 0
-            ? ` [Odbicie: ${poly.bounciness.toFixed(2)}x]`
+            ? ` ${t('[Bounce: {factor}x]', { factor: poly.bounciness.toFixed(2) })}`
             : '';
-        setHoverHint(`Poligon #${i + 1}: ${pMeta?.namePl || `Typ ${poly.polyType}`}${bounceInfo}`);
+        const typeName = pMeta ? polyTypeName(pMeta) : t('Type {n}', { n: poly.polyType });
+        setHoverHint(`${t('Polygon #{n}: {type}', { n: i + 1, type: typeName })}${bounceInfo}`);
         return;
       }
     }
@@ -836,7 +838,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         const issue = hit.kind === 'prop' ? issueOverlay.byProp.get(hit.index) : undefined;
         if (issue) {
           hit.details.push([
-            'Problem 1.7.1',
+            t('1.7.1 issue'),
             `${issue.reasonLabelPl}: ${issue.pmsWidth}×${issue.pmsHeight} → ${issue.expectedWidth}×${issue.expectedHeight}`,
           ]);
         }
@@ -933,43 +935,43 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         {/* Classic Layers Group */}
         <div className="flex flex-wrap items-center gap-1">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mr-0.5">
-            Widok:
+            {t('View:')}
           </span>
           <LayerChip
             active={layers.showBackground}
             onClick={() => toggleLayer('showBackground')}
-            label="Tło"
-            title="Gradient tła mapy"
+            label={t('Background')}
+            title={t('Map background gradient')}
           />
           <LayerChip
             active={layers.showPolygons}
             onClick={() => toggleLayer('showPolygons')}
-            label="Poligony"
-            title="Tekstury i geometria terenu"
+            label={t('Polygons')}
+            title={t('Terrain textures and geometry')}
           />
           <LayerChip
             active={layers.showSmoothEdges}
             onClick={() => toggleLayer('showSmoothEdges')}
             icon={<Sparkles className="w-3 h-3 text-emerald-400" />}
-            label="Krawędzie"
-            title="Wygładzane krawędzie terenu OpenSoldat (textures/edges/)"
+            label={t('Edges')}
+            title={t('OpenSoldat smoothed terrain edges (textures/edges/)')}
           />
           <LayerChip
             active={layers.showSceneryBack}
             onClick={() => toggleLayer('showSceneryBack')}
-            label="Scen. Tył"
-            title="Scenerie na warstwie 0 (za graczem)"
+            label={t('Back scenery')}
+            title={t('Sceneries on layer 0 (behind the player)')}
           />
           <LayerChip
             active={layers.showSceneryMid}
             onClick={() => toggleLayer('showSceneryMid')}
-            label="Scen. Środek"
-            title="Scenerie na warstwie 1 (przed graczem, za poligonami)"
+            label={t('Mid scenery')}
+            title={t('Sceneries on layer 1 (in front of the player, behind polygons)')}
           />
           <button
             type="button"
             onClick={cycleFrontSceneryMode}
-            title="Kliknij aby przełączyć kryjówki (Scenerie Przód): Pełne 100% -> Prześwit X-Ray 35% -> Ukryte"
+            title={t('Click to cycle cover (front sceneries): full 100% -> X-ray 35% -> hidden')}
             className={`px-2 py-1 rounded text-xs font-medium border transition-colors flex items-center gap-1 cursor-pointer ${
               !layers.showSceneryFront
                 ? 'bg-zinc-900 text-zinc-500 border-zinc-800'
@@ -980,10 +982,10 @@ export const MapViewport: React.FC<MapViewportProps> = ({
           >
             <Eye className="w-3.5 h-3.5" />
             {!layers.showSceneryFront
-              ? 'Kryjówki: Wył.'
+              ? t('Cover: off')
               : layers.frontSceneryOpacity < 1
-              ? 'Kryjówki: X-Ray'
-              : 'Scen. Przód'}
+              ? t('Cover: X-ray')
+              : t('Front scenery')}
           </button>
 
           <LayerChip
@@ -991,15 +993,15 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             onClick={() => toggleLayer('preferClassicBmp')}
             icon={<History className="w-3 h-3 text-amber-400" />}
             label={layers.preferClassicBmp ? 'BMP 1.6' : 'HD PNG'}
-            title="Przełącz pomiędzy teksturami HD (.png) z OpenSoldat a klasycznymi teksturami Soldat 1.6 (.bmp)"
+            title={t('Switch between OpenSoldat HD textures (.png) and classic Soldat 1.6 textures (.bmp)')}
             accent="amber"
           />
 
           <LayerChip
             active={layers.pixelatedFilter}
             onClick={() => toggleLayer('pixelatedFilter')}
-            label="Piksele"
-            title="Ostre filtrowanie pikseli GL_NEAREST (bez rozmycia przy dużym przybliżeniu)"
+            label={t('Pixels')}
+            title={t('Sharp GL_NEAREST pixel filtering (no blur when zoomed in)')}
           />
 
           <div className="w-px h-4 bg-zinc-800 mx-0.5" />
@@ -1009,7 +1011,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             active={layers.showFlags}
             onClick={() => toggleLayer('showFlags')}
             icon={<Flag className="w-3.5 h-3.5 text-red-400" />}
-            label="Flagi"
+            label={t('Flags')}
             badge={entitySummary.flags}
             accent="rose"
           />
@@ -1017,7 +1019,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             active={layers.showSpawns}
             onClick={() => toggleLayer('showSpawns')}
             icon={<Users className="w-3.5 h-3.5 text-sky-400" />}
-            label="Spawny"
+            label={t('Spawn points')}
             badge={entitySummary.spawns}
             accent="sky"
           />
@@ -1025,7 +1027,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             active={layers.showBonuses}
             onClick={() => toggleLayer('showBonuses')}
             icon={<Gift className="w-3.5 h-3.5 text-emerald-400" />}
-            label="Bonusy"
+            label={t('Bonuses')}
             badge={entitySummary.bonuses}
             accent="emerald"
           />
@@ -1033,7 +1035,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             active={layers.showColliders}
             onClick={() => toggleLayer('showColliders')}
             icon={<CircleDot className="w-3.5 h-3.5 text-cyan-400" />}
-            label="Colidery"
+            label={t('Colliders')}
             badge={entitySummary.colliders}
             accent="cyan"
           />
@@ -1041,38 +1043,38 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             active={layers.showPolyTypes}
             onClick={() => toggleLayer('showPolyTypes')}
             icon={<ShieldAlert className="w-3.5 h-3.5 text-amber-400" />}
-            label="Fizyka Poly"
+            label={t('Poly physics')}
             badge={entitySummary.specialPolys}
             accent="amber"
           />
           <LayerChip
             active={layers.showWireframe}
             onClick={() => toggleLayer('showWireframe')}
-            label="Siatka"
-            title="Siatka trójkątów (Wireframe)"
+            label={t('Wireframe')}
+            title={t('Triangle mesh (wireframe)')}
           />
           <LayerChip
             active={layers.showWaypoints}
             onClick={() => toggleLayer('showWaypoints')}
             icon={<Bot className="w-3.5 h-3.5 text-yellow-400" />}
-            label="Boty"
+            label={t('Bots')}
             badge={mapEntry?.activeWaypointCount}
           />
           <LayerChip
             active={layers.showGrid}
             onClick={() => toggleLayer('showGrid')}
             icon={<Grid className="w-3.5 h-3.5 text-zinc-400" />}
-            label="Sektory"
+            label={t('Sectors')}
           />
           <LayerChip
             active={prefs.showFixIssues}
             onClick={() => setPrefs((p) => ({ ...p, showFixIssues: !p.showFixIssues }))}
             icon={<AlertTriangle className="w-3.5 h-3.5 text-amber-400" />}
-            label="Problemy 1.7.1"
+            label={t('1.7.1 issues')}
             title={
               previewModeBanner
-                ? 'Obrysy problemów 1.7.1 są niedostępne w trybie podglądu'
-                : 'Obrysuj scenerie z błędnymi wymiarami po przejściu na Soldat 1.7.1 (to, co naprawia _f)'
+                ? t('1.7.1 issue outlines are not available in preview mode')
+                : t('Outline sceneries with wrong sizes after moving to Soldat 1.7.1 (what _f fixes)')
             }
             badge={issueOverlay?.byProp.size}
             accent="amber"
@@ -1082,9 +1084,9 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             type="button"
             onClick={toggleAllTactical}
             className="ml-0.5 px-2 py-1 rounded text-[11px] bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition-colors cursor-pointer"
-            title="Włącz / wyłącz wszystkie obiekty (Flagi + Spawny + Bonusy + Colidery)"
+            title={t('Toggle all objects (flags + spawn points + bonuses + colliders)')}
           >
-            Wszystkie obiekty
+            {t('All objects')}
           </button>
         </div>
 
@@ -1094,11 +1096,11 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             <button
               type="button"
               onClick={() => onStopCompare?.()}
-              title="Zakończ porównanie dwóch wersji mapy"
+              title={t('End the comparison of two map versions')}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold cursor-pointer shrink-0"
             >
               <Columns2 className="w-3.5 h-3.5" />
-              <span className="hidden xl:inline">Zakończ porównanie</span>
+              <span className="hidden xl:inline">{t('End comparison')}</span>
             </button>
           ) : (
             (compareCandidates.length > 0 || onCompareWithOriginal) &&
@@ -1119,18 +1121,20 @@ export const MapViewport: React.FC<MapViewportProps> = ({
                     });
                   }}
                   aria-expanded={compareMenuOpen}
-                  title="Porównaj z inną wersją tej mapy (suwak)"
+                  title={t('Compare with another version of this map (slider)')}
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 border border-sky-500/40 text-sky-100 text-xs font-semibold cursor-pointer shrink-0"
                 >
                   <Columns2 className="w-3.5 h-3.5 text-sky-300" />
-                  <span className="hidden xl:inline">Porównaj</span>
+                  <span className="hidden xl:inline">{t('Compare')}</span>
                 </button>
                 {compareMenuPos && (
                   <div
                     className="fixed z-50 w-64 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl py-1 text-xs"
                     style={{ left: compareMenuPos.left, top: compareMenuPos.top }}
                   >
-                    <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-zinc-500">Porównaj z (po prawej)</div>
+                    <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-zinc-500">
+                      {t('Compare with (on the right)')}
+                    </div>
                     {onCompareWithOriginal && (
                       <button
                         type="button"
@@ -1140,7 +1144,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
                         }}
                         className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 text-zinc-100 cursor-pointer"
                       >
-                        Oryginałem tej mapy (przed zmianami)
+                        {t("This map's original (before changes)")}
                       </button>
                     )}
                     {compareCandidates.map((c) => (
@@ -1166,11 +1170,13 @@ export const MapViewport: React.FC<MapViewportProps> = ({
               type="button"
               onClick={() => onOpenWorkshopModal('fix')}
               disabled={!actionsEnabled}
-              title="Napraw rozciągnięte scenerie z Soldat 1.7.1 (_f.pms) lub sklej warstwy scenerii Optimize Sceneries (_o.pms)"
+              title={t(
+                'Fix sceneries stretched by Soldat 1.7.1 (_f.pms) or merge scenery layers with Optimize Sceneries (_o.pms)'
+              )}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-amber-600/90 hover:bg-amber-500 text-white text-xs font-semibold shadow-lg shadow-amber-950/50 disabled:opacity-40 transition-all cursor-pointer shrink-0"
             >
               <Wrench className="w-3.5 h-3.5" />
-              <span className="hidden 2xl:inline">Napraw 1.7.1 / Optimize (_f / _o)</span>
+              <span className="hidden 2xl:inline">{t('Fix 1.7.1 / Optimize (_f / _o)')}</span>
               <span className="2xl:hidden">_f / _o</span>
             </button>
           )}
@@ -1179,12 +1185,12 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             type="button"
             onClick={onOpenFullSizeModal}
             disabled={!actionsEnabled}
-            title="Pełnowymiarowy zrzut mapy (100% / własna skala)"
+            title={t('Full-size map screenshot (100% / custom scale)')}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-lg shadow-emerald-950/50 disabled:opacity-40 transition-all cursor-pointer shrink-0"
           >
             <Camera className="w-4 h-4" />
-            <span className="hidden 2xl:inline">Full-Size Screen (100%)</span>
-            <span className="2xl:hidden">Screen</span>
+            <span className="hidden 2xl:inline">{t('Full-size screenshot (100%)')}</span>
+            <span className="2xl:hidden">{t('Screenshot')}</span>
           </button>
         </div>
       </div>
@@ -1202,7 +1208,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
               onClick={onClearPreviewMode}
               className="px-2.5 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/40 text-amber-100 font-semibold cursor-pointer"
             >
-              Wróć do oryginału
+              {t('Back to original')}
             </button>
           )}
         </div>
@@ -1246,7 +1252,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         {loading && (
           <div className="absolute inset-0 bg-zinc-950/50 backdrop-blur-[2px] flex items-center justify-center z-10 pointer-events-none">
             <div className="bg-zinc-900 border border-zinc-700 px-4 py-2 rounded-lg text-xs text-zinc-200 shadow-xl">
-              Wczytywanie mapy i tekstur na GPU...
+              {t('Loading the map and textures onto the GPU...')}
             </div>
           </div>
         )}
@@ -1254,8 +1260,9 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         {contextLost && (
           <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
             <div className="bg-amber-950/90 border border-amber-700 px-5 py-3 rounded-lg text-xs text-amber-100 max-w-md text-center">
-              Karta graficzna zresetowała kontekst WebGL2 — trwa próba odzyskania. Jeśli widok nie wróci, odśwież
-              stronę (F5).
+              {t(
+                'The graphics card reset the WebGL2 context — trying to recover. If the view does not come back, reload the page (F5).'
+              )}
             </div>
           </div>
         )}
@@ -1283,7 +1290,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
                 ({Math.round(mapEntry.polyBounds.width)} × {Math.round(mapEntry.polyBounds.height)} px)
               </span>
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800/90 text-zinc-300">
-                {mapEntry.modeGroupName}
+                {tText(mapEntry.modeGroupName)}
               </span>
             </div>
             {mapEntry.title && mapEntry.title.toLowerCase() !== mapEntry.baseName.toLowerCase() && (
@@ -1296,7 +1303,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         {layers.showPolyTypes && presentSpecialPolyTypes.length > 0 && (
           <div className="absolute top-3 right-3 z-10 pointer-events-none bg-zinc-950/85 backdrop-blur-md border border-zinc-800 rounded-lg p-2.5 shadow-lg max-w-60">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
-              Typy Poligonów na Mapie
+              {t('Polygon types on the map')}
             </div>
             <div className="space-y-1">
               {presentSpecialPolyTypes.map(({ meta, count }) => (
@@ -1306,7 +1313,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
                       className="w-2.5 h-2.5 rounded-sm shrink-0"
                       style={{ backgroundColor: meta.color }}
                     />
-                    <span className="truncate">{meta.namePl}</span>
+                    <span className="truncate">{polyTypeName(meta)}</span>
                   </span>
                   <span className="font-mono text-zinc-400 text-[10px]">{count}</span>
                 </div>
@@ -1326,17 +1333,17 @@ export const MapViewport: React.FC<MapViewportProps> = ({
                 e.preventDefault();
                 splitDragRef.current = true;
               }}
-              aria-label="Przeciągnij, aby przesunąć granicę porównania"
-              title="Przeciągnij, aby przesunąć granicę porównania"
+              aria-label={t('Drag to move the comparison divider')}
+              title={t('Drag to move the comparison divider')}
               className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-5 h-10 rounded bg-zinc-100 text-zinc-900 text-xs font-bold shadow-lg cursor-ew-resize flex items-center justify-center"
             >
               ⇔
             </button>
             <span className="absolute top-14 right-3 whitespace-nowrap text-[11px] font-mono bg-zinc-950/85 text-zinc-100 px-1.5 py-0.5 rounded pointer-events-none">
-              ◀ {mainLabel ?? mapEntry?.baseName ?? 'bieżąca mapa'}
+              ◀ {mainLabel ?? mapEntry?.baseName ?? t('current map')}
             </span>
             <span className="absolute top-14 left-3 whitespace-nowrap text-[11px] font-mono bg-sky-950/90 text-sky-100 px-1.5 py-0.5 rounded pointer-events-none">
-              {compare.label} ▶{!compareReady && ' (wczytywanie...)'}
+              {compare.label} ▶{!compareReady && ` (${t('loading...')})`}
             </span>
           </div>
         )}
@@ -1354,7 +1361,10 @@ export const MapViewport: React.FC<MapViewportProps> = ({
               style={{ left: cx - vwPx / 2, top: cy - vhPx / 2, width: vwPx, height: vhPx }}
             >
               <span className="absolute -top-5 left-0 whitespace-nowrap text-[10px] font-mono bg-zinc-950/85 text-sky-200 px-1 rounded">
-                Widok gracza {Math.round(PLAYER_VIEW_HEIGHT * prefs.playerAspect)}×{PLAYER_VIEW_HEIGHT}
+                {t('Player view {w}×{h}', {
+                  w: Math.round(PLAYER_VIEW_HEIGHT * prefs.playerAspect),
+                  h: PLAYER_VIEW_HEIGHT,
+                })}
               </span>
             </div>
           );
@@ -1370,7 +1380,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
               ref={minimapCanvasRef}
               style={{ width: minimapSourceRef.current.geo.w, height: minimapSourceRef.current.geo.h }}
               className="block cursor-crosshair rounded-sm"
-              aria-label="Minimapa — kliknij, aby przesunąć widok"
+              aria-label={t('Minimap — click to move the view')}
               onMouseDown={(e) => {
                 e.preventDefault();
                 minimapDragRef.current = true;
@@ -1388,13 +1398,16 @@ export const MapViewport: React.FC<MapViewportProps> = ({
           >
             <div className="px-3 py-2 border-b border-zinc-800 flex items-center justify-between gap-2">
               <span className="font-semibold text-fuchsia-200">
-                Obiekty w punkcie ({Math.round(inspection.worldX)}, {Math.round(inspection.worldY)}) —{' '}
-                {inspection.hits.length}
+                {t('Objects at ({x}, {y}) — {count}', {
+                  x: Math.round(inspection.worldX),
+                  y: Math.round(inspection.worldY),
+                  count: inspection.hits.length,
+                })}
               </span>
               <button
                 type="button"
                 onClick={() => setInspection(null)}
-                title="Zamknij (Esc)"
+                title={t('Close (Esc)')}
                 className="text-zinc-400 hover:text-zinc-100 cursor-pointer"
               >
                 ✕
@@ -1410,7 +1423,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
                       onClick={() => setInspection((prev) => (prev ? { ...prev, selected: idx } : prev))}
                       className="w-full text-left px-3 py-1.5 hover:bg-zinc-900 cursor-pointer"
                     >
-                      <span className="text-[10px] text-zinc-500 mr-1.5">{idx === 0 ? 'na wierzchu' : `#${idx + 1}`}</span>
+                      <span className="text-[10px] text-zinc-500 mr-1.5">{idx === 0 ? t('on top') : `#${idx + 1}`}</span>
                       <span className={`font-mono ${selected ? 'text-fuchsia-200' : 'text-zinc-200'}`}>{hit.title}</span>
                     </button>
                     {selected && (
@@ -1425,12 +1438,14 @@ export const MapViewport: React.FC<MapViewportProps> = ({
                         ))}
                         {hit.sceneryName && inspectFileDims?.name === hit.sceneryName && hit.pmsSize && (
                           <div className="flex justify-between gap-3">
-                            <span className="text-zinc-500 shrink-0">Plik graficzny</span>
+                            <span className="text-zinc-500 shrink-0">{t('Image file')}</span>
                             <span className="font-mono text-zinc-200 text-right">
                               {inspectFileDims.w} × {inspectFileDims.h}
                               {(inspectFileDims.w !== Math.abs(hit.pmsSize[0]) ||
                                 inspectFileDims.h !== Math.abs(hit.pmsSize[1])) &&
-                                ` (×${(inspectFileDims.w / Math.max(1, Math.abs(hit.pmsSize[0]))).toFixed(2)} względem PMS)`}
+                                ` ${t('(×{ratio} vs PMS)', {
+                                  ratio: (inspectFileDims.w / Math.max(1, Math.abs(hit.pmsSize[0]))).toFixed(2),
+                                })}`}
                             </span>
                           </div>
                         )}
@@ -1450,7 +1465,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             <span className="font-mono text-zinc-400">
               {cursorWorld
                 ? `X: ${Math.round(cursorWorld.x)}  Y: ${Math.round(cursorWorld.y)}`
-                : 'Przeciągnij aby przesuwać • Rolka przybliża'}
+                : t('Drag to pan • Scroll to zoom')}
             </span>
             {hoverHint && (
               <>
@@ -1471,7 +1486,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
                 setRulerMode((v) => !v);
                 if (rulerMode) setRuler(null);
               }}
-              title="Miarka odległości (kliknij i przeciągnij na mapie)"
+              title={t('Distance ruler (click and drag on the map)')}
               className={`px-2 py-1 rounded text-xs flex items-center gap-1 transition-colors cursor-pointer ${
                 rulerMode
                   ? 'bg-emerald-500/25 text-emerald-200 border border-emerald-500/40'
@@ -1479,13 +1494,13 @@ export const MapViewport: React.FC<MapViewportProps> = ({
               }`}
             >
               <Ruler className="w-3.5 h-3.5" />
-              Miarka
+              {t('Ruler')}
             </button>
 
             <button
               type="button"
               onClick={() => setPrefs((p) => ({ ...p, showPlayerView: !p.showPlayerView }))}
-              title="Ramka widoku gracza przy kursorze (Soldat pokazuje 480 jednostek wysokości)"
+              title={t("Player's view frame at the cursor (Soldat shows 480 units of height)")}
               aria-pressed={prefs.showPlayerView}
               className={`px-2 py-1 rounded text-xs flex items-center gap-1 transition-colors cursor-pointer ${
                 prefs.showPlayerView
@@ -1494,13 +1509,13 @@ export const MapViewport: React.FC<MapViewportProps> = ({
               }`}
             >
               <Monitor className="w-3.5 h-3.5" />
-              Widok gracza
+              {t('Player view')}
             </button>
             {prefs.showPlayerView && (
               <select
                 value={String(prefs.playerAspect)}
                 onChange={(e) => setPrefs((p) => ({ ...p, playerAspect: Number(e.target.value) }))}
-                aria-label="Proporcje ekranu gracza"
+                aria-label={t("Player's screen aspect ratio")}
                 className="bg-zinc-900 border border-zinc-700 rounded px-1 py-0.5 text-[11px] text-zinc-200"
               >
                 {PLAYER_ASPECTS.map(([label, value]) => (
@@ -1513,8 +1528,8 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             <button
               type="button"
               onClick={() => setPrefs((p) => ({ ...p, showMinimap: !p.showMinimap }))}
-              title="Minimapa z prostokątem widoku"
-              aria-label="Minimapa"
+              title={t('Minimap with the view rectangle')}
+              aria-label={t('Minimap')}
               aria-pressed={prefs.showMinimap}
               className={`p-1 rounded transition-colors cursor-pointer ${
                 prefs.showMinimap ? 'bg-emerald-500/20 text-emerald-200' : 'text-zinc-300 hover:bg-zinc-800'
@@ -1530,7 +1545,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
               onClick={() =>
                 setTransform((p) => ({ ...p, zoom: Math.max(0.02, p.zoom / 1.25) }))
               }
-              title="Oddal"
+              title={t('Zoom out')}
               className="p-1 rounded text-zinc-300 hover:bg-zinc-800 cursor-pointer"
             >
               <ZoomOut className="w-3.5 h-3.5" />
@@ -1545,7 +1560,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
               onClick={() =>
                 setTransform((p) => ({ ...p, zoom: Math.min(16.0, p.zoom * 1.25) }))
               }
-              title="Przybliż"
+              title={t('Zoom in')}
               className="p-1 rounded text-zinc-300 hover:bg-zinc-800 cursor-pointer"
             >
               <ZoomIn className="w-3.5 h-3.5" />
@@ -1554,7 +1569,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             <button
               type="button"
               onClick={() => setTransform((p) => ({ ...p, zoom: 1.0 }))}
-              title="Ustaw natywną skalę gry 100% (1:1 piksel)"
+              title={t('Set the native game scale 100% (1:1 pixel)')}
               className={`px-2 py-1 rounded text-xs font-mono font-semibold transition-colors cursor-pointer ${
                 Math.abs(transform.zoom - 1.0) < 0.01
                   ? 'bg-emerald-600 text-white'
@@ -1567,17 +1582,17 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             <button
               type="button"
               onClick={() => mapData && fitMapToViewport(mapData)}
-              title="Dopasuj całą mapę do okna (Podwójne kliknięcie)"
+              title={t('Fit the whole map to the window (double-click)')}
               className="px-2 py-1 rounded text-xs text-zinc-300 hover:bg-zinc-800 flex items-center gap-1 cursor-pointer"
             >
               <Maximize2 className="w-3.5 h-3.5" />
-              Dopasuj
+              {t('Fit')}
             </button>
 
             <button
               type="button"
               onClick={() => setTransform((p) => ({ ...p, centerX: 0, centerY: 0 }))}
-              title="Wyśrodkuj na punkcie (0, 0)"
+              title={t('Center on point (0, 0)')}
               className="p-1 rounded text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 cursor-pointer"
             >
               <LocateFixed className="w-3.5 h-3.5" />
@@ -1638,7 +1653,7 @@ interface InspectHit {
   pmsSize?: [number, number];
 }
 
-const LEVEL_NAMES = ['Tył (0)', 'Środek (1)', 'Przód (2)'];
+const LEVEL_NAMES = [t('Back (0)'), t('Middle (1)'), t('Front (2)')];
 
 // PMS stores radians; shown as degrees in (-180, 180] (e.g. 6.215 rad -> -3.9°)
 function radiansToSignedDegrees(rad: number): number {
@@ -1682,22 +1697,29 @@ function collectInspectHits(
       kind: 'prop',
       index: i,
       // Virtual names of unsaved _o preview tiles are shown without their internal prefix
-      title: `Sceneria #${i + 1}: ${sc.filename.replace(/^__preview_[a-z0-9]+__/, '') || '(bez nazwy)'}${
-        sc.filename.startsWith('__preview_') ? ' (podgląd)' : ''
-      }`,
+      title: `${t('Scenery #{n}: {name}', {
+        n: i + 1,
+        name: sc.filename.replace(/^__preview_[a-z0-9]+__/, '') || t('(unnamed)'),
+      })}${sc.filename.startsWith('__preview_') ? ` ${t('(preview)')}` : ''}`,
       sceneryName: sc.filename,
       pmsSize: [p.width, p.height],
       outline: Array.from(c),
       details: [
-        ['Warstwa', LEVEL_NAMES[p.level]],
-        ['Wymiar w PMS', `${p.width} × ${p.height}`],
-        ['Skala', `${p.scaleX.toFixed(3)} × ${p.scaleY.toFixed(3)}`],
-        ['W świecie gry', `${Math.round(Math.abs(p.width * p.scaleX))} × ${Math.round(Math.abs(p.height * p.scaleY))} j.`],
-        ['Obrót', `${radiansToSignedDegrees(p.rotation).toFixed(1)}°`],
-        ['Krycie (alpha)', `${p.alpha} / 255 (${Math.round(p.alpha / 2.55)}%)`],
-        ['Kolor', tinted ? `${toHexColor(p.color)} (barwienie)` : 'biały (bez barwienia)'],
-        ['Pozycja', `${p.x.toFixed(1)}, ${p.y.toFixed(1)}`],
-        ['Wpis scenerii', `#${p.style}`],
+        [t('Layer'), LEVEL_NAMES[p.level]],
+        [t('Size in PMS'), `${p.width} × ${p.height}`],
+        [t('Scale'), `${p.scaleX.toFixed(3)} × ${p.scaleY.toFixed(3)}`],
+        [
+          t('In the game world'),
+          t('{w} × {h} units', {
+            w: Math.round(Math.abs(p.width * p.scaleX)),
+            h: Math.round(Math.abs(p.height * p.scaleY)),
+          }),
+        ],
+        [t('Rotation'), `${radiansToSignedDegrees(p.rotation).toFixed(1)}°`],
+        [t('Opacity (alpha)'), `${p.alpha} / 255 (${Math.round(p.alpha / 2.55)}%)`],
+        [t('Color'), tinted ? t('{hex} (tint)', { hex: toHexColor(p.color) }) : t('white (no tint)')],
+        [t('Position'), `${p.x.toFixed(1)}, ${p.y.toFixed(1)}`],
+        [t('Scenery entry'), `#${p.style}`],
       ],
     });
   }
@@ -1715,15 +1737,18 @@ function collectInspectHits(
       const hit: InspectHit = {
         kind: 'polygon',
         index: i,
-        title: `Poligon #${i + 1}: ${meta?.namePl || `Typ ${poly.polyType}`}`,
+        title: t('Polygon #{n}: {type}', {
+          n: i + 1,
+          type: meta ? polyTypeName(meta) : t('Type {n}', { n: poly.polyType }),
+        }),
         outline: [a.x, a.y, b.x, b.y, c.x, c.y],
         details: [
-          ['Typ', `${poly.polyType} (${meta?.nameEn || '?'})`],
+          [t('Type'), `${poly.polyType} (${meta?.nameEn || '?'})`],
           ...poly.vertices.map((v, vi): [string, string] => [
-            `Wierzchołek ${vi + 1}`,
+            t('Vertex {n}', { n: vi + 1 }),
             `${v.x.toFixed(1)}, ${v.y.toFixed(1)} • ${toHexColor(v.color)} α${v.color.a}`,
           ]),
-          ...(poly.polyType === 18 ? [['Odbicie', `${poly.bounciness.toFixed(2)}×`] as [string, string]] : []),
+          ...(poly.polyType === 18 ? [[t('Bounce'), `${poly.bounciness.toFixed(2)}×`] as [string, string]] : []),
         ],
       };
       (poly.polyType === 24 || poly.polyType === 25 ? polyBack : polyFront).push(hit);

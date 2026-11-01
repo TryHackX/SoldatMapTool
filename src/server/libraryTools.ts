@@ -11,6 +11,7 @@ import {
   UnusedSceneryItem,
   UnusedSceneryReport,
 } from '../shared/apiTypes';
+import { t } from './i18n';
 import { SoldatMapScanner } from './soldatScanner';
 
 const MAX_UNUSED_ITEMS = 5000;
@@ -29,7 +30,7 @@ let libraryOperationRunning = false;
 /** Runs one tidy-up operation (move + rescan) at a time; a second request gets 409 instead of racing */
 export async function runLibraryOperation<T>(operation: () => Promise<T>): Promise<T> {
   if (libraryOperationRunning) {
-    throw new LibraryError('Trwa inna operacja porządkowania — poczekaj, aż się skończy.', 409);
+    throw new LibraryError(t('Another clean-up operation is running — wait until it finishes.'), 409);
   }
   libraryOperationRunning = true;
   try {
@@ -135,9 +136,11 @@ export async function moveDuplicateMaps(
   }
   for (const id of remove) {
     const group = groupOf.get(id);
-    if (!group) throw new LibraryError(`Mapa ${id} nie ma duplikatów — nie można jej przenieść tym narzędziem.`);
+    if (!group) throw new LibraryError(t('Map {id} has no duplicates — it cannot be moved with this tool.', { id }));
     if (group.every((e) => remove.has(e.id))) {
-      throw new LibraryError(`Grupa ${group[0].baseName} straciłaby ostatnią kopię — zostaw przynajmniej jeden plik.`);
+      throw new LibraryError(
+        t('Group {name} would lose its last copy — keep at least one file.', { name: group[0].baseName })
+      );
     }
   }
 
@@ -150,10 +153,13 @@ export async function moveDuplicateMaps(
     try {
       stat = fs.statSync(entry.fullPath);
     } catch {
-      throw new LibraryError(`Plik ${entry.fullPath} już nie istnieje — odśwież listę.`, 409);
+      throw new LibraryError(t('File {path} no longer exists — refresh the list.', { path: entry.fullPath }), 409);
     }
     if (stat.size !== entry.fileSize || Math.abs(stat.mtimeMs - entry.mtimeMs) > 2) {
-      throw new LibraryError(`Plik ${entry.fullPath} zmienił się od ostatniego skanu — odśwież listę.`, 409);
+      throw new LibraryError(
+        t('File {path} has changed since the last scan — refresh the list.', { path: entry.fullPath }),
+        409
+      );
     }
     const keeper = group.find(
       (e) =>
@@ -164,7 +170,9 @@ export async function moveDuplicateMaps(
     );
     if (!keeper) {
       throw new LibraryError(
-        `Dla ${entry.fileName} nie ma już identycznej kopii, która zostaje — nic nie przeniesiono. Odśwież listę.`,
+        t('{name} no longer has an identical copy that stays — nothing was moved. Refresh the list.', {
+          name: entry.fileName,
+        }),
         409
       );
     }
@@ -212,7 +220,7 @@ export function computeUnusedScenery(scanner: SoldatMapScanner): UnusedSceneryRe
   try {
     names = fs.readdirSync(folder);
   } catch {
-    throw new LibraryError(`Nie można odczytać folderu ${folder}.`, 404);
+    throw new LibraryError(t('Cannot read the folder {folder}.', { folder }), 404);
   }
   for (const name of names) {
     if (!IMAGE_EXT.test(name)) continue;
@@ -260,7 +268,7 @@ export async function moveUnusedScenery(
   for (const raw of names) {
     const name = path.basename(String(raw));
     if (!stillUnused.has(name.toLowerCase())) {
-      session.fail(name, 'plik jest teraz używany przez mapę albo już go nie ma');
+      session.fail(name, t('the file is now used by a map or no longer exists'));
       continue;
     }
     await session.move(path.join(report.folder, name), name);
@@ -346,13 +354,14 @@ export async function renameCaseMismatches(
     const name = path.basename(req.diskName);
     const file = byKey.get(`${req.category}/${name}`.toLowerCase());
     if (!file) {
-      failed.push({ name, error: 'nazwa jest już zgodna z mapami albo pliku nie ma' });
+      failed.push({ name, error: t('the name already matches the maps or the file is missing') });
       continue;
     }
     if (!file.renameTo) {
       failed.push({
         name,
-        error: file.spellings.length > 1 ? 'mapy zapisują tę nazwę na kilka sposobów' : 'plik jest poza folderem gry',
+        error:
+          file.spellings.length > 1 ? t('maps spell this name in several ways') : t('the file is outside the game folder'),
       });
       continue;
     }
@@ -361,7 +370,7 @@ export async function renameCaseMismatches(
     try {
       // On a case-sensitive disk another file may already have the target name
       if ((await fs.promises.readdir(file.folder)).includes(file.renameTo)) {
-        throw new Error('w folderze jest już plik o tej nazwie');
+        throw new Error(t('a file with this name already exists in the folder'));
       }
       // A case-only rename through a temporary name works on every file system (NTFS, APFS, ext4)
       const tmp = `${from}.sms-case-${process.pid}-${Date.now()}`;
@@ -382,13 +391,13 @@ export async function renameCaseMismatches(
   if (renamed.length > 0) {
     backupDir = createStampedDir(backupsRoot, 'case-renames');
     const lines = [
-      '# Nazwy zmienione przez Soldat Map Studio (tylko wielkość liter, zawartość bez zmian).',
-      '# Aby cofnąć, zmień nazwę pliku z powrotem na poprzednią.',
-      '# poprzednia_sciezka<TAB>nowa_sciezka',
+      `# ${t('Names changed by Soldat Map Studio (letter case only, content unchanged).')}`,
+      `# ${t('To undo, rename the file back to its previous name.')}`,
+      `# ${t('previous_path<TAB>new_path')}`,
       ...renamed.map((r) => `${r.from}\t${r.to}`),
       '',
     ];
-    fs.writeFileSync(path.join(backupDir, 'PRZYWRACANIE.txt'), lines.join('\r\n'), 'utf-8');
+    fs.writeFileSync(path.join(backupDir, t('RESTORE.txt')), lines.join('\r\n'), 'utf-8');
   }
   return { moved: renamed.length, failed: failed.slice(0, 200), backupDir };
 }
@@ -439,7 +448,7 @@ class MoveToBackupSession {
         // Different drive (e.g. game on G:, project on C:): copy, verify, then delete the original
         await fs.promises.copyFile(from, target);
         const [a, b] = await Promise.all([fs.promises.stat(from), fs.promises.stat(target)]);
-        if (a.size !== b.size) throw new Error('kopia ma inny rozmiar niż oryginał');
+        if (a.size !== b.size) throw new Error(t('the copy has a different size than the original'));
         await fs.promises.unlink(from);
       }
       this.moved.push({ from, to: target });
@@ -451,12 +460,12 @@ class MoveToBackupSession {
   public writeRestoreList(): void {
     if (!this.dir || this.moved.length === 0) return;
     const lines = [
-      '# Pliki przeniesione przez Soldat Map Studio. Aby przywrócić plik, skopiuj go z powrotem pod pierwotną ścieżkę.',
-      '# pierwotna_sciezka<TAB>kopia',
+      `# ${t('Files moved by Soldat Map Studio. To restore a file, copy it back to its original path.')}`,
+      `# ${t('original_path<TAB>copy')}`,
       ...this.moved.map((m) => `${m.from}\t${m.to}`),
       '',
     ];
-    fs.writeFileSync(path.join(this.dir, 'PRZYWRACANIE.txt'), lines.join('\r\n'), 'utf-8');
+    fs.writeFileSync(path.join(this.dir, t('RESTORE.txt')), lines.join('\r\n'), 'utf-8');
   }
 
   public result(): LibraryMoveResult {

@@ -1,8 +1,27 @@
 # Changelog
 
+## 2.5.0 — 2026-11-01
+
+Dwa języki interfejsu.
+
+### Języki
+- Interfejs po angielsku (domyślnie) i po polsku. Wybór w **Ustawieniach → Language / Język**; jest zapamiętany,
+  a zmiana przeładowuje aplikację. Przycisk „Źródła Map” w nagłówku nazywa się teraz „Ustawienia”.
+- Komunikaty serwera (błędy, ostrzeżenia, treść plików generowanych w paczkach, listy przywracania) przychodzą
+  w języku wybranym w interfejsie.
+- Polskie formy liczebników (1 mapa / 2 mapy / 5 map), liczby i daty w formacie wybranego języka.
+- Teksty w kodzie są po angielsku, polskie tłumaczenia w słownikach `src/client/i18n/pl/` i `src/server/i18nPl.ts`.
+- `README.md` po angielsku, z opisem dodatkowego narzędzia `soldat_map_dots.py` (Python 3.10+, numpy, Pillow);
+  skrypty startowe i `soldat_map_dots.py` wypisują komunikaty po angielsku.
+- Angielskie nazwy skryptów startowych: `Start Soldat Map Studio.bat` (dawniej `Uruchom Soldat Map Studio.bat`)
+  i `start.sh`.
+
+### Testy
+- 61 testów automatycznych.
+
 ## 2.4.0 — 2026-11-01
 
-Pierwsze wydanie z README, licencją i obsługą Linuksa — szczegóły w rozdziale 7 `docs/AUDYT.md`.
+Pierwsze wydanie z README, licencją i obsługą Linuksa.
 
 ### Ostrość `_o`
 - Warstwy są przy wypalaniu lekko wyostrzane, z siłą dobraną pomiarem osobno dla każdej jakości. Gra filtruje
@@ -12,7 +31,7 @@ Pierwsze wydanie z README, licencją i obsługą Linuksa — szczegóły w rozdz
   warto wygenerować ponownie.
 
 ### Linux i macOS
-- Skrypt `uruchom.sh`: sprawdza Node.js, instaluje biblioteki, buduje interfejs i otwiera przeglądarkę.
+- Skrypt `start.sh`: sprawdza Node.js, instaluje biblioteki, buduje interfejs i otwiera przeglądarkę.
 - Otwieranie folderów oraz okna wyboru folderu i pliku działają też na Linuksie (`xdg-open`, `zenity` lub
   `kdialog`) i macOS. Gdy brakuje programu do okien, aplikacja mówi, co doinstalować; ścieżkę można też wpisać.
 - Folder gry jest wykrywany ze wszystkich bibliotek Steama (Windows; Linux — także Proton i Flatpak; macOS)
@@ -28,7 +47,7 @@ Pierwsze wydanie z README, licencją i obsługą Linuksa — szczegóły w rozdz
 
 ## 2.3.2 — 2026-11-01
 
-Ostrość scenerii, tryb Auto i wielkość liter w nazwach plików — szczegóły w rozdziale 6 `docs/AUDYT.md`.
+Ostrość scenerii, tryb Auto i wielkość liter w nazwach plików.
 
 ### Naprawione
 - **Scenerie w Studio i w warstwach `_o` były miększe niż w grze** (zgłoszenie: palmy na `ctf_tw_hue`). OpenSoldat
@@ -64,7 +83,7 @@ Ostrość scenerii, tryb Auto i wielkość liter w nazwach plików — szczegó�
 
 ## 2.3.1 — 2026-11-01
 
-Domknięcie luk po 2.3.0 — szczegóły w rozdziale 5 `docs/AUDYT.md`.
+Domknięcie luk po 2.3.0.
 
 ### Bezpieczeństwo
 - Zależności bez znanych podatności (`npm audit`: 0): `adm-zip` 0.6.1, `sharp` 0.35.5, `archiver` 8.0.0,
@@ -89,7 +108,7 @@ Domknięcie luk po 2.3.0 — szczegóły w rozdziale 5 `docs/AUDYT.md`.
 
 ## 2.3.0 — 2026-11-01
 
-Druga iteracja planu rozwoju — wszystkie pozostałe pozycje z `docs/PLAN_ROZWOJU.md`.
+Druga iteracja planu rozwoju.
 
 ### Warsztat map
 - „Najpierw napraw wymiary scenerii 1.7.1, potem sklej” — `_f` i `_o` jednym kliknięciem (wynik `<mapa>_f_o`),
@@ -122,7 +141,7 @@ Druga iteracja planu rozwoju — wszystkie pozostałe pozycje z `docs/PLAN_ROZWO
 
 ## 2.2.0 — 2026-11-01
 
-Pełny audyt kodu w dwóch fazach — szczegóły w `docs/AUDYT.md`, plan dalszego rozwoju w `docs/PLAN_ROZWOJU.md`.
+Pełny audyt kodu w dwóch fazach.
 
 ### Naprawione — najważniejsze
 - **Rozmyte, bledsze scenerie w `_o`** (sople na `ctf_cs_office2`): warstwy były wypalane w 1 tekselu na jednostkę

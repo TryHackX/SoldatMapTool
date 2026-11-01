@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
+import { t } from '../i18n';
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -48,11 +49,11 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
             <div className="flex items-center gap-2.5 text-red-400">
               <AlertTriangle className="w-5 h-5 shrink-0" />
               <h3 className="font-bold text-sm">
-                {this.props.fallbackTitle || 'Wystąpił błąd renderowania widoku'}
+                {this.props.fallbackTitle || t('This view failed to render')}
               </h3>
             </div>
             <p className="text-xs text-zinc-300 font-mono bg-zinc-950 border border-zinc-800 rounded p-2.5 break-words">
-              {this.state.errorMessage || 'Nieznany wyjątek środowiska UI'}
+              {this.state.errorMessage || t('Unknown UI error')}
             </p>
             <div className="flex justify-end">
               <button
@@ -61,7 +62,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
                 className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                {this.props.overlay ? 'Odśwież stronę' : 'Przywróć widok'}
+                {this.props.overlay ? t('Reload page') : t('Restore view')}
               </button>
             </div>
           </div>

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { MapCompactEntry, MapIndexEntry } from '@shared/apiTypes';
 import { PmsMapData } from '@shared/pmsParser';
+import { locale, t, tp, tr } from '../i18n';
 import {
   ExportResultInfo,
   generateFullSizeScreenshot,
@@ -188,7 +189,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
 
     try {
       if (mode === 'single') {
-        if (!currentMapEntry) throw new Error('Brak wybranej mapy.');
+        if (!currentMapEntry) throw new Error(t('No map selected.'));
         const mapData = currentMapData ?? (await fetchAndParseMap(currentMapEntry.id));
         const res = await generateFullSizeScreenshot(
           mapData,
@@ -219,7 +220,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
         );
         setLastResult(res);
       } else {
-        setStatusText('Pobieranie listy map do wsadowego renderowania...');
+        setStatusText(t('Fetching the list of maps for batch rendering...'));
         // A resumed batch uses exactly its saved settings (also "skip existing": the user may have chosen to
         // overwrite old screens) and continues after the maps it had already processed
         const batch: BatchSettings = resume
@@ -249,11 +250,11 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
           if (candidates.length === 0) {
             clearSavedBatchJob();
             setSavedJob(null);
-            setStatusText('Ta seria była już ukończona.');
+            setStatusText(t('This batch was already finished.'));
             return;
           }
         } else if (candidates.length === 0) {
-          throw new Error('Brak map do wsadowego wygenerowania screenów.');
+          throw new Error(t('No maps to batch-generate screenshots for.'));
         }
         if (!resume) {
           storeBatchJob({ ids: candidates.map((c) => c.id), total: candidates.length, startedAt: Date.now(), settings: batch });
@@ -326,8 +327,15 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
         setLastResult(lastOut);
         setStatusText(
           controller.signal.aborted
-            ? `Zatrzymano po przetworzeniu ${completed} / ${total} map.`
-            : `Zakończono! Przetworzono ${completed} map (pominięto istniejących: ${skipped}, błędy: ${failed}).`
+            ? tp(total, 'Stopped after processing {done} / {n} map.', 'Stopped after processing {done} / {n} maps.', {
+                done: completed,
+              })
+            : tp(
+                completed,
+                'Done! Processed {n} map (existing skipped: {skipped}, errors: {failed}).',
+                'Done! Processed {n} maps (existing skipped: {skipped}, errors: {failed}).',
+                { skipped, failed }
+              )
         );
       }
     } catch (err) {
@@ -351,13 +359,13 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
           <div className="flex items-center gap-2.5">
             <Camera className="w-5 h-5 text-emerald-400" />
             <h2 className="text-base font-bold text-zinc-100">
-              Generator Full-Size Screen (100% View)
+              {t('Full-Size Screenshot Generator (100% View)')}
             </h2>
           </div>
           <button
             onClick={onClose}
             disabled={running}
-            aria-label="Zamknij generator screenów"
+            aria-label={t('Close the screenshot generator')}
             className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 disabled:opacity-40 cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -377,7 +385,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
                   : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
-              Pojedyncza mapa ({currentMapEntry?.baseName || '—'})
+              {t('Single map ({name})', { name: currentMapEntry?.baseName || '—' })}
             </button>
             <button
               type="button"
@@ -389,7 +397,10 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
                   : 'text-zinc-400 hover:text-zinc-200'
               }`}
             >
-              Tryb Wsadowy Batch ({batchCount.toLocaleString('pl-PL')} map — {batchSourceLabel})
+              {tp(batchCount, 'Batch Mode ({n} map — {source})', 'Batch Mode ({n} maps — {source})', {
+                n: batchCount.toLocaleString(locale),
+                source: batchSourceLabel,
+              })}
             </button>
           </div>
 
@@ -398,11 +409,20 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
               <div className="flex items-center gap-2 min-w-0">
                 <History className="w-4 h-4 text-sky-300 shrink-0" />
                 <span className="truncate">
-                  Przerwana seria: {Math.min(savedJob.processed, savedJob.job.total).toLocaleString('pl-PL')} z{' '}
-                  {savedJob.job.total.toLocaleString('pl-PL')} map (start{' '}
-                  {new Date(savedJob.job.startedAt).toLocaleString('pl-PL', { dateStyle: 'short', timeStyle: 'short' })}
-                  ). Wznowienie zacznie od mapy {Math.min(savedJob.processed, savedJob.job.total) + 1}, z tymi samymi
-                  ustawieniami.
+                  {tp(
+                    savedJob.job.total,
+                    'Interrupted batch: {done} of {n} map (started {date}). Resuming continues from map {next} with the same settings.',
+                    'Interrupted batch: {done} of {n} maps (started {date}). Resuming continues from map {next} with the same settings.',
+                    {
+                      done: Math.min(savedJob.processed, savedJob.job.total).toLocaleString(locale),
+                      n: savedJob.job.total.toLocaleString(locale),
+                      date: new Date(savedJob.job.startedAt).toLocaleString(locale, {
+                        dateStyle: 'short',
+                        timeStyle: 'short',
+                      }),
+                      next: Math.min(savedJob.processed, savedJob.job.total) + 1,
+                    }
+                  )}
                 </span>
               </div>
               <div className="flex gap-1.5 shrink-0">
@@ -411,7 +431,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
                   onClick={() => handleGenerate(savedJob)}
                   className="px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white font-semibold cursor-pointer"
                 >
-                  Wznów
+                  {t('Resume')}
                 </button>
                 <button
                   type="button"
@@ -421,7 +441,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
                   }}
                   className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 cursor-pointer"
                 >
-                  Porzuć
+                  {t('Discard')}
                 </button>
               </div>
             </div>
@@ -431,7 +451,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block font-medium text-zinc-300 mb-1.5">
-                Skala odwzorowania
+                {t('Render scale')}
               </label>
               <div className="grid grid-cols-4 gap-1.5">
                 {[
@@ -458,7 +478,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
 
             <div>
               <label className="block font-medium text-zinc-300 mb-1.5">
-                Zakres kadrowania
+                {t('Framing')}
               </label>
               <div className="grid grid-cols-2 gap-1.5">
                 <button
@@ -470,7 +490,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
                       : 'bg-zinc-950 border-zinc-800 text-zinc-400'
                   }`}
                 >
-                  Granice Poligonów
+                  {t('Polygon Bounds')}
                 </button>
                 <button
                   type="button"
@@ -481,7 +501,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
                       : 'bg-zinc-950 border-zinc-800 text-zinc-400'
                   }`}
                 >
-                  Pełny (+Scenerie)
+                  {t('Full (+Sceneries)')}
                 </button>
               </div>
             </div>
@@ -491,7 +511,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block font-medium text-zinc-300 mb-1.5">
-                Margines wokół mapy (Padding)
+                {t('Padding around the map')}
               </label>
               <div className="grid grid-cols-5 gap-1">
                 {[0, 32, 64, 128, 256].map((p) => (
@@ -512,10 +532,10 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
             </div>
 
             <div>
-              <label className="block font-medium text-zinc-300 mb-1.5">Format pliku</label>
+              <label className="block font-medium text-zinc-300 mb-1.5">{t('File format')}</label>
               <div className="grid grid-cols-3 gap-1.5">
                 {[
-                  { id: 'png', label: 'PNG (Bezstratny)' },
+                  { id: 'png', label: t('PNG (Lossless)') },
                   { id: 'webp', label: 'WEBP' },
                   { id: 'jpeg', label: 'JPG' },
                 ].map((f) => (
@@ -540,7 +560,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block font-medium text-zinc-300 mb-1">
-                Folder zapisu (domyślnie: <code>exports/screenshots</code>)
+                {tr('Output folder (default: {path})', { path: <code>exports/screenshots</code> })}
               </label>
               <div className="flex gap-1.5">
                 <input
@@ -553,7 +573,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
-                    const chosen = await pickSystemFolder('Wybierz folder zapisu screenów 100%');
+                    const chosen = await pickSystemFolder(t('Choose the folder to save 100% screenshots in'));
                     if (chosen) setCustomFolder(chosen);
                   }}
                   className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 shrink-0 cursor-pointer"
@@ -565,16 +585,16 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
 
             <div>
               <label className="block font-medium text-zinc-300 mb-1">
-                Grupowanie w podfolderach
+                {t('Subfolder grouping')}
               </label>
               <select
                 value={subfolderMode}
                 onChange={(e) => setSubfolderMode(e.target.value as 'none' | 'mode' | 'prefix')}
                 className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1 text-zinc-200 focus:outline-none focus:border-emerald-500"
               >
-                <option value="none">Brak (wszystkie w jednym folderze)</option>
-                <option value="mode">Wg Trybu Gry (RSCS, Trenchwars, CTF...)</option>
-                <option value="prefix">Wg Prefixu (ctf_cs, tw, kz...)</option>
+                <option value="none">{t('None (all in one folder)')}</option>
+                <option value="mode">{t('By game mode (RSCS, Trenchwars, CTF...)')}</option>
+                <option value="prefix">{t('By prefix (ctf_cs, tw, kz...)')}</option>
               </select>
             </div>
           </div>
@@ -583,7 +603,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
           {mode === 'single' && currentMapEntry && (
             <div className="bg-zinc-950 border border-zinc-800 rounded-lg px-3.5 py-2 flex items-center justify-between">
               <div>
-                <div className="text-zinc-400 text-[11px]">Rozdzielczość wyjściowego screena:</div>
+                <div className="text-zinc-400 text-[11px]">{t('Output screenshot resolution:')}</div>
                 <div className="font-mono text-sm font-bold text-emerald-300">
                   {estW} × {estH} px
                 </div>
@@ -591,10 +611,10 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
               <div className="text-right text-[11px] text-zinc-400">
                 {usesTiledMode ? (
                   <span className="text-sky-300 font-medium">
-                    Tryb Kafelkowy GPU + Sharp (Duża mapa &gt; 4096px)
+                    {t('GPU Tiled Mode + Sharp (large map > 4096px)')}
                   </span>
                 ) : (
-                  <span className="text-emerald-400">Szybki pojedynczy przebieg WebGL2</span>
+                  <span className="text-emerald-400">{t('Fast single WebGL2 pass')}</span>
                 )}
               </div>
             </div>
@@ -605,14 +625,14 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
             <div className="flex items-center justify-between">
               <span className="font-semibold text-zinc-300 flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5 text-emerald-400" />
-                Warstwy widoczne na wygenerowanym screenie
+                {t('Layers visible in the generated screenshot')}
               </span>
               <button
                 type="button"
                 onClick={() => setExportLayers(DEFAULT_RENDER_LAYERS)}
                 className="text-[11px] text-emerald-400 hover:text-emerald-300 cursor-pointer"
               >
-                Resetuj do czystego klasycznego
+                {t('Reset to clean classic')}
               </button>
             </div>
 
@@ -620,77 +640,77 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
               <LayerToggleBox
                 checked={exportLayers.showBackground}
                 onChange={() => toggleExportLayer('showBackground')}
-                label="Tło (Gradient)"
+                label={t('Background (Gradient)')}
               />
               <LayerToggleBox
                 checked={exportLayers.showPolygons}
                 onChange={() => toggleExportLayer('showPolygons')}
-                label="Poligony i Tekstury"
+                label={t('Polygons & Textures')}
               />
               <LayerToggleBox
                 checked={exportLayers.showSmoothEdges}
                 onChange={() => toggleExportLayer('showSmoothEdges')}
-                label="Krawędzie Terenu HD"
+                label={t('HD Terrain Edges')}
               />
               <LayerToggleBox
                 checked={exportLayers.showSceneryBack}
                 onChange={() => toggleExportLayer('showSceneryBack')}
-                label="Scenerie Tył"
+                label={t('Sceneries Back')}
               />
               <LayerToggleBox
                 checked={exportLayers.showSceneryMid}
                 onChange={() => toggleExportLayer('showSceneryMid')}
-                label="Scenerie Środek"
+                label={t('Sceneries Middle')}
               />
               <LayerToggleBox
                 checked={exportLayers.showSceneryFront}
                 onChange={() => toggleExportLayer('showSceneryFront')}
-                label="Scenerie Przód"
+                label={t('Sceneries Front')}
               />
               <LayerToggleBox
                 checked={exportLayers.preferClassicBmp}
                 onChange={() => toggleExportLayer('preferClassicBmp')}
-                label="Tekstury Soldat 1.6 (.bmp)"
+                label={t('Soldat 1.6 Textures (.bmp)')}
               />
               <LayerToggleBox
                 checked={exportLayers.showFlags}
                 onChange={() => toggleExportLayer('showFlags')}
-                label="Flagi (Alpha/Bravo)"
+                label={t('Flags (Alpha/Bravo)')}
               />
               <LayerToggleBox
                 checked={exportLayers.showSpawns}
                 onChange={() => toggleExportLayer('showSpawns')}
-                label="Spawny Graczy"
+                label={t('Player Spawns')}
               />
               <LayerToggleBox
                 checked={exportLayers.showBonuses}
                 onChange={() => toggleExportLayer('showBonuses')}
-                label="Bonusy i Bronie"
+                label={t('Bonuses & Weapons')}
               />
               <LayerToggleBox
                 checked={exportLayers.showColliders}
                 onChange={() => toggleExportLayer('showColliders')}
-                label="Colidery"
+                label={t('Colliders')}
               />
               <LayerToggleBox
                 checked={exportLayers.showPolyTypes}
                 onChange={() => toggleExportLayer('showPolyTypes')}
-                label="Fizyka Poligonów"
+                label={t('Polygon Physics')}
               />
               <LayerToggleBox
                 checked={exportLayers.showWaypoints}
                 onChange={() => toggleExportLayer('showWaypoints')}
-                label="Ścieżki Botów"
+                label={t('Bot Paths')}
               />
               <LayerToggleBox
                 checked={exportLayers.showWireframe}
                 onChange={() => toggleExportLayer('showWireframe')}
-                label="Siatka Trójkątów"
+                label={t('Triangle Mesh')}
               />
               <LayerToggleBox
                 checked={exportLayers.showGrid}
                 onChange={() => toggleExportLayer('showGrid')}
-                label="Sektory / Osie"
+                label={t('Sectors / Axes')}
               />
             </div>
 
@@ -702,7 +722,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
                   onChange={(e) => setIncludeWatermark(e.target.checked)}
                   className="rounded border-zinc-700 bg-zinc-900"
                 />
-                Dodaj etykietę z nazwą mapy i wymiarem w rogu
+                {t('Add a label with the map name and size in the corner')}
               </label>
 
               {mode === 'single' ? (
@@ -713,7 +733,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
                     onChange={(e) => setTriggerBrowserDownload(e.target.checked)}
                     className="rounded border-zinc-700 bg-zinc-900"
                   />
-                  Pobierz również w przeglądarce
+                  {t('Also download in the browser')}
                 </label>
               ) : (
                 <label className="flex items-center gap-2 text-emerald-300 cursor-pointer">
@@ -723,7 +743,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
                     onChange={(e) => setSkipExisting(e.target.checked)}
                     className="rounded border-zinc-700 bg-zinc-900 text-emerald-500"
                   />
-                  Pomiń istniejące pliki (wznawianie Batcha)
+                  {t('Skip existing files (resuming a batch)')}
                 </label>
               )}
             </div>
@@ -754,8 +774,13 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
           {batchStats && batchStats.failed > 0 && !running && (
             <div className="bg-red-950/70 border border-red-700 rounded-lg px-3 py-2 text-red-200 space-y-0.5">
               <div className="font-semibold">
-                Nie udało się wygenerować {batchStats.failed} screenów
-                {batchStats.stoppedEarly ? ' — przerwano po 10 błędach z rzędu.' : '.'}
+                {batchStats.stoppedEarly
+                  ? tp(
+                      batchStats.failed,
+                      'Failed to generate {n} screenshot — stopped after 10 errors in a row.',
+                      'Failed to generate {n} screenshots — stopped after 10 errors in a row.'
+                    )
+                  : tp(batchStats.failed, 'Failed to generate {n} screenshot.', 'Failed to generate {n} screenshots.')}
               </div>
               {batchStats.firstError && <div className="text-[11px] font-mono truncate">{batchStats.firstError}</div>}
             </div>
@@ -768,12 +793,17 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
                 <div className="min-w-0">
                   <div className="font-semibold text-emerald-200 truncate">
                     {batchStats
-                      ? `Przetworzono ${batchStats.done} / ${batchStats.total} map (pominięto: ${batchStats.skipped}, błędy: ${batchStats.failed})`
+                      ? tp(
+                          batchStats.total,
+                          'Processed {done} / {n} map (skipped: {skipped}, errors: {failed})',
+                          'Processed {done} / {n} maps (skipped: {skipped}, errors: {failed})',
+                          { done: batchStats.done, skipped: batchStats.skipped, failed: batchStats.failed }
+                        )
                       : lastResult
                       ? `${lastResult.fileName} (${lastResult.width}×${lastResult.height} px • ${formatBytes(
                           lastResult.sizeBytes
                         )})`
-                      : 'Gotowe!'}
+                      : t('Done!')}
                   </div>
                   {lastResult?.outputPath && (
                     <div className="text-[11px] font-mono text-zinc-400 truncate">
@@ -790,7 +820,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
                     onClick={() => openPathInExplorer(lastResult.outputPath!)}
                     className="px-2.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-100 flex items-center gap-1 cursor-pointer"
                   >
-                    <FolderOpen className="w-3.5 h-3.5" /> Pokaż folder
+                    <FolderOpen className="w-3.5 h-3.5" /> {t('Show folder')}
                   </button>
                 )}
                 {mode === 'single' && lastResult?.downloadUrl && (
@@ -799,7 +829,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
                     download={lastResult.fileName}
                     className="px-2.5 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold flex items-center gap-1"
                   >
-                    <Download className="w-3.5 h-3.5" /> Pobierz
+                    <Download className="w-3.5 h-3.5" /> {t('Download')}
                   </a>
                 )}
               </div>
@@ -810,7 +840,9 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
         {/* Footer */}
         <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-950/60 flex items-center justify-between">
           <span className="text-[11px] text-zinc-500">
-            Zrzuty zapisywane są na dysku w <code>{customFolder || 'exports/screenshots/'}</code>
+            {tr('Screenshots are saved on disk in {path}', {
+              path: <code>{customFolder || 'exports/screenshots/'}</code>,
+            })}
           </span>
           <div className="flex items-center gap-2">
             {running && (
@@ -820,7 +852,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
                 className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer"
               >
                 <Square className="w-3.5 h-3.5" />
-                {mode === 'batch' ? 'Zatrzymaj Batch' : 'Anuluj'}
+                {mode === 'batch' ? t('Stop Batch') : t('Cancel')}
               </button>
             )}
             <button
@@ -831,10 +863,12 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
             >
               <Camera className="w-4 h-4" />
               {running
-                ? 'Renderowanie...'
+                ? t('Rendering...')
                 : mode === 'single'
-                ? `Wygeneruj Screen ${Math.round(scale * 100)}%`
-                : `Wygeneruj ${batchCount.toLocaleString('pl-PL')} Screenów`}
+                ? t('Generate {scale}% Screenshot', { scale: Math.round(scale * 100) })
+                : tp(batchCount, 'Generate {n} Screenshot', 'Generate {n} Screenshots', {
+                    n: batchCount.toLocaleString(locale),
+                  })}
             </button>
           </div>
         </div>

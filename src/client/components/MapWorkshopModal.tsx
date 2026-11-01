@@ -17,6 +17,7 @@ import {
   makeDerivedMapName,
   PmsMapData,
 } from '@shared/pmsParser';
+import { locale, t, tp, tr, tText } from '../i18n';
 import {
   buildOptimizePreview,
   checkOptimizeTarget,
@@ -289,14 +290,15 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
 
   const derivedFixName = currentMapEntry
     ? makeDerivedMapName(currentMapEntry.baseName, '_f', maxBaseLength)
-    : 'mapa_f';
+    : t('map_f');
   // The server decides the final name (`_f_o` only when fixFirst really repaired something)
   const derivedOptName =
     optPlan && currentMapEntry && optPlan.mapId === currentMapEntry.id
       ? optPlan.derivedBaseName
       : currentMapEntry
       ? makeDerivedMapName(currentMapEntry.baseName, '_o', maxBaseLength)
-      : 'mapa_o';
+      : t('map_o');
+  const batchMapsLabel = tp(batchCount, '{n} map', '{n} maps', { n: batchCount.toLocaleString(locale) });
   const planFixCount =
     optPlan && currentMapEntry && optPlan.mapId === currentMapEntry.id ? optPlan.appliedPropFixes?.length ?? 0 : 0;
 
@@ -326,7 +328,12 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
     const previewPms = cloneMapWithPropFixes(currentMapData, fixesMap);
     onApplyLivePreviewMap(
       previewPms,
-      `Podgląd naprawy 1.7.1 na żywo (${fixesMap.size} naprawionych scenerii → ${derivedFixName}.pms)`
+      tp(
+        fixesMap.size,
+        'Live 1.7.1 fix preview ({n} scenery fixed → {name}.pms)',
+        'Live 1.7.1 fix preview ({n} sceneries fixed → {name}.pms)',
+        { name: derivedFixName }
+      )
     );
     onClose();
   };
@@ -351,7 +358,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
           }),
         });
         const check = await checkRes.json();
-        if (!checkRes.ok) throw new Error(check.error || 'Błąd sprawdzania pliku docelowego.');
+        if (!checkRes.ok) throw new Error(check.error || t('Could not check the target file.'));
         if ((check as DerivedTargetCheck).mapExists) {
           setPendingFixOverwrite(check as DerivedTargetCheck);
           return;
@@ -372,7 +379,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Błąd zapisywania mapy _f.pms');
+      if (!res.ok) throw new Error(data.error || t('Could not save the _f.pms map'));
       setFixSingleResult(data.result);
       if (data.meta) onMetaUpdated(data.meta);
     } catch (err) {
@@ -400,7 +407,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Błąd skanowania wsadowego');
+      if (!res.ok) throw new Error(data.error || t('Batch scan failed'));
       const found = data.items as BatchScanFixItem[];
       setBatchItems(found);
       // Select maps that don't already have a _f sibling (and don't collide with another map's name) by default
@@ -432,7 +439,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Błąd wsadowej naprawy map');
+      if (!res.ok) throw new Error(data.error || t('Batch fix failed'));
       setBatchFixDoneSummary({
         fixedMapsCount: data.fixedMapsCount,
         totalFixedProps: data.totalFixedProps,
@@ -485,10 +492,15 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
   const handleShowPreviewInViewport = () => {
     if (!optPreview || !currentMapEntry) return;
     const f = optPreview.fidelity;
+    const banner = t('Optimize result preview ({name}.pms, {ss}×, not saved)', { name: derivedOptName, ss: supersample });
     onApplyLivePreviewMap(
       optPreview.previewMap,
-      `Podgląd wyniku Optimize (${derivedOptName}.pms, ${supersample}×, bez zapisu)` +
-        (f ? ` — ostrość ${f.sharpnessPct}% oryginału, śr. różnica ${f.meanAbsDiff}` : '')
+      f
+        ? `${banner} — ${t('sharpness {pct}% of the original, avg. difference {diff}', {
+            pct: f.sharpnessPct,
+            diff: f.meanAbsDiff,
+          })}`
+        : banner
     );
     onClose();
   };
@@ -545,7 +557,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
     setOptBatchProgress(null);
     try {
       const candidates = await onResolveBatchCandidates();
-      if (candidates.length === 0) throw new Error('Brak map do optymalizacji w koszyku / bieżącym filtrze.');
+      if (candidates.length === 0) throw new Error(t('No maps to optimize in the pack selection / current filter.'));
       const summary = await runOptimizeBatch(
         candidates,
         optOptions,
@@ -576,10 +588,10 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
 
   const optDestinationLabel =
     optDestination === 'soldat_maps'
-      ? 'Soldat/maps (od razu widoczne w grze)'
+      ? t('Soldat/maps (visible in the game right away)')
       : optDestination === 'exports_optimized'
       ? 'exports/optimized_maps'
-      : optCustomFolder.trim() || 'własny folder (nie wybrano)';
+      : optCustomFolder.trim() || t('custom folder (none chosen)');
 
   const reductionPct =
     optPlan && optPlan.totalActivePropsBefore > 0
@@ -607,10 +619,13 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-zinc-100">
-                Warsztat Map PMS — Naprawa Scenerii 1.7.1 (<code>_f</code>) i Optimize Sceneries (<code>_o</code>)
+                {tr('PMS Map Workshop — 1.7.1 Scenery Fix ({f}) and Optimize Sceneries ({o})', {
+                  f: <code>_f</code>,
+                  o: <code>_o</code>,
+                })}
               </h2>
               <p className="text-[11px] text-zinc-400">
-                Bezstratna modyfikacja tabel scenerii z 100% zachowaniem fizyki poligonów, sektorów kolizji, spawnów i waypointów
+                {t('Lossless editing of the scenery tables that keeps polygon physics, collision sectors, spawn points and bot waypoints 100% intact')}
               </p>
             </div>
           </div>
@@ -619,7 +634,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
             type="button"
             disabled={optimizing || fixingSingle || applyingBatch || previewing || optBatchRunning}
             onClick={onClose}
-            aria-label="Zamknij warsztat"
+            aria-label={t('Close workshop')}
             className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 disabled:opacity-40 cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -639,7 +654,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
               }`}
             >
               <Wrench className="w-3.5 h-3.5" />
-              1. Naprawa Scenerii Soldat 1.7.1 (_f.pms)
+              {t('1. Soldat 1.7.1 Scenery Fix (_f.pms)')}
             </button>
             <button
               type="button"
@@ -651,22 +666,22 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
               }`}
             >
               <Layers className="w-3.5 h-3.5" />
-              2. Optimize Sceneries — Sklejanie Warstw (_o.pms)
+              {t('2. Optimize Sceneries — Layer Merging (_o.pms)')}
             </button>
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-zinc-400 text-[11px]">Limit długości nazwy mapy:</span>
+            <span className="text-zinc-400 text-[11px]">{t('Map name length limit:')}</span>
             <select
               value={maxBaseLength}
               onChange={(e) => setMaxBaseLength(Number(e.target.value))}
               className="bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1 font-mono text-zinc-200 focus:outline-none focus:border-amber-500"
-              title="Jeśli nazwa z dopiskiem _f lub _o przekroczy ten limit, końcowe znaki nazwy bazowej zostaną obcięte przed dodaniem sufiksu"
+              title={t('If the name with the _f or _o suffix exceeds this limit, the end of the base name is cut off before the suffix is added')}
             >
-              <option value={16}>16 znaków (Soldat 1.6)</option>
-              <option value={20}>20 znaków</option>
-              <option value={24}>24 znaki (Zalecane)</option>
-              <option value={32}>32 znaki (OpenSoldat)</option>
+              <option value={16}>{t('16 characters (Soldat 1.6)')}</option>
+              <option value={20}>{t('20 characters')}</option>
+              <option value={24}>{t('24 characters (recommended)')}</option>
+              <option value={32}>{t('32 characters (OpenSoldat)')}</option>
             </select>
           </div>
         </div>
@@ -686,7 +701,10 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                       : 'text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
-                  Aktualna mapa ({currentMapEntry?.baseName || '—'} → {derivedFixName}.pms)
+                  {t('Current map ({name} → {derived}.pms)', {
+                    name: currentMapEntry?.baseName || '—',
+                    derived: derivedFixName,
+                  })}
                 </button>
                 <button
                   type="button"
@@ -697,7 +715,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                       : 'text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
-                  Skaner i Naprawa Wsadowa ({batchCount.toLocaleString('pl-PL')} map — {batchSourceLabel})
+                  {t('Batch Scan & Fix ({count} — {source})', { count: batchMapsLabel, source: batchSourceLabel })}
                 </button>
               </div>
 
@@ -708,7 +726,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                   onChange={(e) => setFixRemoveUnused(e.target.checked)}
                   className="rounded border-zinc-700 bg-zinc-900 text-amber-500"
                 />
-                Usuń przy okazji martwe (nieużywane) wpisy scenerii z nagłówka .pms
+                {t('Also remove dead (unused) scenery entries from the .pms header')}
               </label>
             </div>
 
@@ -716,7 +734,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
             <div className="bg-zinc-950/70 border border-zinc-800 rounded-lg p-3 grid grid-cols-12 gap-3 items-center">
               <div className="col-span-5">
                 <label className="block text-[11px] text-zinc-400 mb-1">
-                  Miejsce zapisu plików <code>*_f.pms</code>:
+                  {tr('Where to save the {files} files:', { files: <code>*_f.pms</code> })}
                 </label>
                 <select
                   value={fixDestination}
@@ -728,12 +746,12 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                   className="w-full bg-zinc-900 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 focus:outline-none focus:border-amber-500"
                 >
                   <option value="soldat_maps">
-                    Bezpośrednio do Soldat/maps/ (od razu widoczne w grze i Studio)
+                    {t('Straight into Soldat/maps/ (visible in the game and Studio right away)')}
                   </option>
                   <option value="exports_fixed">
-                    Osobny katalog projektu: exports/fixed_maps/maps/
+                    {t('Separate project folder: exports/fixed_maps/maps/')}
                   </option>
-                  <option value="custom">Własny folder na dysku...</option>
+                  <option value="custom">{t('Custom folder on disk...')}</option>
                 </select>
               </div>
 
@@ -741,35 +759,40 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                 {fixDestination === 'custom' ? (
                   <div>
                     <label className="block text-[11px] text-zinc-400 mb-1">
-                      Ścieżka docelowego folderu:
+                      {t('Target folder path:')}
                     </label>
                     <div className="flex gap-1.5">
                       <input
                         type="text"
                         value={fixCustomFolder}
                         onChange={(e) => setFixCustomFolder(e.target.value)}
-                        placeholder="Wybierz katalog..."
+                        placeholder={t('Choose a folder...')}
                         className="flex-1 bg-zinc-900 border border-zinc-800 rounded px-2.5 py-1.5 font-mono text-zinc-200"
                       />
                       <button
                         type="button"
                         onClick={async () => {
-                          const p = await pickSystemFolder('Wybierz folder zapisu map _f.pms');
+                          const p = await pickSystemFolder(t('Choose where to save the _f.pms maps'));
                           if (p) setFixCustomFolder(p);
                         }}
                         className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 cursor-pointer"
                       >
-                        Przeglądaj...
+                        {t('Browse...')}
                       </button>
                     </div>
                   </div>
                 ) : (
                   <div className="text-[11px] text-zinc-400 leading-relaxed">
-                    <strong className="text-zinc-200">Jak działa automatyczna naprawa 1.7.1?</strong>{' '}
-                    Wykrywa scenerie rozciągnięte przez stary MapMaker do potęg dwójki (np.{' '}
-                    <code>64×64</code> zamiast <code>25×17</code> lub <code>41×67</code>) oraz
-                    scenerie powiększone <code>4.5×</code> po zapisie w starym PolyWorks na teksturach
-                    HD, przywracając im dokładne proporcje 1:1 bez ruszania skali autora.
+                    <strong className="text-zinc-200">{t('How does the automatic 1.7.1 fix work?')}</strong>{' '}
+                    {tr(
+                      "It finds sceneries the old MapMaker stretched to powers of two (e.g. {pot} instead of {a} or {b}) and sceneries enlarged {hd} after saving with HD textures in the old PolyWorks, and restores their exact 1:1 proportions without touching the author's scale.",
+                      {
+                        pot: <code>64×64</code>,
+                        a: <code>25×17</code>,
+                        b: <code>41×67</code>,
+                        hd: <code>4.5×</code>,
+                      }
+                    )}
                   </div>
                 )}
               </div>
@@ -781,18 +804,22 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                 <div className="flex-1 min-h-48 bg-zinc-950 border border-zinc-800 rounded-lg flex flex-col overflow-hidden">
                   <div className="px-3.5 py-2 bg-zinc-900/70 border-b border-zinc-800 flex items-center justify-between">
                     <span className="font-semibold text-zinc-200">
-                      Diagnoza scenerii mapy{' '}
-                      <code className="text-amber-300">{currentMapEntry?.baseName}</code>
-                      {loadingAnalysis ? ' • analizowanie...' : ''}
+                      {tr('Scenery check of map {name}', {
+                        name: <code className="text-amber-300">{currentMapEntry?.baseName}</code>,
+                      })}
+                      {loadingAnalysis ? ` • ${t('analyzing...')}` : ''}
                     </span>
                     {analysis && (
                       <span className="text-[11px] text-zinc-400">
-                        Do naprawy:{' '}
-                        <strong className="text-amber-300 font-mono">{selectedPropFixCount}</strong> /{' '}
-                        {analysis.totalActiveProps} aktywnych scenerii • Martwe wpisy:{' '}
-                        <strong className="font-mono text-zinc-300">
-                          {analysis.unusedSceneryCount}
-                        </strong>
+                        {tr('Sceneries to fix: {selected} / {total} active • Dead entries: {dead}', {
+                          selected: <strong className="text-amber-300 font-mono">{selectedPropFixCount}</strong>,
+                          total: analysis.totalActiveProps,
+                          dead: (
+                            <strong className="font-mono text-zinc-300">
+                              {analysis.unusedSceneryCount}
+                            </strong>
+                          ),
+                        })}
                       </span>
                     )}
                   </div>
@@ -800,22 +827,22 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                   <div className="flex-1 overflow-y-auto divide-y divide-zinc-900">
                     {!currentMapEntry ? (
                       <div className="p-8 text-center text-zinc-500">
-                        Wybierz mapę w przeglądarce, aby przeanalizować jej scenerie.
+                        {t('Select a map in the browser to analyze its sceneries.')}
                       </div>
                     ) : !analysis || !analysisMatchesMap || loadingAnalysis ? (
                       <div className="p-8 text-center text-zinc-500">
                         {fixError && !loadingAnalysis
-                          ? 'Nie udało się przeanalizować tej mapy (szczegóły poniżej).'
-                          : 'Analizowanie wymiarów scenerii względem tabeli Soldat 1.6 oraz plików na dysku...'}
+                          ? t('Could not analyze this map (details below).')
+                          : t('Checking scenery sizes against the Soldat 1.6 table and the files on disk...')}
                       </div>
                     ) : analysis.issues.length === 0 ? (
                       <div className="p-8 text-center space-y-1.5">
                         <CheckCircle2 className="w-7 h-7 text-emerald-400 mx-auto" />
                         <div className="font-semibold text-emerald-300">
-                          Wszystkie scenerie na tej mapie mają już prawidłowe wymiary 1.7.1!
+                          {t('All sceneries on this map already have correct 1.7.1 sizes!')}
                         </div>
                         <div className="text-[11px] text-zinc-500">
-                          Nie wykryto rozciągniętych tekstur Power-of-Two ani błędnego przeskalowania 4.5× HD.
+                          {t('No stretched Power-of-Two textures or wrong 4.5× HD scaling found.')}
                         </div>
                       </div>
                     ) : (
@@ -847,7 +874,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                                         : 'bg-zinc-800 text-zinc-400 border-zinc-700'
                                     }`}
                                   >
-                                    {issue.recommended ? 'Pewny błąd 1.7.1' : 'Opcjonalna różnica'}
+                                    {issue.recommended ? t('Definite 1.7.1 error') : t('Optional difference')}
                                   </span>
                                   {issue.isVanilla && (
                                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/25">
@@ -856,7 +883,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                                   )}
                                 </div>
                                 <div className="text-[11px] text-zinc-400 mt-0.5">
-                                  {issue.reasonLabelPl} • przykładowa skala autora:{' '}
+                                  {tText(issue.reasonLabelPl)} • {t("author's scale (sample):")}{' '}
                                   <code className="font-mono text-zinc-300">
                                     {issue.sampleScaleX.toFixed(2)} × {issue.sampleScaleY.toFixed(2)}
                                   </code>
@@ -906,16 +933,18 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                       <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
                       <div className="min-w-0">
                         <div className="font-semibold text-emerald-200">
-                          Zapisano naprawioną mapę: <code>{fixSingleResult.outputFileName}</code> (naprawiono{' '}
-                          {fixSingleResult.fixedPropCount} scenerii, usunięto{' '}
-                          {fixSingleResult.removedUnusedSceneryCount} martwych wpisów)
+                          {tr('Saved the fixed map: {file} (sceneries fixed: {fixed}, dead entries removed: {removed})', {
+                            file: <code>{fixSingleResult.outputFileName}</code>,
+                            fixed: fixSingleResult.fixedPropCount,
+                            removed: fixSingleResult.removedUnusedSceneryCount,
+                          })}
                         </div>
                         <div className="text-[11px] font-mono text-zinc-400 truncate">
                           {fixSingleResult.outputPath}
                         </div>
                         {fixSingleResult.backupDir && (
                           <div className="text-[11px] text-sky-300 truncate" title={fixSingleResult.backupDir}>
-                            Poprzednia wersja pliku zapisana w kopii: {fixSingleResult.backupDir}
+                            {t('Previous version of the file saved in a backup: {dir}', { dir: fixSingleResult.backupDir })}
                           </div>
                         )}
                       </div>
@@ -926,7 +955,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                         onClick={() => openPathInExplorer(fixSingleResult.outputPath)}
                         className="px-2.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-100 flex items-center gap-1 cursor-pointer"
                       >
-                        <FolderOpen className="w-3.5 h-3.5" /> Pokaż folder
+                        <FolderOpen className="w-3.5 h-3.5" /> {t('Show folder')}
                       </button>
                       {fixSingleResult.newMapId && (
                         <button
@@ -937,7 +966,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                           }}
                           className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold flex items-center gap-1 cursor-pointer"
                         >
-                          <Play className="w-3.5 h-3.5" /> Otwórz {fixSingleResult.derivedBaseName}
+                          <Play className="w-3.5 h-3.5" /> {t('Open {name}', { name: fixSingleResult.derivedBaseName })}
                         </button>
                       )}
                     </div>
@@ -953,7 +982,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                     className="px-3.5 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-amber-200 border border-amber-500/30 font-semibold flex items-center gap-1.5 cursor-pointer"
                   >
                     <Eye className="w-4 h-4 text-amber-400" />
-                    Podgląd naprawy na żywo w oknie mapy (bez zapisu)
+                    {t('Live fix preview in the map view (not saved)')}
                   </button>
 
                   <button
@@ -970,8 +999,8 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                   >
                     <Wrench className="w-4 h-4" />
                     {fixingSingle
-                      ? 'Zapisywanie...'
-                      : `Napraw i zapisz ${derivedFixName}.pms`}
+                      ? t('Saving...')
+                      : t('Fix and save {name}.pms', { name: derivedFixName })}
                   </button>
                 </div>
               </>
@@ -981,10 +1010,18 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                 <div className="flex items-center justify-between bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2.5">
                   <div>
                     <div className="font-semibold text-zinc-200">
-                      Automatyczny skaner uszkodzonych scenerii 1.7.1 w kolekcji ({batchCount.toLocaleString('pl-PL')} map — {batchSourceLabel})
+                      {t('Automatic scanner for broken 1.7.1 sceneries in the collection ({count} — {source})', {
+                        count: batchMapsLabel,
+                        source: batchSourceLabel,
+                      })}
                     </div>
                     <div className="text-[11px] text-zinc-400">
-                      Przeszukuje np. wszystkie mapy RSCS (<code>ctf_cs_</code>, <code>ctf_de_</code>) oraz Trenchwars (<code>tw_</code>, <code>ttw_</code>) i wykrywa rozciągnięte scenerie
+                      {tr('Searches e.g. all RSCS maps ({cs}, {de}) and Trenchwars ({tw}, {ttw}) and finds stretched sceneries', {
+                        cs: <code>ctf_cs_</code>,
+                        de: <code>ctf_de_</code>,
+                        tw: <code>tw_</code>,
+                        ttw: <code>ttw_</code>,
+                      })}
                     </div>
                   </div>
                   <button
@@ -994,25 +1031,29 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                     className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-amber-500/30 font-semibold flex items-center gap-1.5 cursor-pointer shrink-0"
                   >
                     <Search className="w-4 h-4" />
-                    {scanningBatch ? 'Skanowanie map...' : 'Skanuj mapy pod kątem błędów 1.7.1'}
+                    {scanningBatch ? t('Scanning maps...') : t('Scan maps for 1.7.1 errors')}
                   </button>
                 </div>
 
                 <div className="flex-1 min-h-44 bg-zinc-950 border border-zinc-800 rounded-lg flex flex-col overflow-hidden">
                   {batchItems === null ? (
                     <div className="p-8 text-center text-zinc-500">
-                      Kliknij „Skanuj mapy pod kątem błędów 1.7.1”, aby w kilka sekund znaleźć wszystkie mapy z rozciągniętymi sceneriami.
+                      {t('Click “{button}” to find every map with stretched sceneries in a few seconds.', {
+                        button: t('Scan maps for 1.7.1 errors'),
+                      })}
                     </div>
                   ) : batchItems.length === 0 ? (
                     <div className="p-8 text-center text-emerald-300 font-semibold">
-                      Nie znaleziono żadnych uszkodzonych map 1.7.1 w wybranym zestawie!
+                      {t('No broken 1.7.1 maps found in the selected set!')}
                     </div>
                   ) : (
                     <>
                       <div className="px-3.5 py-2 bg-zinc-900/70 border-b border-zinc-800 flex items-center justify-between">
                         <span className="font-semibold text-zinc-200">
-                          Wykryto map z błędami scenerii: {batchItems.length} (zaznaczono:{' '}
-                          {selectedBatchMapIds.size})
+                          {t('Maps with scenery errors: {count} (selected: {selected})', {
+                            count: batchItems.length,
+                            selected: selectedBatchMapIds.size,
+                          })}
                         </span>
                         <div className="flex items-center gap-2 text-[11px]">
                           <button
@@ -1022,7 +1063,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                             }
                             className="text-amber-300 hover:underline cursor-pointer"
                           >
-                            Zaznacz wszystkie
+                            {t('Select all')}
                           </button>
                           <span className="text-zinc-700">•</span>
                           <button
@@ -1030,7 +1071,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                             onClick={() => setSelectedBatchMapIds(new Set())}
                             className="text-zinc-400 hover:text-zinc-200 cursor-pointer"
                           >
-                            Odznacz
+                            {t('Select none')}
                           </button>
                         </div>
                       </div>
@@ -1066,19 +1107,19 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                                       {item.derivedBaseName}.pms
                                     </span>
                                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300">
-                                      {item.modeGroupName}
+                                      {tText(item.modeGroupName)}
                                     </span>
                                     {item.alreadyHasFixedSibling && (
                                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30">
-                                        Posiada już plik _f na dysku
+                                        {t('Already has an _f file on disk')}
                                       </span>
                                     )}
                                     {item.nameCollisionWith && (
                                       <span
                                         className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/30"
-                                        title="Po skróceniu nazwy obie mapy dałyby ten sam plik _f — zmień limit długości nazwy"
+                                        title={t('Once the names are shortened, both maps would produce the same _f file — change the name length limit')}
                                       >
-                                        Ta sama nazwa wynikowa co {item.nameCollisionWith}
+                                        {t('Same output name as {name}', { name: item.nameCollisionWith })}
                                       </span>
                                     )}
                                   </div>
@@ -1088,7 +1129,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                                 </div>
                               </div>
                               <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-200 border border-amber-500/30 shrink-0">
-                                {item.affectedPropCount} scen.
+                                {tp(item.affectedPropCount, '{n} scenery to fix', '{n} sceneries to fix')}
                               </span>
                             </label>
                           );
@@ -1109,18 +1150,29 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                     <div className="space-y-1 min-w-0">
                       <div className="flex items-center gap-2 text-emerald-200 font-semibold">
                         <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-                        Utworzono {batchFixDoneSummary.fixedMapsCount} naprawionych map *_f.pms (łącznie poprawiono{' '}
-                        {batchFixDoneSummary.totalFixedProps} scenerii)
+                        {tp(
+                          batchFixDoneSummary.fixedMapsCount,
+                          'Created {n} fixed *_f.pms map (sceneries corrected in total: {props})',
+                          'Created {n} fixed *_f.pms maps (sceneries corrected in total: {props})',
+                          { props: batchFixDoneSummary.totalFixedProps }
+                        )}
                       </div>
                       {batchFixDoneSummary.skippedExistingCount > 0 && (
                         <div className="text-[11px] text-sky-300">
-                          Pominięto {batchFixDoneSummary.skippedExistingCount} map, których plik _f już istniał
-                          (zaznacz „Nadpisuj istniejące”, aby je odtworzyć).
+                          {tp(
+                            batchFixDoneSummary.skippedExistingCount,
+                            'Skipped {n} map whose _f file already existed (tick “Overwrite existing” to recreate it).',
+                            'Skipped {n} maps whose _f file already existed (tick “Overwrite existing” to recreate them).'
+                          )}
                         </div>
                       )}
                       {batchFixDoneSummary.failed.length > 0 && (
                         <div className="text-[11px] text-red-300 truncate" title={batchFixDoneSummary.failed.map((f) => `${f.mapId}: ${f.error}`).join('\n')}>
-                          Błędy: {batchFixDoneSummary.failed.length} (np. {batchFixDoneSummary.failed[0].mapId}: {batchFixDoneSummary.failed[0].error})
+                          {t('Errors: {count} (e.g. {map}: {error})', {
+                            count: batchFixDoneSummary.failed.length,
+                            map: batchFixDoneSummary.failed[0].mapId,
+                            error: batchFixDoneSummary.failed[0].error,
+                          })}
                         </div>
                       )}
                     </div>
@@ -1130,7 +1182,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                         onClick={() => openPathInExplorer(batchFixDoneSummary.outputDir!)}
                         className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-100 flex items-center gap-1 cursor-pointer"
                       >
-                        <FolderOpen className="w-3.5 h-3.5" /> Otwórz folder
+                        <FolderOpen className="w-3.5 h-3.5" /> {t('Open folder')}
                       </button>
                     )}
                   </div>
@@ -1144,7 +1196,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                       onChange={(e) => setFixOverwriteExisting(e.target.checked)}
                       className="rounded border-zinc-700 bg-zinc-900 text-amber-500"
                     />
-                    Nadpisuj istniejące pliki <code>_f.pms</code> (domyślnie są pomijane)
+                    {tr('Overwrite existing {file} files (skipped by default)', { file: <code>_f.pms</code> })}
                   </label>
                   <button
                     type="button"
@@ -1154,8 +1206,8 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                   >
                     <Wrench className="w-4 h-4" />
                     {applyingBatch
-                      ? 'Naprawianie zaznaczonych map...'
-                      : `Napraw zaznaczone mapy (${selectedBatchMapIds.size}) → *_f.pms`}
+                      ? t('Fixing the selected maps...')
+                      : t('Fix selected maps ({count}) → *_f.pms', { count: selectedBatchMapIds.size })}
                   </button>
                 </div>
               </div>
@@ -1169,32 +1221,30 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
               <div className="bg-zinc-950/80 border border-zinc-800 rounded-lg p-3 space-y-2">
                 <div className="font-semibold text-zinc-200 flex items-center gap-1.5">
                   <Sparkles className="w-4 h-4 text-emerald-400" />
-                  Warstwy do sklejenia (jak ręczna optymalizacja w <code>deagle5</code>)
+                  {tr('Layers to merge (like the manual optimization in {map})', { map: <code>deagle5</code> })}
                 </div>
                 <p className="text-[11px] text-zinc-400 leading-relaxed">
-                  Łączy dziesiątki/setki nakładających się cegieł, cieni, ścian i krzaków na tej samej
-                  warstwie w pojedyncze, idealnie spasowane arkusze PNG — całkowicie eliminując efekt
-                  migotania przezroczystości (alpha flickering) i odciążając silnik gry.
+                  {t('Merges dozens or hundreds of overlapping bricks, shadows, walls and bushes on the same layer into single, perfectly aligned PNG sheets — completely removing alpha flickering and taking load off the game engine.')}
                 </p>
 
                 <div className="grid grid-cols-3 gap-2 pt-1">
                   <LayerMergeCard
                     checked={mergeBack}
                     onChange={setMergeBack}
-                    title="Warstwa 0: Tył"
-                    subtitle="Za graczem (Back)"
+                    title={t('Layer 0: Back')}
+                    subtitle={t('Behind the player')}
                   />
                   <LayerMergeCard
                     checked={mergeMid}
                     onChange={setMergeMid}
-                    title="Warstwa 1: Środek"
-                    subtitle="Za poligonami (Mid)"
+                    title={t('Layer 1: Middle')}
+                    subtitle={t('Behind the polygons')}
                   />
                   <LayerMergeCard
                     checked={mergeFront}
                     onChange={setMergeFront}
-                    title="Warstwa 2: Przód"
-                    subtitle="Kryjówki (Front)"
+                    title={t('Layer 2: Front')}
+                    subtitle={t('Hiding spots')}
                   />
                 </div>
               </div>
@@ -1209,17 +1259,23 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                 />
                 <span className="space-y-0.5">
                   <span className="block font-semibold text-zinc-200">
-                    Najpierw napraw wymiary scenerii 1.7.1 (jak <code>_f</code>), potem sklej
+                    {tr('Fix the 1.7.1 scenery sizes first (like {f}), then merge', { f: <code>_f</code> })}
                   </span>
                   <span className="block text-[11px] text-zinc-400 leading-relaxed">
-                    Sklejanie mapy z rozciągniętymi sceneriami utrwaliłoby błąd w warstwach PNG. Zalecane poprawki są
-                    stosowane w pamięci (bez pliku pośredniego), a wynik dostaje nazwę <code>_f_o</code>.
+                    {tr(
+                      'Merging a map with stretched sceneries would bake the error into the PNG layers. The recommended fixes are applied in memory (no intermediate file) and the result is named {name}.',
+                      { name: <code>_f_o</code> }
+                    )}
                     {fixFirst && optPlan && optPlan.mapId === currentMapEntry?.id && (
                       <span className={planFixCount > 0 ? 'text-amber-300' : 'text-zinc-500'}>
                         {' '}
                         {planFixCount > 0
-                          ? `Ta mapa: ${planFixCount} scenerii zostanie poprawionych przed sklejeniem.`
-                          : 'Ta mapa nie wymaga poprawek — wynik zostanie zapisany jako zwykłe _o.'}
+                          ? tp(
+                              planFixCount,
+                              'This map: {n} scenery will be fixed before merging.',
+                              'This map: {n} sceneries will be fixed before merging.'
+                            )
+                          : t('This map needs no fixes — the result will be saved as a plain _o.')}
                       </span>
                     )}
                   </span>
@@ -1230,7 +1286,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-medium text-zinc-300 mb-1">
-                    Jakość rasteryzacji warstw PNG
+                    {t('PNG layer quality')}
                   </label>
                   <select
                     value={String(supersampleChoice)}
@@ -1244,34 +1300,37 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                     className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 focus:outline-none focus:border-emerald-500"
                   >
                     <option value="auto">
-                      Auto — 3×, przy bardzo dużych warstwach mniej (teraz: {supersample}×)
+                      {t('Auto — 3×, less for very large layers (now: {ss}×)', { ss: supersample })}
                     </option>
-                    <option value={1}>1× Ekonomiczna — w grze rozmyta (cienkie detale bledną)</option>
-                    <option value={2}>2× Średnia — na 1080p nieco miększa (scale 0.5)</option>
-                    <option value={3}>3× Ostra — najlepsza dla 1080p (scale 0.333)</option>
-                    <option value={4}>4× Maksymalna — 1440p i 4K (duże pliki, scale 0.25)</option>
+                    <option value={1}>{t('1× Economy — blurry in game (thin details fade)')}</option>
+                    <option value={2}>{t('2× Medium — slightly soft at 1080p (scale 0.5)')}</option>
+                    <option value={3}>{t('3× Sharp — best for 1080p (scale 0.333)')}</option>
+                    <option value={4}>{t('4× Maximum — 1440p and 4K (large files, scale 0.25)')}</option>
                   </select>
                   {optPlan && (
                     <div className="text-[10px] text-zinc-500 mt-1">
-                      Rozmiar warstw: do {optPlan.estimatedMegapixelsBySupersample[supersample - 1].toFixed(1)} MPx
-                      (~{Math.round(optPlan.estimatedMegapixelsBySupersample[supersample - 1] * 4)} MB VRAM, puste
-                      obszary są przycinane). Na 1080p gra pokazuje ok. 2.25 px na jednostkę świata: 3× wychodzi
-                      najostrzej, 2× nieco miękko, 1× wyraźnie rozmyte; 4× przydaje się od 1440p.
+                      {t(
+                        'Layer size: up to {mp} MPx (~{mb} MB VRAM, empty areas are cropped). At 1080p the game shows about 2.25 px per world unit: 3× comes out sharpest, 2× a little soft, 1× clearly blurry; 4× pays off from 1440p up.',
+                        {
+                          mp: optPlan.estimatedMegapixelsBySupersample[supersample - 1].toFixed(1),
+                          mb: Math.round(optPlan.estimatedMegapixelsBySupersample[supersample - 1] * 4),
+                        }
+                      )}
                     </div>
                   )}
                 </div>
 
                 <div>
                   <label className="block font-medium text-zinc-300 mb-1">
-                    Maksymalny rozmiar kafelka PNG
+                    {t('Maximum PNG tile size')}
                   </label>
                   <select
                     value={maxTilePx}
                     onChange={(e) => setMaxTilePx(Number(e.target.value) as 2048 | 4096)}
                     className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 focus:outline-none focus:border-emerald-500"
                   >
-                    <option value={2048}>2048 × 2048 px (100% kompatybilności GPU)</option>
-                    <option value={4096}>4096 × 4096 px (mniej plików na dużych mapach)</option>
+                    <option value={2048}>{t('2048 × 2048 px (100% GPU compatibility)')}</option>
+                    <option value={4096}>{t('4096 × 4096 px (fewer files on large maps)')}</option>
                   </select>
                 </div>
               </div>
@@ -1279,7 +1338,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
               {/* Author-Intent Protection Rules */}
               <div className="bg-zinc-950/70 border border-zinc-800 rounded-lg p-3 space-y-2">
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-                  Ochrona Zamysłu Autora (Z-Order Safe)
+                  {t("Author's Intent Protection (Z-Order Safe)")}
                 </div>
 
                 <label className="flex items-start gap-2 opacity-90">
@@ -1291,10 +1350,12 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                   />
                   <div>
                     <div className="text-zinc-200">
-                      Zawsze zachowuj animowane scenerie <code>.gif</code> osobno (ogień, woda, migające lampy)
+                      {tr('Always keep animated {gif} sceneries separate (fire, water, blinking lamps)', {
+                        gif: <code>.gif</code>,
+                      })}
                     </div>
                     <div className="text-[10px] text-zinc-500">
-                      Dzieli warstwę przed i za animacją, zachowując w 100% kolejność przykrywania obiektów
+                      {t('Splits the layer before and after the animation, keeping the order in which objects cover each other 100% intact')}
                     </div>
                   </div>
                 </label>
@@ -1308,7 +1369,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                   />
                   <div className="flex-1">
                     <div className="text-zinc-200 flex items-center justify-between gap-2">
-                      <span>Zachowaj ogromne tła / mgły (np. <code>fade.png</code>) bez wypalania</span>
+                      <span>{tr('Keep huge backgrounds / fog (e.g. {file}) without baking', { file: <code>fade.png</code> })}</span>
                       {preserveGiantProps && (
                         <input
                           type="number"
@@ -1318,12 +1379,12 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                           value={giantPropThresholdPx}
                           onChange={(e) => setGiantPropThresholdPx(Number(e.target.value) || 1600)}
                           className="w-20 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 font-mono text-[11px] text-zinc-200"
-                          title="Próg rozmiaru scenerii w świecie gry (px)"
+                          title={t('Scenery size threshold in the game world (px)')}
                         />
                       )}
                     </div>
                     <div className="text-[10px] text-zinc-500">
-                      Zapobiega generowaniu gigantycznych pustych tekstur nieba poza obszarem gry
+                      {t('Prevents giant empty sky textures from being generated outside the play area')}
                     </div>
                   </div>
                 </label>
@@ -1337,7 +1398,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                   />
                   <div>
                     <div className="text-zinc-200">
-                      Nie twórz nowego PNG dla pojedynczej odizolowanej scenerii (np. podpis autora)
+                      {t("Don't create a new PNG for a single isolated scenery (e.g. the author's signature)")}
                     </div>
                   </div>
                 </label>
@@ -1351,7 +1412,10 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                   />
                   <div>
                     <div className="text-zinc-200">
-                      Użyj klasycznych tekstur Soldat 1.6 (<code>.bmp</code>) zamiast HD (<code>.png</code>) podczas sklejania
+                      {tr('Use the classic Soldat 1.6 textures ({bmp}) instead of HD ({png}) when merging', {
+                        bmp: <code>.bmp</code>,
+                        png: <code>.png</code>,
+                      })}
                     </div>
                   </div>
                 </label>
@@ -1365,7 +1429,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                   />
                   <div>
                     <div className="text-zinc-200">
-                      Oczyść nagłówek <code>.pms</code> ze starych, zastąpionych wpisów scenerii
+                      {tr('Clear old, replaced scenery entries from the {pms} header', { pms: <code>.pms</code> })}
                     </div>
                   </div>
                 </label>
@@ -1374,7 +1438,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
               {/* Destination */}
               <div>
                 <label className="block font-medium text-zinc-300 mb-1">
-                  Miejsce zapisu mapy <code>{derivedOptName}.pms</code> i wygenerowanych PNG:
+                  {tr('Where to save the map {map} and the generated PNGs:', { map: <code>{derivedOptName}.pms</code> })}
                 </label>
                 <select
                   value={optDestination}
@@ -1386,12 +1450,12 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                   className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 focus:outline-none focus:border-emerald-500"
                 >
                   <option value="soldat_maps">
-                    Bezpośrednio do Soldat (maps/ + scenery-gfx/ — gotowe do podglądu i paczki MPA!)
+                    {t('Straight into Soldat (maps/ + scenery-gfx/ — ready for preview and an MPA pack!)')}
                   </option>
                   <option value="exports_optimized">
-                    Osobny katalog: exports/optimized_maps/ (maps/ + scenery-gfx/)
+                    {t('Separate folder: exports/optimized_maps/ (maps/ + scenery-gfx/)')}
                   </option>
-                  <option value="custom">Własny folder na dysku...</option>
+                  <option value="custom">{t('Custom folder on disk...')}</option>
                 </select>
 
                 {optDestination === 'custom' && (
@@ -1400,13 +1464,13 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                       type="text"
                       value={optCustomFolder}
                       onChange={(e) => setOptCustomFolder(e.target.value)}
-                      placeholder="Wybierz folder docelowy..."
+                      placeholder={t('Choose the target folder...')}
                       className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 font-mono text-zinc-200"
                     />
                     <button
                       type="button"
                       onClick={async () => {
-                        const p = await pickSystemFolder('Wybierz folder dla zoptymalizowanej mapy _o');
+                        const p = await pickSystemFolder(t('Choose a folder for the optimized _o map'));
                         if (p) setOptCustomFolder(p);
                       }}
                       className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 cursor-pointer"
@@ -1432,7 +1496,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                       : 'text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
-                  Aktualna mapa ({currentMapEntry?.baseName || '—'})
+                  {t('Current map ({name})', { name: currentMapEntry?.baseName || '—' })}
                 </button>
                 <button
                   type="button"
@@ -1444,7 +1508,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                       : 'text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
-                  Wsadowo ({batchCount.toLocaleString('pl-PL')} map — {batchSourceLabel})
+                  {t('Batch ({count} — {source})', { count: batchMapsLabel, source: batchSourceLabel })}
                 </button>
               </div>
 
@@ -1469,19 +1533,19 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
               {/* Summary Metrics */}
               <div className="grid grid-cols-3 gap-2">
                 <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-2.5">
-                  <div className="text-[10px] text-zinc-500">Scenerie przed</div>
+                  <div className="text-[10px] text-zinc-500">{t('Sceneries before')}</div>
                   <div className="font-mono text-base font-bold text-zinc-200 mt-0.5">
                     {optPlan?.totalActivePropsBefore ?? '—'}
                   </div>
                 </div>
                 <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-2.5">
-                  <div className="text-[10px] text-zinc-500">Szacowane po sklejeniu</div>
+                  <div className="text-[10px] text-zinc-500">{t('Estimated after merging')}</div>
                   <div className="font-mono text-base font-bold text-emerald-300 mt-0.5">
                     {optPlan ? `≤ ${optPlan.estimatedTotalPropsAfter}` : '—'}
                   </div>
                 </div>
                 <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-2.5">
-                  <div className="text-[10px] text-zinc-500">Redukcja obiektów</div>
+                  <div className="text-[10px] text-zinc-500">{t('Object reduction')}</div>
                   <div className="font-mono text-base font-bold text-amber-300 mt-0.5">
                     {optPlan ? `-${reductionPct}%` : '—'}
                   </div>
@@ -1492,12 +1556,17 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
               <div className="flex-1 min-h-40 bg-zinc-950 border border-zinc-800 rounded-lg flex flex-col overflow-hidden">
                 <div className="px-3.5 py-2 bg-zinc-900/70 border-b border-zinc-800 flex items-center justify-between">
                   <span className="font-semibold text-zinc-200">
-                    Plan sklejania warstw → <code className="text-emerald-300">{derivedOptName}.pms</code>
-                    {loadingOptPlan ? ' • przeliczanie...' : ''}
+                    {tr('Layer merging plan → {map}', {
+                      map: <code className="text-emerald-300">{derivedOptName}.pms</code>,
+                    })}
+                    {loadingOptPlan ? ` • ${t('recalculating...')}` : ''}
                   </span>
                   {optPlan && (
                     <span className="text-[11px] text-zinc-400">
-                      Grupy: {optPlan.groups.length} • Zachowane osobno: {optPlan.preservedPropsCount}
+                      {t('Groups: {groups} • Kept separate: {kept}', {
+                        groups: optPlan.groups.length,
+                        kept: optPlan.preservedPropsCount,
+                      })}
                     </span>
                   )}
                 </div>
@@ -1505,26 +1574,26 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                 <div className="flex-1 overflow-y-auto divide-y divide-zinc-900 p-2 space-y-1">
                   {!currentMapEntry ? (
                     <div className="p-6 text-center text-zinc-500">
-                      Wybierz mapę w przeglądarce, aby obliczyć plan łączenia scenerii.
+                      {t('Select a map in the browser to compute the scenery merging plan.')}
                     </div>
                   ) : !optPlan ? (
                     <div className="p-6 text-center text-zinc-500">
                       {optError && !loadingOptPlan
-                        ? 'Nie udało się obliczyć planu dla tej mapy (szczegóły poniżej).'
-                        : 'Obliczanie grup warstw i granic kafelków...'}
+                        ? t('Could not compute the plan for this map (details below).')
+                        : t('Computing layer groups and tile bounds...')}
                     </div>
                   ) : optPlan.groups.length === 0 ? (
                     <div className="p-6 text-center text-zinc-500">
-                      Brak grup wieloelementowych do sklejenia przy obecnych ustawieniach.
+                      {t('No multi-scenery groups to merge with the current settings.')}
                     </div>
                   ) : (
                     optPlan.groups.map((grp) => {
                       const lvlName =
                         grp.level === 0
-                          ? 'Warstwa 0 (Tył)'
+                          ? t('Layer 0 (Back)')
                           : grp.level === 1
-                          ? 'Warstwa 1 (Środek)'
-                          : 'Warstwa 2 (Przód)';
+                          ? t('Layer 1 (Middle)')
+                          : t('Layer 2 (Front)');
                       return (
                         <div
                           key={grp.groupId}
@@ -1532,16 +1601,19 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                         >
                           <div>
                             <div className="font-semibold text-zinc-200">
-                              {lvlName} — przebieg #{grp.runIndex}
+                              {t('{layer} — run #{run}', { layer: lvlName, run: grp.runIndex })}
                             </div>
                             <div className="text-[11px] font-mono text-zinc-400">
-                              Obszar: {Math.round(grp.worldBounds.width)} ×{' '}
-                              {Math.round(grp.worldBounds.height)} px • maks. {grp.tileCount}{' '}
-                              {grp.tileCount === 1 ? 'arkusz PNG' : 'arkusze PNG'} (puste kafelki są pomijane)
+                              {tp(
+                                grp.tileCount,
+                                'Area: {w} × {h} px • up to {n} PNG sheet (empty tiles are skipped)',
+                                'Area: {w} × {h} px • up to {n} PNG sheets (empty tiles are skipped)',
+                                { w: Math.round(grp.worldBounds.width), h: Math.round(grp.worldBounds.height) }
+                              )}
                             </div>
                           </div>
                           <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shrink-0">
-                            łączy {grp.propIndices.length} scen.
+                            {tp(grp.propIndices.length, 'merges {n} scenery', 'merges {n} sceneries')}
                           </span>
                         </div>
                       );
@@ -1551,7 +1623,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                   {optPlan && optPlan.preservedSample.length > 0 && (
                     <div className="pt-2 px-2">
                       <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1">
-                        Zachowane osobno bez wypalania ({optPlan.preservedPropsCount}):
+                        {t('Kept separate without baking ({count}):', { count: optPlan.preservedPropsCount })}
                       </div>
                       <div className="flex flex-wrap gap-1">
                         {optPlan.preservedSample.slice(0, 16).map((pr) => (
@@ -1564,14 +1636,14 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                             {pr.reason === 'animated_gif'
                               ? 'GIF'
                               : pr.reason === 'giant_skybox'
-                              ? 'Tło/Mgła'
+                              ? t('Background/Fog')
                               : pr.reason === 'single_isolated'
-                              ? 'Pojedyncza'
+                              ? t('Isolated')
                               : pr.reason === 'zero_size'
-                              ? 'Rozmiar 0'
+                              ? t('Size 0')
                               : pr.reason === 'off_map'
-                              ? 'Poza mapą'
-                              : 'Wył.'}
+                              ? t('Off map')
+                              : t('Layer off')}
                             )
                           </span>
                         ))}
@@ -1626,9 +1698,12 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                     <div className="flex items-center gap-2 min-w-0">
                       <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
                       <div className="font-semibold text-emerald-200 truncate">
-                        Gotowe! Scenerie zredukowano z {optResult.propsBefore} → {optResult.propsAfter}{' '}
-                        ({optResult.generatedPngFiles.length} plików PNG •{' '}
-                        {formatBytes(optResult.totalPngBytes)})
+                        {t('Done! Sceneries reduced: {before} → {after} ({files} • {size})', {
+                          before: optResult.propsBefore,
+                          after: optResult.propsAfter,
+                          files: tp(optResult.generatedPngFiles.length, '{n} PNG file', '{n} PNG files'),
+                          size: formatBytes(optResult.totalPngBytes),
+                        })}
                       </div>
                     </div>
                   </div>
@@ -1636,20 +1711,32 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                     {optResult.outputMapPath}
                   </div>
                   <div className="text-[11px] text-zinc-400">
-                    Jakość: {supersample}× • kompozycja{' '}
-                    {optResult.floatPrecision ? 'zmiennoprzecinkowa (pełna precyzja alfy)' : '8-bit (GPU bez float)'}
+                    {t('Quality: {ss}× • compositing: {mode}', {
+                      ss: supersample,
+                      mode: optResult.floatPrecision
+                        ? t('floating point (full alpha precision)')
+                        : t('8-bit (GPU without float)'),
+                    })}
                     {optResult.removedOrphanPngs > 0 &&
-                      ` • usunięto ${optResult.removedOrphanPngs} nieużywanych PNG z poprzedniej wersji`}
+                      ` • ${tp(
+                        optResult.removedOrphanPngs,
+                        'removed {n} unused PNG left from the previous version',
+                        'removed {n} unused PNGs left from the previous version'
+                      )}`}
                   </div>
                   {optResult.limitWarnings.length > 0 && (
                     <div className="text-[11px] text-amber-300 flex items-center gap-1.5">
                       <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                      Mapa wciąż przekracza limity Soldata: {optResult.limitWarnings.join(', ')}
+                      {t('The map still exceeds Soldat limits: {list}', {
+                        list: optResult.limitWarnings.map(limitWarningText).join(', '),
+                      })}
                     </div>
                   )}
                   {optResult.backupDir && (
                     <div className="text-[11px] text-sky-300 truncate" title={optResult.backupDir}>
-                      Poprzednie wersje nadpisanych plików zapisano w kopii: {optResult.backupDir}
+                      {t('Previous versions of the overwritten files were saved in a backup: {dir}', {
+                        dir: optResult.backupDir,
+                      })}
                     </div>
                   )}
                   <div className="flex items-center justify-end gap-1.5">
@@ -1658,7 +1745,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                       onClick={() => openPathInExplorer(optResult.outputMapPath)}
                       className="px-2.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-100 flex items-center gap-1 cursor-pointer"
                     >
-                      <FolderOpen className="w-3.5 h-3.5" /> Pokaż folder
+                      <FolderOpen className="w-3.5 h-3.5" /> {t('Show folder')}
                     </button>
                     {optResult.newMapId && (
                       <button
@@ -1669,7 +1756,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                         }}
                         className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold flex items-center gap-1 cursor-pointer"
                       >
-                        <Play className="w-3.5 h-3.5" /> Otwórz {optResult.derivedBaseName}
+                        <Play className="w-3.5 h-3.5" /> {t('Open {name}', { name: optResult.derivedBaseName })}
                       </button>
                     )}
                   </div>
@@ -1683,7 +1770,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                     onClick={() => abortOptRef.current?.abort()}
                     className="px-3.5 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-semibold cursor-pointer"
                   >
-                    Anuluj
+                    {t('Cancel')}
                   </button>
                 )}
                 <button
@@ -1696,11 +1783,11 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                     optPlan.groups.length === 0
                   }
                   onClick={handleBuildPreview}
-                  title="Wypala warstwy w pamięci, porównuje z oryginałem w skali ekranu 1080p i pozwala obejrzeć wynik — nic nie jest zapisywane"
+                  title={t('Bakes the layers in memory, compares them with the original at 1080p screen scale and lets you view the result — nothing is saved')}
                   className="px-4 py-2.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-emerald-200 border border-emerald-500/30 font-semibold flex items-center gap-2 cursor-pointer"
                 >
                   <Eye className="w-4 h-4 text-emerald-400" />
-                  {previewing ? 'Tworzenie podglądu...' : 'Podgląd i raport wierności (bez zapisu)'}
+                  {previewing ? t('Building the preview...') : t('Preview and fidelity report (not saved)')}
                 </button>
                 <button
                   type="button"
@@ -1716,10 +1803,10 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                 >
                   <Layers className="w-4 h-4" />
                   {optimizing
-                    ? 'Sklejanie warstw na GPU...'
+                    ? t('Merging layers on the GPU...')
                     : previewIsCurrent
-                    ? `Zapisz ten wynik jako ${derivedOptName}.pms`
-                    : `Zoptymalizuj scenerie i zapisz ${derivedOptName}.pms`}
+                    ? t('Save this result as {name}.pms', { name: derivedOptName })
+                    : t('Optimize sceneries and save {name}.pms', { name: derivedOptName })}
                 </button>
               </div>
               </>
@@ -1769,29 +1856,35 @@ const OptimizeBatchPanel: React.FC<{
   const headline = !summary
     ? ''
     : summary.cancelled
-    ? 'Przerwano'
+    ? t('Batch cancelled')
     : summary.stoppedEarly
-    ? 'Zatrzymano po 5 błędach z rzędu'
-    : 'Zakończono';
+    ? t('Batch stopped after 5 errors in a row')
+    : t('Batch finished');
+  const formattedCount = batchCount.toLocaleString(locale);
 
   return (
     <div className="flex-1 flex flex-col space-y-3.5">
       <div className="bg-zinc-950/80 border border-zinc-800 rounded-lg p-3 space-y-1.5 text-[11px] text-zinc-400 leading-relaxed">
         <div className="font-semibold text-zinc-200 text-xs flex items-center gap-1.5">
           <Layers className="w-4 h-4 text-emerald-400" />
-          Wsadowa optymalizacja: {batchCount.toLocaleString('pl-PL')} map ({batchSourceLabel})
+          {t('Batch optimization: {count} ({source})', {
+            count: tp(batchCount, '{n} map', '{n} maps', { n: formattedCount }),
+            source: batchSourceLabel,
+          })}
         </div>
         <p>
-          Mapy są sklejane na GPU jedna po drugiej, z ustawieniami z lewej kolumny.{' '}
+          {t('Maps are merged on the GPU one after another, using the settings from the left column.')}{' '}
           {supersampleChoice === 'auto'
-            ? 'Jakość Auto jest dobierana osobno dla każdej mapy (najostrzejsza w limicie pamięci).'
-            : `Stała jakość ${supersampleChoice}× dla wszystkich map.`}
+            ? t('Auto quality is chosen separately for each map (the sharpest that fits the memory limit).')
+            : t('Fixed {ss}× quality for all maps.', { ss: supersampleChoice })}
         </p>
         <p>
-          Pomijane są mapy bez scenerii do sklejenia, mapy będące już wynikiem <code>_o</code> oraz mapy, których plik
-          wynikowy już istnieje. Zapis: <span className="text-zinc-300">{destinationLabel}</span>.
+          {tr(
+            'Skipped: maps with no sceneries to merge, maps that already are an {o} result and maps whose output file already exists. Saving to: {dest}.',
+            { o: <code>_o</code>, dest: <span className="text-zinc-300">{destinationLabel}</span> }
+          )}
         </p>
-        <p>Raport wierności nie jest liczony dla każdej mapy — przed dużą serią sprawdź podgląd na jednej mapie.</p>
+        <p>{t('The fidelity report is not computed for every map — check the preview on one map before a large batch.')}</p>
       </div>
 
       <label className="flex items-start gap-2 text-zinc-300 cursor-pointer">
@@ -1803,8 +1896,7 @@ const OptimizeBatchPanel: React.FC<{
           className="mt-0.5 rounded border-zinc-700 bg-zinc-900 text-emerald-500"
         />
         <span>
-          Zastępuj wcześniejsze, niezmienione wyniki Studio dla tych samych map (poprzednia wersja trafia do kopii
-          zapasowej). Pliki, których Studio nie utworzyło, nigdy nie są nadpisywane.
+          {t('Replace earlier, unchanged Studio results for the same maps (the previous version goes to a backup). Files that Studio did not create are never overwritten.')}
         </span>
       </label>
 
@@ -1812,7 +1904,11 @@ const OptimizeBatchPanel: React.FC<{
         <div className="space-y-1.5">
           <div className="flex justify-between gap-2 text-[11px] text-zinc-300">
             <span className="truncate">
-              Mapa {progress.index + 1} / {progress.total}: <code className="text-emerald-300">{progress.mapName}</code>
+              {tr('Map {index} / {total}: {name}', {
+                index: progress.index + 1,
+                total: progress.total,
+                name: <code className="text-emerald-300">{progress.mapName}</code>,
+              })}
             </span>
             <span className="font-mono">{Math.round(overall * 100)}%</span>
           </div>
@@ -1834,24 +1930,37 @@ const OptimizeBatchPanel: React.FC<{
         <div className="bg-emerald-950/50 border border-emerald-500/40 rounded-lg p-3 space-y-1.5">
           <div className="font-semibold text-emerald-200 flex items-center gap-2">
             <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-            {headline}: zoptymalizowano {summary.done} z {summary.total} map
+            {tp(summary.total, '{status}: optimized {done} of {n} map', '{status}: optimized {done} of {n} maps', {
+              status: headline,
+              done: summary.done,
+            })}
           </div>
           {summary.done > 0 && (
             <div className="text-[11px] text-zinc-300">
-              Scenerie: {summary.propsBefore.toLocaleString('pl-PL')} → {summary.propsAfter.toLocaleString('pl-PL')} •
-              warstwy PNG: {formatBytes(summary.pngBytes)}
+              {t('Sceneries: {before} → {after} • PNG layers: {size}', {
+                before: summary.propsBefore.toLocaleString(locale),
+                after: summary.propsAfter.toLocaleString(locale),
+                size: formatBytes(summary.pngBytes),
+              })}
             </div>
           )}
           <div className="text-[11px] text-zinc-400">
-            Pominięto: istniejące {summary.skippedExisting} • bez grup do sklejenia {summary.skippedNothingToMerge} •
-            wyniki <code>_o</code> {summary.skippedDerived} • błędy {summary.failed}
-            {summary.processed < summary.total ? ` • nieprzetworzone ${summary.total - summary.processed}` : ''}
+            {tr('Skipped: existing {existing} • nothing to merge {nothing} • {o} results {derived} • errors {failed}', {
+              existing: summary.skippedExisting,
+              nothing: summary.skippedNothingToMerge,
+              o: <code>_o</code>,
+              derived: summary.skippedDerived,
+              failed: summary.failed,
+            })}
+            {summary.processed < summary.total
+              ? ` • ${t('not processed {n}', { n: summary.total - summary.processed })}`
+              : ''}
           </div>
           {overLimits.length > 0 && (
             <div className="text-[11px] text-amber-300 flex items-start gap-1.5">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
               <span>
-                Wciąż ponad limitami Soldata ({overLimits.length}):{' '}
+                {t('Still over the Soldat limits ({count}):', { count: overLimits.length })}{' '}
                 {overLimits
                   .slice(0, 8)
                   .map((i) => i.derivedBaseName)
@@ -1876,7 +1985,7 @@ const OptimizeBatchPanel: React.FC<{
                 onClick={() => openPathInExplorer(summary.outputDir!)}
                 className="px-2.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-100 flex items-center gap-1 cursor-pointer"
               >
-                <FolderOpen className="w-3.5 h-3.5" /> Pokaż folder
+                <FolderOpen className="w-3.5 h-3.5" /> {t('Show folder')}
               </button>
             </div>
           )}
@@ -1890,7 +1999,7 @@ const OptimizeBatchPanel: React.FC<{
             onClick={onCancel}
             className="px-3.5 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white font-semibold cursor-pointer"
           >
-            Anuluj
+            {t('Cancel')}
           </button>
         )}
         <button
@@ -1901,8 +2010,8 @@ const OptimizeBatchPanel: React.FC<{
         >
           <Layers className="w-4 h-4" />
           {running
-            ? 'Optymalizowanie map na GPU...'
-            : `Zoptymalizuj ${batchCount.toLocaleString('pl-PL')} map → *_o.pms`}
+            ? t('Optimizing maps on the GPU...')
+            : tp(batchCount, 'Optimize {n} map → *_o.pms', 'Optimize {n} maps → *_o.pms', { n: formattedCount })}
         </button>
       </div>
     </div>
@@ -1912,18 +2021,24 @@ const OptimizeBatchPanel: React.FC<{
 function rateFidelity(f: FidelityReport): { label: string; cls: string } {
   const sharp = f.sharpnessPct ?? 100;
   if (sharp < 85) {
-    return { label: 'Niska — warstwy są wyraźnie miększe niż oryginał', cls: 'text-red-200 border-red-500/40 bg-red-950/40' };
+    return { label: t('Low — the layers are clearly softer than the original'), cls: 'text-red-200 border-red-500/40 bg-red-950/40' };
   }
   if (sharp < 94 && f.meanAbsDiff <= 3) {
-    return { label: 'Dobra — kolory zgodne, ale warstwy nieco miększe niż oryginał', cls: 'text-amber-200 border-amber-500/40 bg-amber-950/30' };
+    return { label: t('Good — colors match, but the layers are slightly softer than the original'), cls: 'text-amber-200 border-amber-500/40 bg-amber-950/30' };
   }
   if (f.meanAbsDiff <= 1.5 && f.pctPixelsOver8 <= 3) {
-    return { label: 'Bardzo wysoka — wynik praktycznie nieodróżnialny od oryginału', cls: 'text-emerald-300 border-emerald-500/40 bg-emerald-950/40' };
+    return { label: t('Very high — the result is practically indistinguishable from the original'), cls: 'text-emerald-300 border-emerald-500/40 bg-emerald-950/40' };
   }
   if (f.meanAbsDiff <= 3 && f.pctPixelsOver8 <= 8) {
-    return { label: 'Dobra — drobne różnice ostrości (rozważ wyższą jakość)', cls: 'text-amber-200 border-amber-500/40 bg-amber-950/30' };
+    return { label: t('Good — small sharpness differences (consider a higher quality)'), cls: 'text-amber-200 border-amber-500/40 bg-amber-950/30' };
   }
-  return { label: 'Niska — widoczne różnice; zwiększ jakość rasteryzacji', cls: 'text-red-200 border-red-500/40 bg-red-950/40' };
+  return { label: t('Low — visible differences; raise the layer quality'), cls: 'text-red-200 border-red-500/40 bg-red-950/40' };
+}
+
+// The server joins each exceeded limit as "<label>: <value> > <limit>"; the label is translated here
+function limitWarningText(warning: string): string {
+  const m = /^(.+): (\S+) > (\S+)$/.exec(warning);
+  return m ? `${tText(m[1])}: ${m[2]} > ${m[3]}` : tText(warning);
 }
 
 const FidelityCard: React.FC<{
@@ -1934,40 +2049,59 @@ const FidelityCard: React.FC<{
 }> = ({ preview, stale, supersample, onShowInViewport }) => {
   const f = preview.fidelity;
   const rating = f ? rateFidelity(f) : null;
-  const totalPx = preview.tiles.reduce((acc, t) => acc + t.pngWidth * t.pngHeight, 0);
+  const totalPx = preview.tiles.reduce((acc, tile) => acc + tile.pngWidth * tile.pngHeight, 0);
   return (
     <div className={`rounded-lg p-3 space-y-1.5 border ${rating ? rating.cls : 'border-zinc-800 bg-zinc-950'}`}>
       <div className="flex items-center justify-between gap-2">
         <div className="font-semibold flex items-center gap-1.5">
           <Eye className="w-4 h-4 shrink-0" />
-          Podgląd wyniku: {preview.tiles.length} kafelków PNG ({(totalPx / 1e6).toFixed(1)} MPx), jakość {supersample}×
+          {tp(
+            preview.tiles.length,
+            'Result preview: {n} PNG tile ({mpx} MPx), quality {ss}×',
+            'Result preview: {n} PNG tiles ({mpx} MPx), quality {ss}×',
+            { mpx: (totalPx / 1e6).toFixed(1), ss: supersample }
+          )}
         </div>
         <button
           type="button"
           onClick={onShowInViewport}
           className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-100 text-[11px] font-semibold shrink-0 cursor-pointer"
         >
-          Pokaż w oknie mapy
+          {t('Show in map view')}
         </button>
       </div>
       {f && rating ? (
         <>
           <div className="text-[11px]">
-            Zgodność z oryginałem (render w skali ekranu 1080p): <strong>{rating.label}</strong>
+            {tr('Match with the original (rendered at 1080p screen scale): {rating}', {
+              rating: <strong>{rating.label}</strong>,
+            })}
           </div>
           <div className="text-[10px] font-mono opacity-80">
-            ostrość {f.sharpnessPct ?? '—'}% oryginału • śr. różnica {f.meanAbsDiff} / 255 • pikseli z różnicą &gt; 8:{' '}
-            {f.pctPixelsOver8}% • maks. {f.maxDiff} • próbka {f.sampledMegapixels} MPx
+            {t(
+              'sharpness {sharp}% of the original • avg. difference {mean} / 255 • pixels differing by > 8: {over8}% • max {max} • sample {mp} MPx',
+              {
+                sharp: f.sharpnessPct ?? '—',
+                mean: f.meanAbsDiff,
+                over8: f.pctPixelsOver8,
+                max: f.maxDiff,
+                mp: f.sampledMegapixels,
+              }
+            )}
             {f.worstArea &&
-              ` • najgorszy obszar x=${Math.round(f.worstArea.left)}, y=${Math.round(f.worstArea.top)} (śr. ${f.worstArea.meanAbsDiff})`}
+              ` • ${t('worst area x={x}, y={y} (avg. {mean})', {
+                x: Math.round(f.worstArea.left),
+                y: Math.round(f.worstArea.top),
+                mean: f.worstArea.meanAbsDiff,
+              })}`}
           </div>
         </>
       ) : (
-        <div className="text-[11px] opacity-80">Brak obszarów do porównania.</div>
+        <div className="text-[11px] opacity-80">{t('No areas to compare.')}</div>
       )}
       {stale && (
         <div className="text-[11px] text-amber-300">
-          Ustawienia zmieniły się po utworzeniu podglądu — zapis wypali warstwy ponownie z nowymi ustawieniami.
+          {t('The settings changed after the preview was made — saving will bake the layers again with the new settings.')}
         </div>
       )}
     </div>
@@ -2003,20 +2137,14 @@ const SceneryFixThumbs: React.FC<{ issue: SceneryFixIssueGroup }> = ({ issue }) 
   );
   return (
     <div className="flex items-end gap-1.5">
-      {box(pw, ph, 'teraz', 'border-red-500/50')}
-      {box(ew, eh, 'po', 'border-emerald-500/50')}
+      {box(pw, ph, t('now'), 'border-red-500/50')}
+      {box(ew, eh, t('after'), 'border-emerald-500/50')}
     </div>
   );
 };
 
 function replacedPngFilesText(n: number): string {
-  if (n === 1) return ' Zostanie też zastąpiony 1 plik PNG warstw.';
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
-    return ` Zostaną też zastąpione ${n} pliki PNG warstw.`;
-  }
-  return ` Zostanie też zastąpionych ${n} plików PNG warstw.`;
+  return ` ${tp(n, '{n} layer PNG file will be replaced as well.', '{n} layer PNG files will be replaced as well.')}`;
 }
 
 const OverwriteConfirmPanel: React.FC<{
@@ -2035,16 +2163,19 @@ const OverwriteConfirmPanel: React.FC<{
       <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
       <div className="space-y-1 min-w-0">
         <div className="font-semibold">
-          Plik <code>{check.derivedBaseName}.pms</code> już istnieje w folderze docelowym.
+          {tr('The file {file} already exists in the target folder.', { file: <code>{check.derivedBaseName}.pms</code> })}
         </div>
         <div className="text-[11px] opacity-90">
           {check.existingWasGeneratedByStudio
-            ? 'To poprzedni wynik Soldat Map Studio (plik nie był od tego czasu zmieniany).'
-            : `UWAGA: ten plik NIE pochodzi z Soldat Map Studio albo był zmieniany${
-                check.existingMapTitle ? ` (tytuł mapy: „${check.existingMapTitle}”)` : ''
-              } — nadpisanie zastąpi inną mapę!`}
+            ? t('This is a previous Soldat Map Studio result (the file has not been changed since).')
+            : check.existingMapTitle
+            ? t(
+                'WARNING: this file did NOT come from Soldat Map Studio or has been changed (map title: “{title}”) — overwriting it will replace a different map!',
+                { title: check.existingMapTitle }
+              )
+            : t('WARNING: this file did NOT come from Soldat Map Studio or has been changed — overwriting it will replace a different map!')}
           {check.existingPngFiles.length > 0 && replacedPngFilesText(check.existingPngFiles.length)}
-          {' '}Poprzednie wersje trafią do kopii zapasowej w <code>data/backups/</code>.
+          {' '}{tr('The previous versions will go to a backup in {dir}.', { dir: <code>data/backups/</code> })}
         </div>
         <div className="text-[10px] font-mono opacity-70 truncate">{check.outputMapPath}</div>
       </div>
@@ -2055,14 +2186,14 @@ const OverwriteConfirmPanel: React.FC<{
         onClick={onCancel}
         className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-100 cursor-pointer"
       >
-        Anuluj
+        {t('Cancel')}
       </button>
       <button
         type="button"
         onClick={onConfirm}
         className="px-3 py-1.5 rounded bg-red-600 hover:bg-red-500 text-white font-semibold cursor-pointer"
       >
-        Nadpisz plik
+        {t('Overwrite file')}
       </button>
     </div>
   </div>

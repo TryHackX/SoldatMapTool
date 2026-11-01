@@ -31,6 +31,7 @@ import {
 import { CustomPrefixRule, sanitizeCustomRules } from '../shared/prefixUtils';
 import { makeDerivedMapName, parsePmsSummary } from '../shared/pmsParser';
 import { APP_VERSION } from '../shared/version';
+import { i18nMiddleware, t } from './i18n';
 import { installFileLogger } from './logger';
 import { DialogUnavailableError, findDefaultSoldatPath, openInFileManager, pickPathDialog } from './platform';
 import { UserDataStore } from './userDataStore';
@@ -85,7 +86,7 @@ function loadConfig(): AppConfig {
             return {
               id: `extra_${idx}`,
               path: p,
-              label: path.basename(p) || `Archiwum #${idx + 1}`,
+              label: path.basename(p) || `Archive #${idx + 1}`,
               recursive: true,
               enabled: true,
             };
@@ -145,7 +146,7 @@ app.use((req, res, next) => {
   const hostHeader = String(req.headers.host || '').toLowerCase();
   const hostName = hostHeader.replace(/:\d+$/, '');
   if (!LOOPBACK_HOSTNAMES.has(hostName)) {
-    res.status(403).json({ error: 'Dostęp tylko z tego komputera (127.0.0.1 / localhost).' });
+    res.status(403).json({ error: t('Access is only allowed from this computer (127.0.0.1 / localhost).') });
     return;
   }
   const origin = req.headers.origin;
@@ -157,7 +158,7 @@ app.use((req, res, next) => {
       originHost = '';
     }
     if (!LOOPBACK_HOSTNAMES.has(originHost)) {
-      res.status(403).json({ error: 'Żądanie z obcej strony zostało zablokowane.' });
+      res.status(403).json({ error: t('A request from a foreign site was blocked.') });
       return;
     }
   }
@@ -165,6 +166,8 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json({ limit: '50mb' }));
+// After the body parser: handlers (and their async work) see the language chosen in the UI
+app.use(i18nMiddleware);
 
 function sendError(res: express.Response, err: unknown, fallbackStatus = 500): void {
   const status = err instanceof WorkshopError ? err.status : fallbackStatus;
@@ -188,11 +191,11 @@ app.post('/api/config', async (req, res) => {
         ? req.body.soldatPath.trim()
         : appConfig.soldatPath;
     if (!soldatPath) {
-      res.status(400).json({ error: 'Podaj ścieżkę do folderu gry Soldat.' });
+      res.status(400).json({ error: t('Enter the path to the Soldat game folder.') });
       return;
     }
     if (!fs.existsSync(soldatPath) || !fs.statSync(soldatPath).isDirectory()) {
-      res.status(400).json({ error: `Folder nie istnieje: ${soldatPath}` });
+      res.status(400).json({ error: t('Folder does not exist: {path}', { path: soldatPath }) });
       return;
     }
 
@@ -302,7 +305,7 @@ app.post('/api/maps/query-compacts', (req, res) => {
 app.get('/api/maps/:mapId/details', (req, res) => {
   const entry = scanner.getMapEntryWithUserData(req.params.mapId);
   if (!entry) {
-    res.status(404).json({ error: `Nie znaleziono mapy: ${req.params.mapId}` });
+    res.status(404).json({ error: t('Map not found: {id}', { id: req.params.mapId }) });
     return;
   }
   res.json(entry);
@@ -313,7 +316,7 @@ app.post('/api/maps/:mapId/user-data', (req, res) => {
   try {
     const mapId = req.params.mapId;
     if (!scanner.getMapEntry(mapId)) {
-      res.status(404).json({ error: `Nie znaleziono mapy: ${mapId}` });
+      res.status(404).json({ error: t('Map not found: {id}', { id: mapId }) });
       return;
     }
     const patch: MapUserDataPatch = {};
@@ -338,7 +341,7 @@ app.get('/api/maps/:mapId/raw', (req, res) => {
   const mapId = req.params.mapId;
   const fullPath = scanner.getMapFilePath(mapId);
   if (!fullPath || !fs.existsSync(fullPath)) {
-    res.status(404).json({ error: `Map not found: ${mapId}` });
+    res.status(404).json({ error: t('Map not found: {id}', { id: mapId }) });
     return;
   }
   res.setHeader('Content-Type', 'application/octet-stream');
@@ -510,7 +513,7 @@ app.get('/api/library/duplicates', async (_req, res) => {
 app.post('/api/library/duplicates/move', async (req, res) => {
   try {
     const mapIds = Array.isArray(req.body?.mapIds) ? req.body.mapIds.map(String) : [];
-    if (mapIds.length === 0) throw new LibraryError('Nie wybrano żadnych plików.');
+    if (mapIds.length === 0) throw new LibraryError(t('No files selected.'));
     const response = await runLibraryOperation(async () => {
       await scanner.scanAsync(false);
       const result = await moveDuplicateMaps(scanner, mapIds, BACKUPS_DIR);
@@ -536,7 +539,7 @@ app.get('/api/library/unused-scenery', async (_req, res) => {
 app.post('/api/library/unused-scenery/move', async (req, res) => {
   try {
     const names = Array.isArray(req.body?.names) ? req.body.names.map(String) : [];
-    if (names.length === 0) throw new LibraryError('Nie wybrano żadnych plików.');
+    if (names.length === 0) throw new LibraryError(t('No files selected.'));
     const response = await runLibraryOperation(async () => {
       await scanner.scanAsync(false);
       const result = await moveUnusedScenery(scanner, names, BACKUPS_DIR);
@@ -567,7 +570,7 @@ app.post('/api/library/case-mismatches/rename', async (req, res) => {
           diskName: String(f?.diskName ?? ''),
         }))
       : [];
-    if (files.length === 0) throw new LibraryError('Nie wybrano żadnych plików.');
+    if (files.length === 0) throw new LibraryError(t('No files selected.'));
     const response = await runLibraryOperation(async () => {
       await scanner.scanAsync(true);
       const result = await renameCaseMismatches(scanner, files, BACKUPS_DIR);
@@ -633,7 +636,7 @@ app.post('/api/packs/inspect-archive', (req, res) => {
   try {
     const archivePath = String(req.body?.archivePath || '').trim();
     if (!archivePath || !fs.existsSync(archivePath)) {
-      res.status(404).json({ error: 'Nie znaleziono wskazanego pliku archiwum.' });
+      res.status(404).json({ error: t('The specified archive file was not found.') });
       return;
     }
     const zip = new AdmZip(archivePath);
@@ -648,7 +651,9 @@ app.post('/api/packs/inspect-archive', (req, res) => {
     const files: Array<{ path: string; size: number }> = [];
 
     if (entries.length > ZIP_LIMITS.maxEntries) {
-      throw new ZipSafetyError(`Archiwum ma ${entries.length} wpisów (limit ${ZIP_LIMITS.maxEntries}).`);
+      throw new ZipSafetyError(
+        t('The archive has {count} entries (limit {limit}).', { count: entries.length, limit: ZIP_LIMITS.maxEntries })
+      );
     }
 
     // Only plausible map files are decompressed for the preview: a crafted archive may declare gigabytes, point
@@ -702,7 +707,7 @@ app.post('/api/packs/extract-archive', async (req, res) => {
     const registerAsSource = Boolean(req.body?.registerAsSource);
 
     if (!archivePath || !fs.existsSync(archivePath)) {
-      res.status(404).json({ error: 'Nie znaleziono archiwum do wypakowania.' });
+      res.status(404).json({ error: t('The archive to extract was not found.') });
       return;
     }
 
@@ -731,7 +736,7 @@ app.post('/api/packs/extract-archive', async (req, res) => {
           {
             id: `extra_${crypto.randomUUID().slice(0, 8)}`,
             path: mapsSub,
-            label: `Paczka: ${baseArchiveName}`,
+            label: t('Map pack: {name}', { name: baseArchiveName }),
             recursive: true,
             enabled: true,
           },
@@ -775,7 +780,7 @@ app.post(
       );
       const safeName = rawName.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
       if (!/\.(png|jpe?g|webp)$/i.test(safeName)) {
-        res.status(400).json({ error: 'Dozwolone są tylko pliki .png, .jpg i .webp.' });
+        res.status(400).json({ error: t('Only .png, .jpg and .webp files are allowed.') });
         return;
       }
       const baseDir = customFolder ? path.resolve(customFolder) : EXPORTS_SCREENS_DIR;
@@ -784,7 +789,7 @@ app.post(
 
       const buf = req.body as Buffer;
       if (!Buffer.isBuffer(buf) || buf.length === 0) {
-        res.status(400).json({ error: 'Pusty plik obrazu.' });
+        res.status(400).json({ error: t('Empty image file.') });
         return;
       }
       const outPath = path.join(targetDir, safeName);
@@ -863,11 +868,11 @@ const DOWNLOADABLE_EXTENSIONS = new Set(['.zip', '.smap', '.png', '.jpg', '.jpeg
 app.get('/api/exports/download', (req, res) => {
   const filePath = path.resolve(String(req.query.path || ''));
   if (!DOWNLOADABLE_EXTENSIONS.has(path.extname(filePath).toLowerCase())) {
-    res.status(403).json({ error: 'Ten typ pliku nie może być pobrany.' });
+    res.status(403).json({ error: t('This file type cannot be downloaded.') });
     return;
   }
   if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
-    res.status(404).json({ error: 'Plik nie istnieje.' });
+    res.status(404).json({ error: t('File does not exist.') });
     return;
   }
   res.download(filePath, path.basename(filePath), { dotfiles: 'allow' });
@@ -948,7 +953,7 @@ app.post('/api/workshop/fix-batch-apply', async (req, res) => {
         const derivedKey = makeDerivedMapName(entry.baseName, '_f', maxBaseLength).toLowerCase();
         const owner = claimedNames.get(derivedKey);
         if (owner) {
-          failed.push({ mapId, error: `Ta sama nazwa wynikowa co ${owner} — pominięto` });
+          failed.push({ mapId, error: t('Same output name as {owner} — skipped', { owner }) });
           continue;
         }
         claimedNames.set(derivedKey, entry.baseName);
@@ -1037,7 +1042,7 @@ app.post(
       try {
         meta = JSON.parse(String(req.query.meta || '{}'));
       } catch {
-        res.status(400).json({ error: 'Nieprawidłowe metadane kafelka.' });
+        res.status(400).json({ error: t('Invalid tile metadata.') });
         return;
       }
       await workshop.addOptimizeTile(req.params.sessionId, meta, req.body as Buffer);
@@ -1085,7 +1090,7 @@ app.delete('/api/workshop/optimize-session/:sessionId', (req, res) => {
 app.post('/api/system/open-path', (req, res) => {
   const target = String(req.body?.path || '').trim();
   if (!target || !fs.existsSync(target)) {
-    res.status(404).json({ error: 'Ścieżka nie istnieje.' });
+    res.status(404).json({ error: t('Path does not exist.') });
     return;
   }
   const resolved = path.resolve(target);
@@ -1102,20 +1107,20 @@ async function answerPick(res: express.Response, pick: Promise<string | null>): 
 }
 
 app.post('/api/system/pick-folder', (req, res) => {
-  const description = String(req.body?.description || 'Wybierz folder').slice(0, 200);
+  const description = String(req.body?.description || t('Select a folder')).slice(0, 200);
   void answerPick(res, pickPathDialog('folder', description));
 });
 
 app.post('/api/system/pick-file', (req, res) => {
   const filter = String(
-    req.body?.filter || 'Archiwa Map (*.zip;*.smap)|*.zip;*.smap|Wszystkie pliki (*.*)|*.*'
+    req.body?.filter || t('Map archives (*.zip;*.smap)|*.zip;*.smap|All files (*.*)|*.*')
   ).slice(0, 300);
   void answerPick(res, pickPathDialog('file', filter));
 });
 
 // Unknown API routes answer JSON (instead of the SPA index.html fallback)
 app.use('/api', (_req, res) => {
-  res.status(404).json({ error: 'Nieznany endpoint API.' });
+  res.status(404).json({ error: t('Unknown API endpoint.') });
 });
 
 // Serve built frontend in production

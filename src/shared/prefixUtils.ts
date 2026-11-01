@@ -33,7 +33,7 @@ export const BUILTIN_MODE_GROUPS: ModeGroupDefinition[] = [
     id: 'ctf',
     name: 'Capture the Flag (CTF)',
     shortName: 'CTF',
-    description: 'Klasyczne oraz ligowe mapy Capture the Flag',
+    description: 'Classic and league Capture the Flag maps',
     badgeColor: '#ef4444',
     builtIn: true,
     defaultPrefixes: ['ctf_', 'sctf_'],
@@ -51,7 +51,7 @@ export const BUILTIN_MODE_GROUPS: ModeGroupDefinition[] = [
     id: 'trenchwars',
     name: 'Trenchwars (TW / TTW)',
     shortName: 'Trenchwars',
-    description: 'Mapy okopowe i taktyczne Trenchwars oraz Total Trenchwars',
+    description: 'Trench and tactical Trenchwars and Total Trenchwars maps',
     badgeColor: '#f97316',
     builtIn: true,
     defaultPrefixes: ['tw_', 'ttw_', 'ctf_tw_', 'ctf_ttw_', 'inf_tw_', 'htf_tw_', 'dm_tw_'],
@@ -60,7 +60,7 @@ export const BUILTIN_MODE_GROUPS: ModeGroupDefinition[] = [
     id: 'climb',
     name: 'Climb / Kreedz / Race',
     shortName: 'Climb & Race',
-    description: 'Mapy wspinaczkowe, przeszkodowe, wyścigowe, Hardcore Climb i Bunnyhop',
+    description: 'Climbing, obstacle and race maps, Hardcore Climb and Bunnyhop',
     badgeColor: '#10b981',
     builtIn: true,
     defaultPrefixes: [
@@ -85,7 +85,7 @@ export const BUILTIN_MODE_GROUPS: ModeGroupDefinition[] = [
     id: 'inf',
     name: 'Infiltration (INF)',
     shortName: 'INF',
-    description: 'Obrona i atak bazy (Czerwoni vs Niebiescy)',
+    description: 'Base attack and defence (Red vs Blue)',
     badgeColor: '#3b82f6',
     builtIn: true,
     defaultPrefixes: ['inf_'],
@@ -94,7 +94,7 @@ export const BUILTIN_MODE_GROUPS: ModeGroupDefinition[] = [
     id: 'htf',
     name: 'Hold the Flag (HTF)',
     shortName: 'HTF',
-    description: 'Utrzymanie żółtej flagi na czas',
+    description: 'Hold the yellow flag for time',
     badgeColor: '#eab308',
     builtIn: true,
     defaultPrefixes: ['htf_'],
@@ -102,17 +102,17 @@ export const BUILTIN_MODE_GROUPS: ModeGroupDefinition[] = [
   {
     id: 'dm',
     name: 'Deathmatch / TM / PM / RM',
-    shortName: 'DM / Klasyczne',
-    description: 'Deathmatch (w tym mapy bez prefixu), Teammatch, Pointmatch, Rambomatch',
+    shortName: 'DM / Classic',
+    description: 'Deathmatch (including maps without a prefix), Teammatch, Pointmatch, Rambomatch',
     badgeColor: '#94a3b8',
     builtIn: true,
     defaultPrefixes: ['__none__', 'dm_', 'tm_', 'tdm_', 'pm_', 'rm_', 'rambo_', 'ffa_'],
   },
   {
     id: 'sniper',
-    name: 'Longshot / Snajperskie',
+    name: 'Longshot / Sniper',
     shortName: 'Longshot',
-    description: 'Mapy snajperskie dalekiego zasięgu (Barrett / Ruger)',
+    description: 'Long-range sniper maps (Barrett / Ruger)',
     badgeColor: '#8b5cf6',
     builtIn: true,
     defaultPrefixes: ['ls_', 'ctf_ls_', 'sniper_', 'snip_', 'bar_', 'b82_', 'r77_'],
@@ -121,43 +121,43 @@ export const BUILTIN_MODE_GROUPS: ModeGroupDefinition[] = [
     id: 'hns_zombie',
     name: 'Hide & Seek / Zombie / RPG',
     shortName: 'HNS & Zombie',
-    description: 'Hide & Seek, Zombie Mod / ZRPG, Hexer, Survival i Co-op',
+    description: 'Hide & Seek, Zombie Mod / ZRPG, Hexer, Survival and Co-op',
     badgeColor: '#ec4899',
     builtIn: true,
     defaultPrefixes: ['hns_', 'zrpg_', 'zm_', 'ze_', 'zomb_', 'zombie_', 'hex_', 'rpg_', 'surv_', 'coop_', 'boss_'],
   },
   {
     id: 'weapon_arena',
-    name: 'Areny Broni (Knife / M79 / Saw)',
-    shortName: 'Areny Broni',
-    description: 'Areny dedykowane pojedynczym broniom (Nóż, M79 Nadejump, Piła, LAW, Łuk)',
+    name: 'Weapon Arenas (Knife / M79 / Saw)',
+    shortName: 'Weapon Arenas',
+    description: 'Arenas for a single weapon (Knife, M79 nade jump, Chainsaw, LAW, Bow)',
     badgeColor: '#06b6d4',
     builtIn: true,
     defaultPrefixes: ['kn_', 'knife_', 'm79_', 'nad_', 'nade_', 'saw_', 'chainsaw_', 'law_', 'flamer_', 'bow_', 'dgl_', 'deagle_'],
   },
   {
     id: 'sports_fun',
-    name: 'Dodgeball / Sportowe / Fun',
+    name: 'Dodgeball / Sports / Fun',
     shortName: 'Sport & Fun',
-    description: 'Dodgeball, Football, Volleyball, Pong, Labirynty i mapy rozrywkowe',
+    description: 'Dodgeball, Football, Volleyball, Pong, mazes and fun maps',
     badgeColor: '#f43f5e',
     builtIn: true,
     defaultPrefixes: ['db_', 'dodge_', 'ball_', 'fb_', 'foot_', 'vol_', 'vlk_', 'disk_', 'kbx_', 'pong_', 'fun_', 'maze_', 'box_', 'arena_'],
   },
   {
     id: 'realistic',
-    name: 'Realistic / Taktyczne',
+    name: 'Realistic / Tactical',
     shortName: 'Realistic',
-    description: 'Mapy pod tryb realistyczny, wojenny i taktyczny',
+    description: 'Maps for realistic, war and tactical modes',
     badgeColor: '#84cc16',
     builtIn: true,
     defaultPrefixes: ['real_', 'rl_', 'tac_', 'war_', 'mil_', 'ww2_', 'dday_'],
   },
   {
     id: 'other',
-    name: 'Inne / Niestandardowe Prefixy',
-    shortName: 'Inne',
-    description: 'Pozostałe prefixy autorskie, klanowe i niestandardowe',
+    name: 'Other / Custom Prefixes',
+    shortName: 'Other',
+    description: 'Other author, clan and custom prefixes',
     badgeColor: '#64748b',
     builtIn: true,
     defaultPrefixes: [],
@@ -253,7 +253,7 @@ export function createMapClassifier(customRules: CustomPrefixRule[] = []): Compi
       }
       prefixMetaLookup.set(pfx, {
         prefix: pfx,
-        label: pfx === '__none__' ? 'Bez prefixu (DM)' : pfx,
+        label: pfx === '__none__' ? 'No prefix (DM)' : pfx,
         modeGroupId: grp.id,
         modeName: grp.name,
         badgeColor: grp.badgeColor,
@@ -269,7 +269,7 @@ export function createMapClassifier(customRules: CustomPrefixRule[] = []): Compi
   for (const rule of activeRules) {
     const targetBuiltIn = rule.targetGroupId ? BUILTIN_GROUP_MAP.get(rule.targetGroupId) : undefined;
     const groupId = targetBuiltIn ? targetBuiltIn.id : `custom:${rule.id}`;
-    const groupName = targetBuiltIn ? targetBuiltIn.name : rule.name || 'Własna Kategoria';
+    const groupName = targetBuiltIn ? targetBuiltIn.name : rule.name || 'Custom Category';
     const badgeColor = rule.badgeColor || targetBuiltIn?.badgeColor || '#a855f7';
 
     if (!targetBuiltIn) {
@@ -298,7 +298,7 @@ export function createMapClassifier(customRules: CustomPrefixRule[] = []): Compi
       }
       prefixMetaLookup.set(pfx, {
         prefix: pfx,
-        label: pfx === '__none__' ? 'Bez prefixu (DM)' : pfx,
+        label: pfx === '__none__' ? 'No prefix (DM)' : pfx,
         modeGroupId: groupId,
         modeName: groupName,
         badgeColor,
@@ -375,8 +375,8 @@ export function createMapClassifier(customRules: CustomPrefixRule[] = []): Compi
     if (custom) return custom;
     return {
       id: 'other',
-      name: 'Inne / Niestandardowe',
-      shortName: 'Inne',
+      name: 'Other / Custom',
+      shortName: 'Other',
       badgeColor: '#64748b',
       isCustom: false,
     };
@@ -387,9 +387,9 @@ export function createMapClassifier(customRules: CustomPrefixRule[] = []): Compi
     if (known) return known;
     return {
       prefix,
-      label: prefix === '__none__' ? 'Bez prefixu (DM)' : prefix,
+      label: prefix === '__none__' ? 'No prefix (DM)' : prefix,
       modeGroupId: 'other',
-      modeName: 'Inne / Niestandardowe Prefixy',
+      modeName: 'Other / Custom Prefixes',
       badgeColor: '#64748b',
     };
   };
@@ -467,7 +467,7 @@ export function createMapClassifier(customRules: CustomPrefixRule[] = []): Compi
     return {
       prefix: pfx,
       modeGroupId: 'other',
-      modeGroupName: 'Inne / Niestandardowe Prefixy',
+      modeGroupName: 'Other / Custom Prefixes',
       badgeColor: '#64748b',
       subprefix: extractCompoundSubprefix(normalizedForMatch, pfx),
     };

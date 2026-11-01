@@ -1,87 +1,91 @@
 # Soldat Map Studio
 
-Lokalna aplikacja do przeglądania, naprawiania i pakowania kolekcji map **Soldat / OpenSoldat**. Działa na
-Twoim komputerze: mały serwer Node.js czyta folder gry, a interfejs otwiera się w przeglądarce pod adresem
-`http://127.0.0.1:4321`. Nic nie jest wysyłane do internetu.
+A local app for browsing, fixing and packing **Soldat / OpenSoldat** map collections. It runs on your own
+computer: a small Node.js server reads the game folder and the interface opens in your browser at
+`http://127.0.0.1:4321`. Nothing is sent to the internet.
 
-## Co potrafi
+## Features
 
-- **Biblioteka map** — indeks dziesiątek tysięcy map (SQLite), podział na tryby i prefiksy (CTF, RSCS, Trenchwars,
-  Climb, INF, HTF…), własne prefiksy i kategorie, wyszukiwanie z filtrami (`props>300 tex:ananas is:fav -is:dup`),
-  ulubione, tagi, wykrywanie brakujących plików, duplikatów CRC32 i map, których gra nie wczyta (limity silnika).
-- **Podgląd 1:1 jak w grze** (WebGL2) — scenerie, poligony, krawędzie, tło, spawny, flagi, ścieżki botów, kolizje;
-  inspektor obiektu pod kursorem, minimapa, ramka „widok gracza”, porównanie dwóch wersji mapy suwakiem,
-  zrzuty całej mapy w 100% (pojedynczo i seryjnie).
-- **Warsztat map**
-  - `_f` — naprawa wymiarów scenerii rozciągniętych po przejściu na Soldat 1.7.1,
-  - `_o` — sklejanie setek scenerii w kilka warstw PNG (mniej obiektów, koniec migotania przezroczystości),
-    z podglądem przed zapisem i raportem wierności,
-  - `_f_o` — oba kroki naraz, także wsadowo dla wielu map; każdy nadpisywany plik trafia najpierw do kopii.
-- **Paczki map dla serwerów** — ZIP, folder albo `.smap`, podział według prefiksu lub trybu, pomijanie plików
-  domyślnych gry, lista map dla serwera, manifest CRC32, zapisane presety, poprawka wielkości liter pod Linuksa,
-  bezpieczne wypakowywanie pobranych archiwów.
-- **Porządki** — duplikaty, nieużywane scenerie, wielkość liter w nazwach plików (Linux). Pliki są przenoszone do
-  kopii zapasowej z listą do przywrócenia, nigdy kasowane.
+- **Map library** — an index of tens of thousands of maps (SQLite), grouped by game mode and prefix (CTF, RSCS,
+  Trenchwars, Climb, INF, HTF…), custom prefixes and categories, search with filters
+  (`props>300 tex:ananas is:fav -is:dup`), favorites, tags, detection of missing files, CRC32 duplicates and maps
+  the game won't load (engine limits).
+- **Game-accurate 1:1 preview** (WebGL2) — sceneries, polygons, edges, background, spawn points, flags, bot
+  waypoints, colliders; object inspector under the cursor, minimap, "player view" frame, side-by-side comparison of
+  two map versions with a slider, full-size map screenshots at 100% (one map or a whole batch).
+- **Map workshop**
+  - `_f` — fixes scenery sizes stretched by the move to Soldat 1.7.1,
+  - `_o` — merges hundreds of sceneries into a few PNG layers (fewer objects, no transparency flickering),
+    with a preview before saving and a fidelity report,
+  - `_f_o` — both steps at once, also in batch mode; every file that gets overwritten is backed up first.
+- **Server map packs** — ZIP, folder or `.smap`, split by prefix or mode, default game files left out, map list
+  for the server, CRC32 manifest, saved presets, letter-case fix for Linux servers, safe extraction of downloaded
+  archives.
+- **Clean-up** — duplicates, unused sceneries, letter case of file names (Linux). Files are moved to a backup with
+  a restore list, never deleted.
+- **Two languages** — English (default) and Polish; switch in **Settings** (gear icon) → *Language / Język*.
 
-## Wymagania
+## Requirements
 
 | | Windows | Linux |
 |---|---|---|
-| Node.js | **22.13 lub nowszy** (najlepiej aktualne LTS) | **22.13 lub nowszy** |
-| Przeglądarka | Edge, Chrome lub Firefox z WebGL2 | Chrome, Chromium lub Firefox z WebGL2 |
-| Gra | folder Soldata z podfolderami `maps/`, `scenery-gfx/`, `textures/` | to samo (Steam przez Proton albo OpenSoldat) |
-| Dodatkowo | — | `zenity` lub `kdialog` (okna wyboru folderu), `xdg-utils` (otwieranie folderów) |
-| Miejsce | ok. 250 MB na biblioteki + miniatury map | to samo |
+| Node.js | **22.13 or newer** (current LTS recommended) | **22.13 or newer** |
+| Browser | Edge, Chrome or Firefox with WebGL2 | Chrome, Chromium or Firefox with WebGL2 |
+| Game | a Soldat folder with `maps/`, `scenery-gfx/` and `textures/` | the same (Steam via Proton, or OpenSoldat) |
+| Extras | — | `zenity` or `kdialog` (folder pickers), `xdg-utils` (opening folders) |
+| Disk space | about 250 MB for libraries + map thumbnails | the same |
+| Optional | Python 3.10+ with numpy and Pillow — only for the extra `soldat_map_dots.py` tool | the same |
 
-Node.js 22.13 to pierwsza wersja z wbudowanym modułem `node:sqlite`, na którym działa indeks map. Internet jest
-potrzebny tylko raz — przy instalacji bibliotek (`npm install`).
+Node.js 22.13 is the first version with the built-in `node:sqlite` module that the map index uses. An internet
+connection is needed only once — to install the libraries (`npm install`).
 
 ## Windows
 
-1. Zainstaluj **Node.js LTS** ze strony [nodejs.org](https://nodejs.org) (instalator `.msi`, domyślne opcje).
-2. Pobierz projekt: na GitHubie **Code → Download ZIP** i rozpakuj, albo:
+1. Install **Node.js LTS** from [nodejs.org](https://nodejs.org) (the `.msi` installer with default options).
+2. Get the project: on GitHub **Code → Download ZIP** and unpack it, or:
    ```bash
    git clone https://github.com/TryHackX/SoldatMapTool.git
    ```
-3. Uruchom dwuklikiem **`Uruchom Soldat Map Studio.bat`**. Za pierwszym razem skrypt zainstaluje biblioteki
-   i zbuduje interfejs (kilka minut), potem otworzy aplikację. Okno konsoli musi zostać otwarte — jego zamknięcie
-   wyłącza aplikację.
-4. Folder gry jest wykrywany sam ze wszystkich bibliotek Steama. Jeśli masz Soldata gdzie indziej, ustaw ścieżkę
-   w **Ustawieniach** (ikona zębatki).
+3. Double-click **`Start Soldat Map Studio.bat`**. The first run installs the
+   libraries and builds the interface (a few minutes), then opens the app. Keep the console window open — closing
+   it stops the app.
+4. The game folder is detected automatically from all your Steam libraries. If Soldat lives somewhere else, set the
+   path in **Settings** (gear icon).
 
 ## Linux
 
-1. Zainstaluj **Node.js 22.13+**. Wersje z repozytoriów dystrybucji bywają starsze — sprawdź `node --version`.
-   Najprościej przez [nvm](https://github.com/nvm-sh/nvm):
+1. Install **Node.js 22.13+**. Distribution packages are often older — check `node --version`. The easiest way is
+   [nvm](https://github.com/nvm-sh/nvm):
    ```bash
    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
    ```
    ```bash
    nvm install 22
    ```
-2. Doinstaluj okna wyboru folderów i otwieranie folderów (opcjonalne — ścieżki można też wpisywać ręcznie):
+2. Install the folder pickers and the folder opener (optional — paths can also be typed in):
    ```bash
    sudo apt install zenity xdg-utils
    ```
-   Fedora: `sudo dnf install zenity xdg-utils`, Arch: `sudo pacman -S zenity xdg-utils`. Na KDE wystarczy `kdialog`.
-3. Pobierz projekt i uruchom:
+   Fedora: `sudo dnf install zenity xdg-utils`, Arch: `sudo pacman -S zenity xdg-utils`. On KDE, `kdialog` is
+   enough.
+3. Get the project and start it:
    ```bash
    git clone https://github.com/TryHackX/SoldatMapTool.git
    ```
    ```bash
-   cd SoldatMapTool && ./uruchom.sh
+   cd SoldatMapTool && ./start.sh
    ```
-   Skrypt instaluje biblioteki, buduje interfejs i otwiera przeglądarkę. Zamknięcie: `Ctrl+C` w terminalu.
-   Jeśli plik nie ma prawa wykonania: `chmod +x uruchom.sh`.
-4. Folder gry:
-   - **Soldat ze Steama (Proton)** jest wykrywany sam: `~/.local/share/Steam/steamapps/common/Soldat`,
-     `~/.steam/steam/…`, Steam z Flatpaka i dodatkowe biblioteki z `libraryfolders.vdf`.
-   - **OpenSoldat** — w **Ustawieniach** wskaż folder, w którym są `maps/`, `scenery-gfx/` i `textures/`.
-5. Linux rozróżnia wielkość liter w nazwach plików. Mapy, które zapisują nazwę scenerii inaczej niż plik na dysku,
-   pokazuje filtr **„Różna wielkość liter (Linux)”**, a **Porządki → Wielkość liter (Linux)** poprawia nazwy plików.
-   Paczka z opcją **„Napraw wielkość liter pod serwery Linux”** zawiera każdą pisownię używaną w mapach.
+   The script installs the libraries, builds the interface and opens your browser. Stop it with `Ctrl+C` in the
+   terminal. If the file is not executable: `chmod +x start.sh`.
+4. Game folder:
+   - **Soldat from Steam (Proton)** is detected automatically: `~/.local/share/Steam/steamapps/common/Soldat`,
+     `~/.steam/steam/…`, Flatpak Steam and extra libraries listed in `libraryfolders.vdf`.
+   - **OpenSoldat** — in **Settings**, choose the folder that contains `maps/`, `scenery-gfx/` and `textures/`.
+5. Linux file names are case-sensitive. Maps that spell a scenery name differently from the file on disk are shown
+   by the **"Letter case mismatch (Linux)"** filter, and **Clean-up → Letter case (Linux)** renames the files.
+   A pack built with **"Fix letter case for Linux servers"** contains every spelling the maps use.
 
-## Uruchomienie ręczne (każdy system)
+## Manual start (any system)
 
 ```bash
 npm install
@@ -93,58 +97,71 @@ npm run build
 npm start
 ```
 
-Potem otwórz `http://127.0.0.1:4321`. Inny port: zmienna środowiskowa `PORT` (np. `PORT=4400 npm start`).
+Then open `http://127.0.0.1:4321`. Another port: set the `PORT` environment variable (e.g. `PORT=4400 npm start`).
 
-## Dla programistów
+## For developers
 
-| Polecenie | Co robi |
+| Command | What it does |
 |---|---|
-| `npm run dev` | serwer z automatycznym restartem + interfejs Vite z podmianą na żywo (`http://localhost:5173`) |
-| `npm test` | testy automatyczne (`node:test`) |
-| `npm run typecheck` | sprawdzenie typów TypeScript |
-| `npm run test:pms` | odczyt wszystkich map z folderu gry (test parsera na prawdziwej kolekcji) |
+| `npm run dev` | server with auto-restart + Vite interface with hot reload (`http://localhost:5173`) |
+| `npm test` | automated tests (`node:test`) |
+| `npm run typecheck` | TypeScript type check |
+| `npm run test:pms` | reads every map in the game folder (parser test on a real collection) |
 
-Budowa: serwer `src/server` (Express 5, `node:sqlite`, `sharp`), interfejs `src/client` (React 19, Vite, Tailwind,
-WebGL2), wspólny kod `src/shared` (parser `.pms`, typy API). Zgodność z grą jest sprawdzana bezpośrednio ze źródłami
-OpenSoldat — szczegóły w [`docs/AUDYT.md`](docs/AUDYT.md).
+Layout: server in `src/server` (Express 5, `node:sqlite`, `sharp`), interface in `src/client` (React 19, Vite,
+Tailwind, WebGL2), shared code in `src/shared` (`.pms` parser, API types). Texts are written in English in the code;
+Polish translations live in `src/client/i18n/pl/` and `src/server/i18nPl.ts`. Compatibility with the game is checked
+directly against the OpenSoldat sources.
 
-## Gdzie są dane
+## Extra tool: CTF reachability template (optional, Python)
 
-- `data/` — ustawienia (`config.json` ze ścieżkami tego komputera), indeks map, miniatury, kopie zapasowe
-  (`data/backups/`), dziennik serwera (`data/logs/`).
-- `exports/` — paczki, zrzuty map i mapy `_f`/`_o`, jeśli nie są zapisywane do folderu gry.
+`soldat_map_dots.py` is a separate command-line script — the app does not need it. It renders a `.pms` map as a
+clean template image and marks with dots the places players can reach from the Alpha spawns (red), the Bravo spawns
+(blue) or both (purple), taking gravity, platforms and the map's jet amount into account. Handy for planning and
+checking CTF maps.
 
-Oba foldery są lokalne i nie trafiają do repozytorium. Serwer nasłuchuje tylko na `127.0.0.1` i odrzuca zapytania
-z obcych stron, więc inne komputery w sieci ani strony internetowe nie mają do niego dostępu.
+It needs Python 3.10 or newer and two libraries:
 
-## Najczęstsze problemy
+```bash
+pip install numpy pillow
+```
 
-- **„Nie znaleziono Node.js” / „brak modułu node:sqlite”** — zainstaluj Node.js 22.13 lub nowszy i otwórz nowe
-  okno konsoli.
-- **Port 4321 zajęty** — aplikacja już działa w innym oknie albo port zajmuje inny program; zamknij go lub ustaw
-  `PORT`.
-- **Pusty podgląd mapy** — przeglądarka musi obsługiwać WebGL2 (sprawdź na <https://get.webgl.org/webgl2/>).
-- **Linux: przycisk „Wybierz folder” nic nie robi** — doinstaluj `zenity` albo `kdialog`, albo wpisz ścieżkę ręcznie.
+Usage:
 
-## Dokumentacja
+```bash
+python soldat_map_dots.py path/to/ctf_Ash.pms -o ctf_Ash_dots.png
+```
 
-- [`CHANGELOG.md`](CHANGELOG.md) — historia zmian,
-- [`docs/AUDYT.md`](docs/AUDYT.md) — audyt kodu i zgodności z grą,
-- [`docs/PLAN_ROZWOJU.md`](docs/PLAN_ROZWOJU.md) — plan rozwoju i jego realizacja.
+Options: `--step` (dot spacing in px, default 5), `--width` (image width, default 1920), `--dot-radius`,
+`--clearance` (distance from walls) and `--no-dots` (template only); `--help` lists them all. On Linux use
+`python3`; if `pip` refuses to install into the system Python, install `python3-numpy` and `python3-pil` from your
+distribution or use a virtual environment.
 
-## Licencja
+## Where the data lives
 
-Możesz używać programu w dowolnym celu, także komercyjnym. Każda zmodyfikowana wersja i każdy projekt, który
-korzysta z kodu lub innych części Soldat Map Studio, musi wymieniać **TryHackX** jako współautora wraz z odnośnikiem
-do tego repozytorium. Pełna treść: [`LICENSE`](LICENSE).
+- `data/` — settings (`config.json` with this computer's paths), the map index, thumbnails, backups
+  (`data/backups/`), the server log (`data/logs/`).
+- `exports/` — packs, map screenshots and `_f`/`_o` maps when they are not saved into the game folder.
 
-Soldat i OpenSoldat należą do ich autorów; ten projekt nie jest z nimi oficjalnie związany.
+Both folders are local and never go into the repository. The server listens only on `127.0.0.1` and rejects
+requests from other websites, so other computers on the network and web pages cannot reach it.
 
----
+## Troubleshooting
 
-**English summary:** Soldat Map Studio is a local web app (Node.js 22.13+ server + browser UI) for browsing, fixing
-and packing large Soldat / OpenSoldat map collections: a searchable index, a game-accurate WebGL2 viewer, the `_f`
-(1.7.1 scenery size fix) and `_o` (scenery layer merging) map workshop, server map packs and collection clean-up.
-Windows: run `Uruchom Soldat Map Studio.bat`. Linux / macOS: run `./uruchom.sh` (install `zenity` or `kdialog` for
-folder pickers). Free to use for any purpose; modified versions and works using any part of it must credit
-TryHackX as a co-author — see [`LICENSE`](LICENSE).
+- **"Node.js not found" / "no node:sqlite module"** — install Node.js 22.13 or newer and open a new console window.
+- **Port 4321 is busy** — the app is already running in another window or another program uses the port; close it
+  or set `PORT`.
+- **Blank map preview** — the browser must support WebGL2 (check at <https://get.webgl.org/webgl2/>).
+- **Linux: "Choose folder" does nothing** — install `zenity` or `kdialog`, or type the path in.
+
+## Changelog
+
+Version history: [`CHANGELOG.md`](CHANGELOG.md) (in Polish).
+
+## License
+
+You may use the program for any purpose, including commercial use. Every modified version and every project that
+uses code or other parts of Soldat Map Studio must credit **TryHackX** as a co-author, with a link to this
+repository. Full text: [`LICENSE`](LICENSE).
+
+Soldat and OpenSoldat belong to their respective authors; this project is not officially affiliated with them.

@@ -7,7 +7,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 # ==============================================================================
-# TYPY POLIGONÓW SOLDAT (.PMS)
+# SOLDAT POLYGON TYPES (.PMS)
 # ==============================================================================
 # 0: Normal                  | 1: Only Bullets Collide  | 2: Only Players Collide
 # 3: No Collide              | 4: Ice                   | 5: Deadly
@@ -20,21 +20,21 @@ from PIL import Image, ImageDraw
 # 24: Background             | 25: Background Transition
 # ==============================================================================
 
-# Poligony zatrzymujące ruch gracza (ściany, podłogi, lód, odbijające)
+# Polygons that stop the player (walls, floors, ice, bouncy)
 SOLID_POLY_TYPES = {0, 2, 4, 7, 8, 18}
 
-# Poligony zabójcze (traktowane jako przeszkody, których nie uznajemy za strefę ruchu)
+# Deadly polygons (obstacles, never counted as an area players can move in)
 DEADLY_POLY_TYPES = {5, 6, 9, 19}
 
-# Wszystkie poligony blokujące rozpływanie się kropek
+# Every polygon that stops the dots from spreading
 BLOCKING_POLY_TYPES = SOLID_POLY_TYPES | DEADLY_POLY_TYPES
 
-# Kolory specjalnych typów poligonów (jak w podglądach analitycznych Soldat)
+# Colors of special polygon types (as in Soldat analysis previews)
 SPECIAL_POLY_COLORS = {
-    1: (46, 139, 87),     # Only Bullets Collide - zielony
+    1: (46, 139, 87),     # Only Bullets Collide - green
     2: (95, 135, 115),    # Only Players Collide
-    4: (130, 185, 220),   # Ice - błękitny
-    5: (150, 42, 38),     # Deadly - czerwony (np. palniki kuchenki)
+    4: (130, 185, 220),   # Ice - light blue
+    5: (150, 42, 38),     # Deadly - red (e.g. stove burners)
     6: (135, 30, 30),     # Bloody Deadly
     7: (180, 90, 40),     # Hurts
     8: (60, 160, 110),    # Regenerates
@@ -43,12 +43,12 @@ SPECIAL_POLY_COLORS = {
     13: (60, 100, 160),   # Bravo Players
     15: (160, 150, 60),   # Charlie Players
     17: (60, 150, 80),    # Delta Players
-    18: (160, 70, 155),   # Bouncy - fioletowy/różowy
+    18: (160, 70, 155),   # Bouncy - purple/pink
     19: (170, 60, 30),    # Explosive
     20: (150, 70, 90),    # Hurts Flaggers
     21: (55, 125, 140),   # Flagger Collides
     22: (55, 125, 140),   # Non-Flagger Collides
-    23: (50, 125, 142),   # Flag Collides - turkusowy
+    23: (50, 125, 142),   # Flag Collides - turquoise
 }
 
 BG_COLOR = (20, 21, 26)
@@ -61,7 +61,7 @@ def read_shortstring(data: bytes, offset: int, max_len: int) -> tuple[str, int]:
 
 
 def parse_pms(filepath: str | Path) -> dict:
-    """Parsuje binarny plik .pms (Soldat Polygon Map System v11)."""
+    """Parses a binary .pms file (Soldat Polygon Map System v11)."""
     data = Path(filepath).read_bytes()
     data_len = len(data)
     offset = 0
@@ -89,7 +89,7 @@ def parse_pms(filepath: str | Path) -> dict:
     for _ in range(poly_count):
         verts = []
         for _ in range(3):
-            # W .pms kolory wierzchołków zapisane są jako D3DCOLOR little-endian: B, G, R, A
+            # .pms stores vertex colors as little-endian D3DCOLOR: B, G, R, A
             x, y, z, rhw, b, g, r, a, tu, tv = struct.unpack_from("<ffffBBBBff", data, offset)
             offset += 28
             verts.append((x, y, (r, g, b, a)))
@@ -109,7 +109,7 @@ def parse_pms(filepath: str | Path) -> dict:
             "type": poly_type,
         })
 
-    # Siatka sektorów (Sectors): (2 * num_sectors + 1)^2 wpisów
+    # Sector grid: (2 * num_sectors + 1)^2 entries
     sector_division, num_sectors = struct.unpack_from("<ii", data, offset)
     offset += 8
     grid_count = (2 * num_sectors + 1) ** 2
@@ -117,15 +117,15 @@ def parse_pms(filepath: str | Path) -> dict:
         sector_poly_count = struct.unpack_from("<H", data, offset)[0]
         offset += 2 + 2 * sector_poly_count
 
-    # Props: 44 bajty na każdy prop (packed record)
+    # Props: 44 bytes per prop (packed record)
     prop_count = struct.unpack_from("<i", data, offset)[0]
     offset += 4 + prop_count * 44
 
-    # Scenery: 55 bajtów na każdy wpis (ShortString[50] = 51B + DOSTime = 4B)
+    # Scenery: 55 bytes per entry (ShortString[50] = 51 B + DOSTime = 4 B)
     scenery_count = struct.unpack_from("<i", data, offset)[0]
     offset += 4 + scenery_count * 55
 
-    # Colliders: 16 bajtów na collider
+    # Colliders: 16 bytes per collider
     colliders = []
     if offset + 4 <= data_len:
         collider_count = struct.unpack_from("<i", data, offset)[0]
@@ -138,7 +138,7 @@ def parse_pms(filepath: str | Path) -> dict:
             if active:
                 colliders.append({"x": cx, "y": cy, "radius": radius})
 
-    # Spawn Points: 16 bajtów na spawn
+    # Spawn points: 16 bytes per spawn
     spawns = []
     if offset + 4 <= data_len:
         spawn_count = struct.unpack_from("<i", data, offset)[0]
@@ -146,7 +146,7 @@ def parse_pms(filepath: str | Path) -> dict:
         for _ in range(spawn_count):
             if offset + 16 > data_len:
                 break
-            # Active to 1 bajt + 3 bajty wyrównania (mogą zawierać śmieci z pamięci edytora)
+            # Active is 1 byte + 3 padding bytes (they may hold garbage from the editor's memory)
             active = data[offset] != 0
             sx, sy, team = struct.unpack_from("<iii", data, offset + 4)
             offset += 16
@@ -165,26 +165,26 @@ def parse_pms(filepath: str | Path) -> dict:
 
 
 def get_poly_color(poly: dict) -> tuple[int, int, int]:
-    """Wyznacza kolor poligonu na podstawie typu oraz kolorów wierzchołków z .pms."""
+    """Polygon color from its type and the vertex colors stored in the .pms."""
     ptype = poly["type"]
     if ptype in SPECIAL_POLY_COLORS:
         return SPECIAL_POLY_COLORS[ptype]
 
-    # Uśredniony kolor wierzchołków (R, G, B) z pliku .pms
+    # Average vertex color (R, G, B) from the .pms
     r = sum(v[2][0] for v in poly["verts"]) // 3
     g = sum(v[2][1] for v in poly["verts"]) // 3
     b = sum(v[2][2] for v in poly["verts"]) // 3
 
     if ptype in SOLID_POLY_TYPES:
-        # Jeśli zwykła ściana ma w .pms czysty biały kolor pod teksturę, stonuj ją do szarości szablonu
+        # A plain wall with pure white vertex colors (under its texture) is toned down to the template grey
         if r > 215 and g > 215 and b > 215:
             return (105, 108, 115)
-        # Lekkie rozjaśnienie zbyt ciemnych ścian, żeby odróżniały się od tła (20, 21, 26)
+        # Very dark walls are lightened a little so they stand out from the background (20, 21, 26)
         if r < 35 and g < 35 and b < 35:
             return (85, 88, 95)
         return (int(r * 0.65 + 30), int(g * 0.65 + 30), int(b * 0.65 + 32))
     else:
-        # Poligony tła (No Collide / Background) - zachowują swój odcień (np. ramka 3D, lodówka, żarówka)
+        # Background polygons (No Collide / Background) keep their hue (e.g. a 3D frame, a fridge, a light bulb)
         if r == 0 and g == 0 and b == 0:
             return BG_COLOR
         return (int(r * 0.72), int(g * 0.72), int(b * 0.75))
@@ -198,14 +198,14 @@ def compute_reachable_grid(
     clearance_px: int = 2,
 ) -> list[tuple[int, int]]:
     """
-    Wyznacza osiągalne punkty siatki (co `step_px` pikseli) startując ze spawnów.
-    Uwzględnia grawitację, podparcie na platformach oraz limit wysokości lotu na jecie.
+    Grid points (every `step_px` pixels) reachable from the spawns.
+    Accounts for gravity, standing on platforms and the jetpack flight height limit.
     """
     h, w = blocked_mask.shape
     gh = h // step_px
     gw = w // step_px
 
-    # Sprawdzenie otoczenia każdego punktu siatki
+    # Check the surroundings of every grid point
     grid_blocked = np.zeros((gh, gw), dtype=bool)
     for gy in range(gh):
         py = gy * step_px
@@ -218,7 +218,7 @@ def compute_reachable_grid(
             if blocked_mask[y0:y1, x0:x1].any():
                 grid_blocked[gy, gx] = True
 
-    # Ciągłe sprawdzenie odcinka między węzłami (zapobiega przenikaniu ścian cieńszych niż step_px)
+    # Check the whole segment between nodes (stops passing through walls thinner than step_px)
     def can_step(gy1: int, gx1: int, gy2: int, gx2: int) -> bool:
         if not (0 <= gy2 < gh and 0 <= gx2 < gw) or grid_blocked[gy2, gx2]:
             return False
@@ -231,7 +231,7 @@ def compute_reachable_grid(
             ya, yb = min(y1, y2), max(y1, y2)
             return not blocked_mask[ya : yb + 1, x1].any()
 
-    # Wykrywanie komórek "podparcia" (bezpośrednio nad podłogą), gdzie regeneruje się skok i jetpack
+    # "Supported" cells (right above a floor), where jumping and the jetpack recharge
     is_supported = np.zeros((gh, gw), dtype=bool)
     for gy in range(gh - 1):
         for gx in range(gw):
@@ -244,8 +244,8 @@ def compute_reachable_grid(
     best_alt = np.full((gh, gw), np.inf, dtype=np.float32)
     pq = []
 
-    # Startujemy wyłącznie z przekazanych spawnów. Wywołujący wybiera
-    # osobno spawny Alpha/Bravo, aby mapy CTF nie mieszały obu drużyn.
+    # Start only from the given spawns. The caller picks the Alpha and Bravo
+    # spawns separately, so CTF maps never mix the two teams.
     for sx, sy, _ in spawns_px:
         sgx = sx // step_px
         sgy = sy // step_px
@@ -262,7 +262,7 @@ def compute_reachable_grid(
             if found_seed:
                 break
 
-    # 4 kierunki ruchu (brak przeciekania po przekątnej przez wierzchołki poligonów)
+    # 4 directions of movement (no diagonal leaks through polygon corners)
     directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
 
     while pq:
@@ -306,7 +306,7 @@ def render_map_and_dots(
 ):
     polygons = pms_data["polygons"]
     if not polygons:
-        raise ValueError("Mapa nie zawiera żadnych poligonów.")
+        raise ValueError("The map has no polygons.")
 
     all_x = [v[0] for p in polygons for v in p["verts"]]
     all_y = [v[1] for p in polygons for v in p["verts"]]
@@ -336,20 +336,20 @@ def render_map_and_dots(
     mask_img = Image.new("L", (target_width, target_height), 0)
     mask_draw = ImageDraw.Draw(mask_img)
 
-    # 1. Poligony niekolidujące z graczem (tło, dekoracje, Only Bullets Collide, Flag Collides)
+    # 1. Polygons the player passes through (background, decoration, Only Bullets Collide, Flag Collides)
     for poly in polygons:
         if poly["type"] not in BLOCKING_POLY_TYPES:
             pts = [to_px(v[0], v[1]) for v in poly["verts"]]
             draw.polygon(pts, fill=get_poly_color(poly))
 
-    # 2. Poligony blokujące gracza (ściany, podłogi, zabójcze) + szczelna maska kolizji
+    # 2. Polygons that block the player (walls, floors, deadly) + a watertight collision mask
     for poly in polygons:
         if poly["type"] in BLOCKING_POLY_TYPES:
             pts = [to_px(v[0], v[1]) for v in poly["verts"]]
             draw.polygon(pts, fill=get_poly_color(poly))
             mask_draw.polygon(pts, fill=1, outline=1)
 
-            # Kreski normalnych na krawędziach poligonów kolidujących
+            # Normal ticks on the edges of colliding polygons
             for i in range(3):
                 p1 = pts[i]
                 p2 = pts[(i + 1) % 3]
@@ -369,7 +369,7 @@ def render_map_and_dots(
                             width=1,
                         )
 
-    # 3. Wyliczenie maksymalnego pułapu wznoszenia z uwzględnieniem Jetpacka
+    # 3. Maximum climb height, including the jetpack
     jet_amount = max(0, pms_data["jet_amount"])
     max_climb_world = 48.0 + jet_amount * 3.2
     max_climb_px = max_climb_world * scale
@@ -379,8 +379,8 @@ def render_map_and_dots(
         px, py = to_px(sp["x"], sp["y"])
         spawns_px.append((px, py, sp["team"]))
 
-    # 4. Osiągalność osobno dla obu drużyn CTF.
-    # Czerwony = osiągalne z Alpha, niebieski = z Bravo, fioletowy = obie drużyny.
+    # 4. Reachability for each CTF team separately.
+    # Red = reachable from Alpha, blue = from Bravo, purple = both teams.
     blocked_mask = np.array(mask_img, dtype=bool)
     alpha_points = []
     bravo_points = []
@@ -398,7 +398,7 @@ def render_map_and_dots(
 
         alpha_set, bravo_set = set(alpha_points), set(bravo_points)
         both_set = alpha_set & bravo_set
-        # Fioletowy obszar wspólny jest rysowany na końcu, aby nie został przykryty.
+        # The shared purple area is drawn last so nothing covers it.
         for points, color in ((alpha_set - both_set, (245, 75, 65)),
                               (bravo_set - both_set, (65, 155, 255)),
                               (both_set, (205, 95, 235))):
@@ -412,15 +412,15 @@ def render_map_and_dots(
     else:
         reachable_dots = set()
 
-    # 5. Znaczniki spawnów i flag
+    # 5. Spawn and flag markers
     spawn_colors = {
         0: (220, 220, 220),  # General
-        1: (235, 65, 50),    # Alpha Spawn (czerwony kwadrat)
-        2: (50, 145, 240),   # Bravo Spawn (niebieski kwadrat)
+        1: (235, 65, 50),    # Alpha Spawn (red square)
+        2: (50, 145, 240),   # Bravo Spawn (blue square)
         3: (235, 210, 50),   # Charlie Spawn
         4: (60, 215, 90),    # Delta Spawn
-        5: (235, 65, 50),    # Alpha Flag (czerwony okrąg)
-        6: (50, 145, 240),   # Bravo Flag (niebieski okrąg)
+        5: (235, 65, 50),    # Alpha Flag (red circle)
+        6: (50, 145, 240),   # Bravo Flag (blue circle)
     }
 
     for px, py, team in spawns_px:
@@ -435,24 +435,24 @@ def render_map_and_dots(
 
     img.save(output_path)
     print(
-        f"[OK] Mapa: {pms_data['description']} | Poligony: {len(polygons)} | "
-        f"Scenerie: {len(pms_data['colliders'])} col / {len(spawns_px)} spawny | "
-        f"Jet: {jet_amount} | Osiągalne: Alpha={len(alpha_points)}, Bravo={len(bravo_points)}, "
-        f"łącznie={len(reachable_dots)} (co {step_px}px) -> {output_path}"
+        f"[OK] Map: {pms_data['description']} | Polygons: {len(polygons)} | "
+        f"Colliders: {len(pms_data['colliders'])} | Spawns: {len(spawns_px)} | "
+        f"Jet: {jet_amount} | Reachable: Alpha={len(alpha_points)}, Bravo={len(bravo_points)}, "
+        f"total={len(reachable_dots)} (every {step_px}px) -> {output_path}"
     )
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Generuje szablon mapy Soldat (.pms) z osobnymi strefami osiągalności Alpha/Bravo dla CTF."
+        description="Renders a Soldat map (.pms) template with separate Alpha / Bravo reachability zones for CTF."
     )
-    parser.add_argument("pms_file", help="Ścieżka do pliku mapy .pms")
-    parser.add_argument("-o", "--output", default="map_template_dots.png", help="Ścieżka do pliku wynikowego .png")
-    parser.add_argument("--step", type=int, default=5, help="Gęstość kropek w pikselach (domyślnie: 5)")
-    parser.add_argument("--width", type=int, default=1920, help="Szerokość obrazu wyjściowego w px (domyślnie: 1920)")
-    parser.add_argument("--dot-radius", type=int, default=0, help="Promień kropki w px (domyślnie: 0 = pojedynczy piksel, 1 = 3x3 px)")
-    parser.add_argument("--clearance", type=int, default=2, help="Odstęp kropek od ścian w px (domyślnie: 2)")
-    parser.add_argument("--no-dots", action="store_true", help="Generuj sam czysty szablon bez kropek")
+    parser.add_argument("pms_file", help="Path to the .pms map file")
+    parser.add_argument("-o", "--output", default="map_template_dots.png", help="Output .png file")
+    parser.add_argument("--step", type=int, default=5, help="Dot spacing in pixels (default: 5)")
+    parser.add_argument("--width", type=int, default=1920, help="Output image width in px (default: 1920)")
+    parser.add_argument("--dot-radius", type=int, default=0, help="Dot radius in px (default: 0 = a single pixel, 1 = 3x3 px)")
+    parser.add_argument("--clearance", type=int, default=2, help="Dot clearance from walls in px (default: 2)")
+    parser.add_argument("--no-dots", action="store_true", help="Render only the clean template, without dots")
 
     args = parser.parse_args()
     data = parse_pms(args.pms_file)

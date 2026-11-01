@@ -134,7 +134,7 @@ export interface MapLimitViolation {
   key: keyof typeof SOLDAT_MAP_LIMITS;
   value: number;
   limit: number;
-  labelPl: string;
+  label: string;
 }
 
 /**
@@ -149,16 +149,17 @@ export function checkSoldatMapLimits(counts: {
   spawnCount: number;
 }): MapLimitViolation[] {
   const out: MapLimitViolation[] = [];
-  const push = (key: keyof typeof SOLDAT_MAP_LIMITS, value: number, labelPl: string) => {
+  const push = (key: keyof typeof SOLDAT_MAP_LIMITS, value: number, label: string) => {
     const limit = SOLDAT_MAP_LIMITS[key];
-    if (value > limit) out.push({ key, value, limit, labelPl });
+    if (value > limit) out.push({ key, value, limit, label });
   };
-  push('maxPolys', counts.polygonCount, 'Poligony');
-  push('maxSectorsNum', counts.sectorsNum, 'Siatka sektorów');
-  push('maxProps', counts.propCount, 'Scenerie (propy)');
-  push('maxScenery', counts.sceneryCount, 'Wpisy scenerii');
-  push('maxColliders', counts.colliderCount, 'Collidery');
-  push('maxSpawnpoints', counts.spawnCount, 'Spawny');
+  // English labels; the UI and the server translate them
+  push('maxPolys', counts.polygonCount, 'Polygons');
+  push('maxSectorsNum', counts.sectorsNum, 'Sector grid');
+  push('maxProps', counts.propCount, 'Sceneries (props)');
+  push('maxScenery', counts.sceneryCount, 'Scenery entries');
+  push('maxColliders', counts.colliderCount, 'Colliders');
+  push('maxSpawnpoints', counts.spawnCount, 'Spawn points');
   return out;
 }
 
@@ -696,7 +697,7 @@ export function parsePmsFull(input: ArrayBuffer | Uint8Array): PmsMapData {
   }
 
   // Colliders
-  const colliderCount = readTailSectionCount(br, COLLIDER_RECORD_SIZE, 10000, 'collidery', parseWarnings);
+  const colliderCount = readTailSectionCount(br, COLLIDER_RECORD_SIZE, 10000, 'colliders', parseWarnings);
   const colliders: PmsCollider[] = [];
   if (colliderCount > 0) {
     for (let i = 0; i < colliderCount; i++) {
@@ -711,7 +712,7 @@ export function parsePmsFull(input: ArrayBuffer | Uint8Array): PmsMapData {
 
   // Spawnpoints
   const spawnCount =
-    colliderCount < 0 ? -1 : readTailSectionCount(br, SPAWN_RECORD_SIZE, 10000, 'spawny', parseWarnings);
+    colliderCount < 0 ? -1 : readTailSectionCount(br, SPAWN_RECORD_SIZE, 10000, 'spawn points', parseWarnings);
   const spawnpoints: PmsSpawnpoint[] = [];
   if (spawnCount > 0) {
     for (let i = 0; i < spawnCount; i++) {
@@ -735,7 +736,7 @@ export function parsePmsFull(input: ArrayBuffer | Uint8Array): PmsMapData {
 
   // Waypoints
   const waypointCount =
-    spawnCount < 0 ? -1 : readTailSectionCount(br, WAYPOINT_RECORD_SIZE, 20000, 'waypointy botów', parseWarnings);
+    spawnCount < 0 ? -1 : readTailSectionCount(br, WAYPOINT_RECORD_SIZE, 20000, 'bot waypoints', parseWarnings);
   const waypoints: PmsWaypoint[] = [];
   if (waypointCount > 0) {
     for (let i = 0; i < waypointCount; i++) {
@@ -840,12 +841,12 @@ function readTailSectionCount(
   warnings: string[]
 ): number {
   if (br.pos + 4 > br.length) {
-    warnings.push(`Brak sekcji: ${label} (plik kończy się wcześniej)`);
+    warnings.push(`Missing section: ${label} (the file ends early)`);
     return -1;
   }
   const n = br.readInt32();
   if (n < 0 || n > sanityLimit || br.pos + n * recordSize > br.length) {
-    warnings.push(`Uszkodzona sekcja: ${label} (liczba rekordów ${n})`);
+    warnings.push(`Damaged section: ${label} (record count ${n})`);
     return -1;
   }
   return n;
@@ -998,7 +999,7 @@ export function parsePmsSummary(input: ArrayBuffer | Uint8Array): PmsSummaryData
     }
   }
 
-  const colliderSection = readTailSectionCount(br, COLLIDER_RECORD_SIZE, 10000, 'collidery', parseWarnings);
+  const colliderSection = readTailSectionCount(br, COLLIDER_RECORD_SIZE, 10000, 'colliders', parseWarnings);
   const colliderCount = Math.max(0, colliderSection);
   let activeColliderCount = 0;
   if (colliderCount > 0) {
@@ -1010,7 +1011,7 @@ export function parsePmsSummary(input: ArrayBuffer | Uint8Array): PmsSummaryData
   }
 
   const spawnSection =
-    colliderSection < 0 ? -1 : readTailSectionCount(br, SPAWN_RECORD_SIZE, 10000, 'spawny', parseWarnings);
+    colliderSection < 0 ? -1 : readTailSectionCount(br, SPAWN_RECORD_SIZE, 10000, 'spawn points', parseWarnings);
   const spawnCount = Math.max(0, spawnSection);
   let activeSpawnCount = 0;
   const spawnTeamCounts: Record<number, number> = {};
@@ -1036,7 +1037,7 @@ export function parsePmsSummary(input: ArrayBuffer | Uint8Array): PmsSummaryData
   const waypointSection =
     spawnSection < 0
       ? -1
-      : readTailSectionCount(br, WAYPOINT_RECORD_SIZE, 20000, 'waypointy botów', parseWarnings);
+      : readTailSectionCount(br, WAYPOINT_RECORD_SIZE, 20000, 'bot waypoints', parseWarnings);
   const waypointCount = Math.max(0, waypointSection);
   let activeWaypointCount = 0;
   if (waypointCount > 0) {

@@ -9,6 +9,7 @@ import {
 } from '@shared/apiTypes';
 import { bakeTilesFor, MAX_BAKE_TILES, TILE_OVERLAP_WORLD } from '@shared/bakeTiling';
 import { cloneMapWithPropFixes, computePropAabb, PmsMapData } from '@shared/pmsParser';
+import { t, tp } from '../i18n';
 import { clearSoldatAssetCache, clearVirtualAssets, registerVirtualAsset } from './assetLoader';
 import { SoldatWebGLRenderer } from './SoldatWebGLRenderer';
 import { RenderLayerVisibility } from './types';
@@ -280,7 +281,7 @@ export async function fetchOptimizePlan(
     return await postJson<MapOptimizePlanResponse>('/api/workshop/optimize-plan', { mapId, options }, signal);
   } catch (err) {
     if ((err as Error)?.name === 'AbortError') throw err;
-    throw new Error((err as Error)?.message || 'Błąd przygotowania planu optymalizacji scenerii.');
+    throw new Error((err as Error)?.message || t('Could not prepare the scenery optimization plan.'));
   }
 }
 
@@ -326,7 +327,7 @@ export async function bakeSceneryTiles(
   const glRenderer = new SoldatWebGLRenderer(glCanvas, { transparentCanvas: true });
   const tiles: Array<BakedSceneryTileUpload & { png: Uint8Array<ArrayBuffer> }> = [];
   const throwIfAborted = () => {
-    if (signal?.aborted) throw new DOMException('Anulowano optymalizację.', 'AbortError');
+    if (signal?.aborted) throw new DOMException(t('Optimization cancelled.'), 'AbortError');
   };
 
   try {
@@ -338,10 +339,15 @@ export async function bakeSceneryTiles(
 
     for (const grp of plan.groups) {
       throwIfAborted();
-      const levelLabel = grp.level === 0 ? 'Tył' : grp.level === 1 ? 'Środek' : 'Przód';
+      const levelLabel = grp.level === 0 ? t('Back') : grp.level === 1 ? t('Middle') : t('Front');
       onProgress?.(
         0.1 + 0.72 * (completedGroups / totalGroups),
-        `Sklejanie warstwy ${levelLabel} (#${grp.runIndex}, ${grp.propIndices.length} scenerii, ${supersample}×)...`
+        t('Merging the {layer} layer (#{run}, {count}, {ss}×)...', {
+          layer: levelLabel,
+          run: grp.runIndex,
+          count: tp(grp.propIndices.length, '{n} scenery', '{n} sceneries'),
+          ss: supersample,
+        })
       );
 
       const allowedSet = new Set<number>(grp.propIndices);
@@ -351,7 +357,7 @@ export async function bakeSceneryTiles(
         propFilter: (_p, idx) => allowedSet.has(idx),
       });
       if (!applied) {
-        throw new Error('Nie udało się załadować scenerii na GPU (utracony kontekst WebGL2).');
+        throw new Error(t('Could not load the sceneries on the GPU (WebGL2 context lost).'));
       }
 
       const layerVis: RenderLayerVisibility = {
@@ -378,8 +384,10 @@ export async function bakeSceneryTiles(
       const groupTiles = bakeTilesFor(grp.worldBounds, supersample, maxTilePx, propBounds);
       if (!groupTiles) {
         throw new Error(
-          `Warstwa ${levelLabel} #${grp.runIndex} wymaga ponad ${MAX_BAKE_TILES} kafelków przy jakości ${supersample}× ` +
-            '(mapa przekroczyłaby limit scenerii gry) — wybierz niższą jakość albo kafelek 4096 px.'
+          t(
+            "The {layer} layer #{run} needs more than {max} tiles at {ss}× quality (the map would exceed the game's scenery limit) — choose a lower quality or 4096 px tiles.",
+            { layer: levelLabel, run: grp.runIndex, max: MAX_BAKE_TILES, ss: supersample }
+          )
         );
       }
 
@@ -576,7 +584,7 @@ export async function measureFidelity(
     let worst: FidelityReport['worstArea'] = null;
 
     for (const w of sampled) {
-      if (signal?.aborted) throw new DOMException('Anulowano.', 'AbortError');
+      if (signal?.aborted) throw new DOMException(t('Cancelled.'), 'AbortError');
       const pxW = Math.max(1, Math.round(w.width * FIDELITY_ZOOM));
       const pxH = Math.max(1, Math.round(w.height * FIDELITY_ZOOM));
       const bounds = { left: w.left, right: w.left + w.width, top: w.top, bottom: w.top + w.height };
@@ -653,7 +661,7 @@ export async function buildOptimizePreview(
   onProgress?: (progress0to1: number, statusText: string) => void,
   signal?: AbortSignal
 ): Promise<OptimizePreview> {
-  onProgress?.(0.05, 'Analizowanie warstw i kolejności rysowania scenerii...');
+  onProgress?.(0.05, t('Analyzing the layers and the scenery draw order...'));
   const plan = await fetchOptimizePlan(mapId, options, signal);
   const tiles = await bakeSceneryTiles(mapData, plan, options, onProgress, signal);
 
@@ -663,7 +671,7 @@ export async function buildOptimizePreview(
   for (const t of tiles) registerVirtualAsset('scenery-gfx', `${prefix}${t.tileFileName}`, t.png);
   const previewMap = composeOptimizedMap(mapData, plan, tiles, (t) => `${prefix}${t.tileFileName}`);
 
-  onProgress?.(0.9, 'Porównywanie wyniku z oryginałem (skala ekranu 1080p)...');
+  onProgress?.(0.9, t('Comparing the result with the original (1080p screen scale)...'));
   // With fixFirst the reference is the repaired map: the size fixes are intended, not a baking error
   const fidelity = await measureFidelity(
     applyPlanPropFixes(mapData, plan),
@@ -672,7 +680,7 @@ export async function buildOptimizePreview(
     options.preferClassicBmp,
     signal
   );
-  onProgress?.(1, 'Podgląd gotowy.');
+  onProgress?.(1, t('Preview ready.'));
   return { plan, tiles, previewMap, fidelity, optionsKey: optimizeOptionsKey(mapId, options) };
 }
 
@@ -693,7 +701,7 @@ export async function executeSceneryOptimization(
   commit?: { overwritePolicy?: OverwritePolicy; skipRescan?: boolean }
 ): Promise<{ result: OptimizeSaveResponse; meta: IndexMetaResponse }> {
   if (signal?.aborted) {
-    throw new DOMException('Anulowano optymalizację.', 'AbortError');
+    throw new DOMException(t('Optimization cancelled.'), 'AbortError');
   }
 
   let plan: MapOptimizePlanResponse;
@@ -701,7 +709,7 @@ export async function executeSceneryOptimization(
   if (prebaked) {
     ({ plan, tiles } = prebaked);
   } else {
-    onProgress?.(0.05, 'Analizowanie warstw i kolejności rysowania scenerii...');
+    onProgress?.(0.05, t('Analyzing the layers and the scenery draw order...'));
     plan = await fetchOptimizePlan(mapId, options, signal);
     tiles = await bakeSceneryTiles(mapData, plan, options, onProgress, signal);
   }
@@ -714,11 +722,11 @@ export async function executeSceneryOptimization(
 
   try {
     for (let i = 0; i < tiles.length; i++) {
-      if (signal?.aborted) throw new DOMException('Anulowano optymalizację.', 'AbortError');
+      if (signal?.aborted) throw new DOMException(t('Optimization cancelled.'), 'AbortError');
       const { png, ...meta } = tiles[i];
       onProgress?.(
         0.84 + 0.1 * (i / Math.max(1, tiles.length)),
-        `Wysyłanie warstwy ${i + 1} / ${tiles.length} (${meta.tileFileName})...`
+        t('Uploading layer {index} / {total} ({file})...', { index: i + 1, total: tiles.length, file: meta.tileFileName })
       );
       const q = new URLSearchParams({ meta: JSON.stringify(meta) });
       const res = await fetch(
@@ -727,11 +735,16 @@ export async function executeSceneryOptimization(
       );
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `Błąd wysyłania warstwy ${meta.tileFileName}.`);
+        throw new Error(data.error || t('Could not upload layer {file}.', { file: meta.tileFileName }));
       }
     }
 
-    onProgress?.(0.95, `Zapisywanie ${plan.derivedBaseName}.pms oraz ${tiles.length} warstw PNG...`);
+    onProgress?.(
+      0.95,
+      tp(tiles.length, 'Saving {name}.pms and {n} PNG layer...', 'Saving {name}.pms and {n} PNG layers...', {
+        name: plan.derivedBaseName,
+      })
+    );
     const saveData = await postJson<{ result: OptimizeSaveResponse; meta: IndexMetaResponse }>(
       `/api/workshop/optimize-session/${encodeURIComponent(sessionId)}/commit`,
       {
@@ -747,7 +760,7 @@ export async function executeSceneryOptimization(
     if (options.destination === 'soldat_maps') {
       clearSoldatAssetCache();
     }
-    onProgress?.(1.0, 'Zakończono optymalizację scenerii!');
+    onProgress?.(1.0, t('Scenery optimization finished!'));
     return saveData;
   } catch (err) {
     fetch(`/api/workshop/optimize-session/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }).catch(

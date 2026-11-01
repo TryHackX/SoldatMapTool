@@ -28,10 +28,28 @@ import {
   Tag,
   Tags,
 } from 'lucide-react';
+import { locale, t, tp, tr, tText } from '../i18n';
 
 export type { StatusFilterMode };
 
 const ROW_FOCUS_CLASS = 'focus:outline-none focus-visible:ring-1 focus-visible:ring-emerald-500/70';
+
+// Built-in mode group and map source names arrive in English (users' own names pass through unchanged).
+// Cached: every prefix row shows its mode name and the prefix list can hold thousands of entries.
+const shownNames = new Map<string, string>();
+function shownName(name: string): string {
+  let shown = shownNames.get(name);
+  if (shown === undefined) {
+    shown = tText(name);
+    shownNames.set(name, shown);
+  }
+  return shown;
+}
+
+// Only the "no prefix" entry has a descriptive label; every other label is the prefix itself
+function prefixLabel(p: PrefixCountItem): string {
+  return p.prefix === '__none__' ? shownName(p.label) : p.label;
+}
 
 // Selectable rows hold their own buttons (expand, add to pack), so they cannot be <button>s themselves:
 // Enter / Space on the focused row toggles it (Ctrl/Cmd = multi-select, like a click)
@@ -139,9 +157,11 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
     if (!q) return modeGroups;
     return modeGroups
       .map((g) => {
-        const groupMatches = g.name.toLowerCase().includes(q) || g.shortName.toLowerCase().includes(q);
+        // Names are matched as displayed (in the active language)
+        const groupMatches =
+          shownName(g.name).toLowerCase().includes(q) || shownName(g.shortName).toLowerCase().includes(q);
         const matchingSub = g.prefixes.filter(
-          (p) => p.label.toLowerCase().includes(q) || p.prefix.toLowerCase().includes(q)
+          (p) => prefixLabel(p).toLowerCase().includes(q) || p.prefix.toLowerCase().includes(q)
         );
         if (groupMatches) return g;
         if (matchingSub.length > 0) return { ...g, prefixes: matchingSub };
@@ -154,8 +174,8 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
     if (!q) return prefixes;
     return prefixes.filter(
       (p) =>
-        p.label.toLowerCase().includes(q) ||
-        p.modeName.toLowerCase().includes(q)
+        prefixLabel(p).toLowerCase().includes(q) ||
+        shownName(p.modeName).toLowerCase().includes(q)
     );
   }, [prefixes, q]);
 
@@ -176,53 +196,53 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
   }> = [
     {
       mode: 'all',
-      label: 'Wszystkie mapy',
+      label: t('All maps'),
       count: totalMaps,
       icon: <Layers className="w-3.5 h-3.5 text-zinc-400" />,
     },
     {
       mode: 'custom',
-      label: 'Mapy Customowe',
+      label: t('Custom maps'),
       count: customMapsCount,
       icon: <Sparkles className="w-3.5 h-3.5 text-emerald-400" />,
     },
     {
       mode: 'vanilla',
-      label: 'Domyślne (Vanilla)',
+      label: t('Default (vanilla)'),
       count: vanillaMapsCount,
       icon: <FolderCheck className="w-3.5 h-3.5 text-sky-400" />,
     },
     {
       mode: 'broken',
-      label: 'Brakujące pliki',
+      label: t('Missing files'),
       count: brokenMapsCount,
       icon: <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />,
       accent: brokenMapsCount > 0 ? 'text-amber-300' : undefined,
     },
     {
       mode: 'duplicates',
-      label: 'Duplikaty CRC32',
+      label: t('CRC32 duplicates'),
       count: duplicateMapsCount,
       icon: <Copy className="w-3.5 h-3.5 text-orange-400" />,
       accent: duplicateMapsCount > 0 ? 'text-orange-300' : undefined,
     },
     {
       mode: 'incompatible',
-      label: 'Nie wczytają się w grze',
+      label: t("Won't load in game"),
       count: incompatibleMapsCount,
       icon: <Ban className="w-3.5 h-3.5 text-red-400" />,
       accent: incompatibleMapsCount > 0 ? 'text-red-300' : undefined,
     },
     {
       mode: 'favorites',
-      label: 'Ulubione',
+      label: t('Favorites'),
       count: favoriteMapsCount,
       icon: <Star className="w-3.5 h-3.5 text-yellow-400" />,
       accent: favoriteMapsCount > 0 ? 'text-yellow-200' : undefined,
     },
     {
       mode: 'in_pack',
-      label: 'Wybrane do paczki',
+      label: t('Selected for pack'),
       count: packCount,
       icon: <Package className="w-3.5 h-3.5 text-violet-400" />,
       accent: packCount > 0 ? 'text-violet-300' : undefined,
@@ -239,7 +259,7 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
       {/* Status Section */}
       <div className="p-2.5 border-b border-zinc-800/80">
         <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1.5 px-1">
-          Kategorie Map
+          {t('Map categories')}
         </div>
         <div className="space-y-0.5">
           {statusButtons.map((b) => {
@@ -263,7 +283,7 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
                     active ? 'bg-emerald-500/25 text-emerald-200' : 'bg-zinc-800 text-zinc-400'
                   }`}
                 >
-                  {b.count.toLocaleString('pl-PL')}
+                  {b.count.toLocaleString(locale)}
                 </span>
               </button>
             );
@@ -274,18 +294,18 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
         {userTags.length > 0 && (
           <div className="mt-2 pt-2 border-t border-zinc-800/70">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1 px-1 flex items-center gap-1">
-              <Tag className="w-3 h-3" /> Twoje tagi ({userTags.length})
+              <Tag className="w-3 h-3" /> {t('Your tags ({n})', { n: userTags.length })}
             </div>
             <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
-              {userTags.map((t) => (
+              {userTags.map((userTag) => (
                 <button
-                  key={t.tag}
+                  key={userTag.tag}
                   type="button"
-                  onClick={() => onSearchTag(t.tag)}
-                  title={`Pokaż mapy z tagiem „${t.tag}” (dodaje tag:${t.tag} do wyszukiwania)`}
+                  onClick={() => onSearchTag(userTag.tag)}
+                  title={t('Show maps tagged “{tag}” (adds tag:{tag} to the search)', { tag: userTag.tag })}
                   className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 border border-zinc-700/60 text-[10px] text-zinc-200 cursor-pointer"
                 >
-                  #{t.tag} <span className="font-mono text-zinc-500">{t.count}</span>
+                  #{userTag.tag} <span className="font-mono text-zinc-500">{userTag.count}</span>
                 </button>
               ))}
             </div>
@@ -296,7 +316,7 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
         {sources.length > 1 && (
           <div className="mt-2 pt-2 border-t border-zinc-800/70">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1 px-1 flex items-center gap-1">
-              <HardDrive className="w-3 h-3" /> Źródła Map ({sources.length})
+              <HardDrive className="w-3 h-3" /> {t('Map sources ({n})', { n: sources.length })}
             </div>
             <div className="flex flex-wrap gap-1">
               {sources.map((src) => {
@@ -313,7 +333,7 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
                         : 'bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:text-zinc-200'
                     }`}
                   >
-                    {src.label} ({src.count})
+                    {shownName(src.label)} ({src.count})
                   </button>
                 );
               })}
@@ -328,14 +348,14 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
         <div className="flex items-center justify-between mb-2 px-0.5">
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
-              Klasyfikacja
+              {t('Classification')}
             </span>
             {activeTaxonomyCount > 0 && (
               <button
                 onClick={onClearTaxonomySelection}
                 className="text-[10px] text-emerald-400 hover:text-emerald-300 font-medium cursor-pointer"
               >
-                Wyczyść ({activeTaxonomyCount})
+                {t('Clear ({n})', { n: activeTaxonomyCount })}
               </button>
             )}
           </div>
@@ -343,11 +363,11 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
           <button
             type="button"
             onClick={() => onOpenPrefixStudio()}
-            title="Dodaj własne prefixy, kategorie klanowe lub reguły RSCS / Trenchwars"
+            title={t('Add custom prefixes, clan categories or RSCS / Trenchwars rules')}
             className="px-2 py-0.5 rounded bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/35 text-emerald-300 text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
           >
             <Tags className="w-3 h-3" />
-            + Własny Prefix
+            {t('+ Custom prefix')}
           </button>
         </div>
 
@@ -362,7 +382,7 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
                 : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
-            Tryby ({modeGroups.length})
+            {t('Modes ({n})', { n: modeGroups.length })}
           </button>
           <button
             type="button"
@@ -373,19 +393,19 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
                 : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
-            Prefixy ({prefixes.length})
+            {t('Prefixes ({n})', { n: prefixes.length })}
           </button>
           <button
             type="button"
             onClick={() => setNavTab('series')}
-            title="Automatycznie wykryte serie dwuczłonowe (np. ctf_ns_, ctf_vir_)"
+            title={t('Automatically detected two-part series (e.g. ctf_ns_, ctf_vir_)')}
             className={`py-1 rounded font-medium transition-colors cursor-pointer ${
               navTab === 'series'
                 ? 'bg-zinc-800 text-emerald-300'
                 : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
-            Serie ({discoveredSubprefixes.length})
+            {t('Series ({n})', { n: discoveredSubprefixes.length })}
           </button>
         </div>
 
@@ -396,13 +416,13 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
             type="text"
             value={prefixQuery}
             onChange={(e) => setPrefixQuery(e.target.value)}
-            placeholder="Szukaj (RSCS, tw_, ctf_cs_, kz_...)"
+            placeholder={t('Search (RSCS, tw_, ctf_cs_, kz_...)')}
             className="w-full bg-zinc-950/80 border border-zinc-800 rounded-md pl-8 pr-6 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/60"
           />
           {prefixQuery && (
             <button
               onClick={() => setPrefixQuery('')}
-              aria-label="Wyczyść wyszukiwanie prefixów"
+              aria-label={t('Clear prefix search')}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 text-xs"
             >
               ✕
@@ -411,7 +431,7 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
         </div>
 
         <div className="text-[10px] text-zinc-500 mb-1.5 px-1">
-          Kliknij aby filtrować • <kbd className="text-zinc-400">Ctrl</kbd>+Klik wiele
+          {tr('Click to filter • {ctrl}+click for several', { ctrl: <kbd className="text-zinc-400">Ctrl</kbd> })}
         </div>
 
         {/* Scrollable Taxonomy List */}
@@ -441,7 +461,11 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
                         <button
                           type="button"
                           onClick={(e) => toggleGroupExpand(grp.id, e)}
-                          aria-label={isExpanded ? `Zwiń ${grp.name}` : `Rozwiń ${grp.name}`}
+                          aria-label={
+                            isExpanded
+                              ? t('Collapse {name}', { name: shownName(grp.name) })
+                              : t('Expand {name}', { name: shownName(grp.name) })
+                          }
                           aria-expanded={isExpanded}
                           className="p-0.5 rounded hover:bg-zinc-700/70 text-zinc-400 shrink-0"
                         >
@@ -460,12 +484,12 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
                       />
                       <div className="truncate">
                         <div className="font-medium truncate leading-tight">
-                          {grp.name}
+                          {shownName(grp.name)}
                         </div>
                         <div className="text-[10px] font-mono text-zinc-500 truncate leading-tight">
                           {grp.prefixes
                             .slice(0, 4)
-                            .map((p) => (p.prefix === '__none__' ? 'brak' : p.prefix))
+                            .map((p) => (p.prefix === '__none__' ? t('no prefix') : p.prefix))
                             .join(', ')}
                           {grp.prefixes.length > 4 ? ` +${grp.prefixes.length - 4}` : ''}
                         </div>
@@ -479,13 +503,16 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
                           e.stopPropagation();
                           onAddModeGroupToPack(grp.id);
                         }}
-                        title={`Dodaj wszystkie mapy trybu "${grp.name}" (${grp.count}) do paczki`}
+                        title={t('Add all maps of mode "{name}" ({count}) to the pack', {
+                          name: shownName(grp.name),
+                          count: grp.count,
+                        })}
                         className="opacity-0 group-hover:opacity-100 px-1.5 py-0.5 rounded bg-violet-500/20 hover:bg-violet-500/40 text-violet-200 text-[10px] font-medium transition-opacity cursor-pointer"
                       >
                         +Pack
                       </button>
                       <span className="font-mono text-[10px] bg-zinc-800/90 text-zinc-300 px-1.5 py-0.5 rounded">
-                        {grp.count.toLocaleString('pl-PL')}
+                        {grp.count.toLocaleString(locale)}
                       </span>
                     </div>
                   </div>
@@ -509,7 +536,7 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
                                 : 'text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200 border border-transparent'
                             }`}
                           >
-                            <span className="font-mono truncate">{p.label}</span>
+                            <span className="font-mono truncate">{prefixLabel(p)}</span>
                             <div className="flex items-center gap-1 shrink-0">
                               <button
                                 type="button"
@@ -522,7 +549,7 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
                                 +Pack
                               </button>
                               <span className="font-mono text-[10px] text-zinc-500">
-                                {p.count.toLocaleString('pl-PL')}
+                                {p.count.toLocaleString(locale)}
                               </span>
                             </div>
                           </div>
@@ -545,7 +572,7 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
                   aria-pressed={isSelected}
                   onClick={(e) => onTogglePrefix(p.prefix, e.ctrlKey || e.metaKey)}
                   onKeyDown={rowKeyHandler((multi) => onTogglePrefix(p.prefix, multi))}
-                  title={`${p.label} — ${p.modeName} (${p.count} map)`}
+                  title={`${prefixLabel(p)} — ${shownName(p.modeName)} (${tp(p.count, '{n} map', '{n} maps')})`}
                   className={`group flex items-center justify-between px-2 py-1.5 rounded-md text-xs cursor-pointer transition-colors ${ROW_FOCUS_CLASS} ${
                     isSelected
                       ? 'bg-emerald-500/15 text-emerald-100 border border-emerald-500/40'
@@ -558,9 +585,9 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
                       style={{ backgroundColor: p.badgeColor }}
                     />
                     <div className="truncate">
-                      <div className="font-mono font-medium truncate leading-tight">{p.label}</div>
+                      <div className="font-mono font-medium truncate leading-tight">{prefixLabel(p)}</div>
                       <div className="text-[10px] text-zinc-500 truncate leading-tight">
-                        {p.modeName}
+                        {shownName(p.modeName)}
                       </div>
                     </div>
                   </div>
@@ -572,13 +599,13 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
                         e.stopPropagation();
                         onAddPrefixToPack(p.prefix);
                       }}
-                      title={`Dodaj wszystkie mapy "${p.label}" (${p.count}) do paczki`}
+                      title={t('Add all "{label}" maps ({count}) to the pack', { label: prefixLabel(p), count: p.count })}
                       className="opacity-0 group-hover:opacity-100 px-1.5 py-0.5 rounded bg-violet-500/20 hover:bg-violet-500/40 text-violet-200 text-[10px] font-medium transition-opacity cursor-pointer"
                     >
                       +Pack
                     </button>
                     <span className="font-mono text-[10px] bg-zinc-800/90 text-zinc-400 px-1.5 py-0.5 rounded">
-                      {p.count.toLocaleString('pl-PL')}
+                      {p.count.toLocaleString(locale)}
                     </span>
                   </div>
                 </div>
@@ -588,7 +615,7 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
           {navTab === 'series' &&
             (filteredSeries.length === 0 ? (
               <div className="p-3 text-center text-[11px] text-zinc-500">
-                Brak wykrytych pod-serii dwuczłonowych dla bieżącego zapytania.
+                {t('No two-part sub-series detected for the current query.')}
               </div>
             ) : (
               filteredSeries.map((s) => {
@@ -609,7 +636,9 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
                   >
                     <div className="min-w-0">
                       <div className="font-mono font-medium truncate">{s.subprefix}</div>
-                      <div className="text-[10px] text-zinc-500">seria w {s.parentPrefix}</div>
+                      <div className="text-[10px] text-zinc-500">
+                        {t('series in {prefix}', { prefix: s.parentPrefix })}
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-1 shrink-0">
@@ -619,7 +648,7 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
                           e.stopPropagation();
                           onOpenPrefixStudio(s.subprefix);
                         }}
-                        title="Wydziel tę serię jako stały własny prefix / kategorię"
+                        title={t('Turn this series into a permanent custom prefix / category')}
                         className="opacity-0 group-hover:opacity-100 p-1 rounded bg-emerald-500/20 hover:bg-emerald-500/40 text-emerald-200 cursor-pointer"
                       >
                         <Plus className="w-3 h-3" />
@@ -649,13 +678,13 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
       <div className="p-2.5 space-y-1.5 bg-zinc-950/40">
         <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
           <Filter className="w-3 h-3" />
-          Filtry Techniczne
+          {t('Technical filters')}
         </div>
 
         <div className="flex items-center justify-between text-xs">
           <span className="flex items-center gap-1.5 text-zinc-400">
             <CloudRain className="w-3.5 h-3.5 text-sky-400" />
-            Pogoda:
+            {t('Weather:')}
           </span>
           <select
             value={String(extraFilters.weather)}
@@ -667,11 +696,11 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
             }
             className="bg-zinc-900 border border-zinc-800 rounded px-2 py-0.5 text-xs text-zinc-200 focus:outline-none focus:border-emerald-500/60"
           >
-            <option value="any">Dowolna</option>
-            <option value="0">Brak pogody</option>
-            <option value="1">Deszcz</option>
-            <option value="2">Burza piaskowa</option>
-            <option value="3">Śnieg</option>
+            <option value="any">{t('Any weather')}</option>
+            <option value="0">{t('No weather')}</option>
+            <option value="1">{t('Rain')}</option>
+            <option value="2">{t('Sandstorm')}</option>
+            <option value="3">{t('Snow')}</option>
           </select>
         </div>
 
@@ -685,7 +714,7 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
             className="rounded border-zinc-700 bg-zinc-900 text-emerald-500 focus:ring-0"
           />
           <CircleDot className="w-3.5 h-3.5 text-cyan-400" />
-          Posiada Colidery
+          {t('Has colliders')}
         </label>
 
         <label className="flex items-center gap-2 text-xs text-zinc-300 cursor-pointer hover:text-zinc-100">
@@ -698,7 +727,7 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
             className="rounded border-zinc-700 bg-zinc-900 text-emerald-500 focus:ring-0"
           />
           <Bot className="w-3.5 h-3.5 text-amber-400" />
-          Posiada ścieżki Botów
+          {t('Has bot waypoints')}
         </label>
 
         <div className="flex items-center justify-between gap-2">
@@ -711,16 +740,16 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
               }
               className="rounded border-zinc-700 bg-zinc-900 text-emerald-500 focus:ring-0"
             />
-            <span className="text-[11px] text-orange-300">Różna wielkość liter (Linux)</span>
+            <span className="text-[11px] text-orange-300">{t('Letter case mismatch (Linux)')}</span>
           </label>
           {onOpenCaseTools && (
             <button
               type="button"
               onClick={onOpenCaseTools}
-              title="Pokaż pliki z inną wielkością liter niż w mapach i popraw ich nazwy"
+              title={t('Show files whose letter case differs from the maps and fix their names')}
               className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-orange-200 cursor-pointer"
             >
-              Napraw…
+              {t('Fix…')}
             </button>
           )}
         </div>

@@ -8,6 +8,7 @@ import {
   sanitizeCustomRules,
 } from '@shared/prefixUtils';
 import { useModalDismiss } from '../utils/useModalDismiss';
+import { t, tr, tText } from '../i18n';
 import {
   ArrowDown,
   ArrowUp,
@@ -87,7 +88,7 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
       const clean = normalizePrefixToken(initialDraftPrefix);
       const niceTag = clean.replace(/_+$/, '').toUpperCase();
       setEditingId(null);
-      setName(`Seria ${niceTag}`);
+      setName(t('Series {tag}', { tag: niceTag }));
       setPrefixesInput(clean);
       setPatternInput('');
       setTargetGroupId('');
@@ -137,11 +138,11 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
     const trimmedPattern = patternInput.trim();
 
     if (!trimmedName) {
-      setError('Podaj nazwę reguły lub własnej kategorii (np. "Mapy Klanu NS" albo "RSCS Extra").');
+      setError(t('Enter a name for the rule or custom category (e.g. "NS Clan Maps" or "RSCS Extra").'));
       return;
     }
     if (parsedPrefixes.length === 0 && !trimmedPattern) {
-      setError('Podaj przynajmniej jeden prefix (np. ctf_ns_) lub wzorzec Wildcard/Regex (np. *_fix).');
+      setError(t('Enter at least one prefix (e.g. ctf_ns_) or a wildcard/regex pattern (e.g. *_fix).'));
       return;
     }
 
@@ -207,19 +208,22 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
     reader.onload = () => {
       try {
         const parsed = JSON.parse(String(reader.result || '[]'));
-        if (!Array.isArray(parsed)) throw new Error('Plik JSON musi zawierać tablicę reguł.');
+        if (!Array.isArray(parsed)) throw new Error(t('The JSON file must contain an array of rules.'));
         const valid = sanitizeCustomRules(parsed);
         if (valid.length === 0 && parsed.length > 0) {
-          throw new Error('Plik nie zawiera żadnej poprawnej reguły (wymagana nazwa oraz prefix lub wzorzec).');
+          throw new Error(t('The file contains no valid rule (a name and a prefix or pattern are required).'));
         }
         setRules(valid);
         setError(
           valid.length < parsed.length
-            ? `Zaimportowano ${valid.length} z ${parsed.length} reguł — pominięto niepoprawne wpisy.`
+            ? t('Imported {valid} of {total} rules — invalid entries were skipped.', {
+                valid: valid.length,
+                total: parsed.length,
+              })
             : null
         );
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Nieprawidłowy plik JSON.');
+        setError(err instanceof Error ? err.message : t('Invalid JSON file.'));
       }
     };
     reader.readAsText(file);
@@ -251,10 +255,13 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
             <Tags className="w-5 h-5 text-emerald-400" />
             <div>
               <h2 className="text-base font-bold text-zinc-100">
-                Studio Prefixów i Trybów Soldat (RSCS / Trenchwars / Custom)
+                {t('Soldat Prefix & Mode Studio (RSCS / Trenchwars / Custom)')}
               </h2>
               <p className="text-[11px] text-zinc-400">
-                Twórz własne kategorie, prefixy wieloczłonowe (np. <code>ctf_ns_</code>, <code>ctf_ttw_</code>) oraz reguły Wildcard / Regex
+                {tr('Create custom categories, multi-part prefixes (e.g. {first}, {second}) and wildcard / regex rules', {
+                  first: <code>ctf_ns_</code>,
+                  second: <code>ctf_ttw_</code>,
+                })}
               </p>
             </div>
           </div>
@@ -263,10 +270,10 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
             <button
               type="button"
               onClick={handleExportJson}
-              title="Eksportuj własne prefixy do pliku JSON"
+              title={t('Export custom prefixes to a JSON file')}
               className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-200 flex items-center gap-1.5 cursor-pointer"
             >
-              <Download className="w-3.5 h-3.5" /> Eksport JSON
+              <Download className="w-3.5 h-3.5" /> {t('Export JSON')}
             </button>
             <label className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-200 flex items-center gap-1.5 cursor-pointer">
               <Upload className="w-3.5 h-3.5" /> Import JSON
@@ -274,7 +281,7 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
             </label>
             <button
               onClick={onClose}
-              aria-label="Zamknij studio prefixów"
+              aria-label={t('Close the prefix studio')}
               className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 cursor-pointer"
             >
               <X className="w-5 h-5" />
@@ -290,7 +297,7 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-zinc-200 flex items-center gap-1.5">
                   <Plus className="w-4 h-4 text-emerald-400" />
-                  {editingId ? 'Edycja reguły prefixu' : 'Dodaj własny prefix / kategorię'}
+                  {editingId ? t('Edit prefix rule') : t('Add custom prefix / category')}
                 </span>
                 {editingId && (
                   <button
@@ -298,73 +305,78 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
                     onClick={resetForm}
                     className="text-[11px] text-zinc-400 hover:text-zinc-200 cursor-pointer"
                   >
-                    Anuluj edycję
+                    {t('Cancel editing')}
                   </button>
                 )}
               </div>
 
               <div>
                 <label className="block text-zinc-300 font-medium mb-1">
-                  Nazwa kategorii lub reguły
+                  {t('Category or rule name')}
                 </label>
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="np. Liga SCTFL, Mapy Klanu NS, Poprawione (_f)"
+                  placeholder={t('e.g. SCTFL League, NS Clan Maps, Fixed (_f)')}
                   className="w-full bg-zinc-900 border border-zinc-800 rounded-md px-2.5 py-1.5 text-zinc-100 focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
               <div>
                 <label className="block text-zinc-300 font-medium mb-1">
-                  Prefixy (oddzielone przecinkiem lub spacją)
+                  {t('Prefixes (separated by commas or spaces)')}
                 </label>
                 <input
                   type="text"
                   value={prefixesInput}
                   onChange={(e) => setPrefixesInput(e.target.value)}
-                  placeholder="np. ctf_ns_, sctfl_, ctf_cup_"
+                  placeholder={t('e.g. ctf_ns_, sctfl_, ctf_cup_')}
                   className="w-full bg-zinc-900 border border-zinc-800 rounded-md px-2.5 py-1.5 font-mono text-zinc-100 focus:outline-none focus:border-emerald-500"
                 />
                 <div className="text-[10px] text-zinc-500 mt-1">
-                  Dłuższe prefixy (np. <code>ctf_ns_</code>) mają automatycznie wyższy priorytet niż ogólne <code>ctf_</code>.
+                  {tr('Longer prefixes (e.g. {long}) automatically take priority over the general {short}.', {
+                    long: <code>ctf_ns_</code>,
+                    short: <code>ctf_</code>,
+                  })}
                 </div>
               </div>
 
               <div>
                 <label className="block text-zinc-300 font-medium mb-1">
-                  Wzorzec Wildcard lub Regex <span className="text-zinc-500">(opcjonalnie)</span>
+                  {tr('Wildcard or regex pattern {optional}', {
+                    optional: <span className="text-zinc-500">{t('(optional)')}</span>,
+                  })}
                 </label>
                 <input
                   type="text"
                   value={patternInput}
                   onChange={(e) => setPatternInput(e.target.value)}
-                  placeholder="np. *_f, *arena* lub /^ctf_[0-9]+_/i"
+                  placeholder={t('e.g. *_f, *arena* or /^ctf_[0-9]+_/i')}
                   className="w-full bg-zinc-900 border border-zinc-800 rounded-md px-2.5 py-1.5 font-mono text-zinc-100 focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
               <div>
                 <label className="block text-zinc-300 font-medium mb-1">
-                  Przypisz do grupy na pasku bocznym
+                  {t('Assign to a sidebar group')}
                 </label>
                 <select
                   value={targetGroupId}
                   onChange={(e) => setTargetGroupId(e.target.value)}
                   className="w-full bg-zinc-900 border border-zinc-800 rounded-md px-2.5 py-1.5 text-zinc-200 focus:outline-none focus:border-emerald-500"
                 >
-                  <option value="">★ Utwórz osobną własną kategorię na liście Trybów</option>
+                  <option value="">{t('★ Create a separate custom category in the Modes list')}</option>
                   {BUILTIN_MODE_GROUPS.filter((g) => g.id !== 'other').map((g) => (
                     <option key={g.id} value={g.id}>
-                      Podepnij pod istniejący tryb: {g.name}
+                      {t('Attach to existing mode: {name}', { name: tText(g.name) })}
                     </option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="block text-zinc-300 font-medium mb-1">Kolor plakietki</label>
+                <label className="block text-zinc-300 font-medium mb-1">{t('Badge color')}</label>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {PRESET_COLORS.map((c) => (
                     <button
@@ -384,7 +396,7 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
                     value={badgeColor}
                     onChange={(e) => setBadgeColor(e.target.value)}
                     className="w-6 h-6 bg-transparent border-0 cursor-pointer ml-1"
-                    title="Wybierz dowolny kolor HEX"
+                    title={t('Pick any HEX color')}
                   />
                 </div>
               </div>
@@ -401,7 +413,7 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
                 className="w-full py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 <Check className="w-4 h-4" />
-                {editingId ? 'Zaktualizuj regułę na liście' : 'Dodaj regułę do listy'}
+                {editingId ? t('Update the rule in the list') : t('Add the rule to the list')}
               </button>
             </div>
 
@@ -410,10 +422,10 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
               <div className="bg-zinc-950/60 border border-zinc-800 rounded-lg p-3 space-y-2">
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                  Wykryte serie 2-członowe w Twojej kolekcji
+                  {t('Two-part series detected in your collection')}
                 </div>
                 <p className="text-[11px] text-zinc-500">
-                  Kliknij serię, aby szybko wypełnić formularz i wydzielić ją jako osobny prefix:
+                  {t('Click a series to fill in the form quickly and turn it into a separate prefix:')}
                 </p>
                 <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
                   {discoveredSubprefixes.slice(0, 30).map((sub) => (
@@ -422,7 +434,7 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
                       type="button"
                       onClick={() => {
                         setEditingId(null);
-                        setName(`Seria ${sub.subprefix.replace(/_+$/, '').toUpperCase()}`);
+                        setName(t('Series {tag}', { tag: sub.subprefix.replace(/_+$/, '').toUpperCase() }));
                         setPrefixesInput(sub.subprefix);
                         setPatternInput('');
                         setTestMapName(`${sub.subprefix}map`);
@@ -443,13 +455,13 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
             <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 flex items-center justify-between gap-3">
               <div className="flex-1">
                 <div className="text-[11px] text-zinc-400 mb-1">
-                  Tester klasyfikatora na żywo (wpisz dowolną nazwę mapy):
+                  {t('Live classifier tester (type any map name):')}
                 </div>
                 <input
                   type="text"
                   value={testMapName}
                   onChange={(e) => setTestMapName(e.target.value)}
-                  placeholder="np. ctf_cs_747, ctf_ttw_bunker, tw_cathedral..."
+                  placeholder={t('e.g. ctf_cs_747, ctf_ttw_bunker, tw_cathedral...')}
                   className="w-full bg-zinc-900 border border-zinc-800 rounded px-2.5 py-1 font-mono text-zinc-100 focus:outline-none focus:border-emerald-500"
                 />
               </div>
@@ -461,12 +473,14 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
                       style={{ backgroundColor: liveTestResult.badgeColor }}
                     />
                     <span className="font-bold text-zinc-100 truncate">
-                      {liveTestResult.modeGroupName}
+                      {tText(liveTestResult.modeGroupName)}
                     </span>
                   </div>
                   <div className="text-[11px] font-mono text-zinc-400 mt-0.5">
                     Prefix: <span className="text-emerald-300">{liveTestResult.prefix}</span>
-                    {liveTestResult.subprefix ? ` • Seria: ${liveTestResult.subprefix}` : ''}
+                    {liveTestResult.subprefix
+                      ? ` • ${t('Series: {subprefix}', { subprefix: liveTestResult.subprefix })}`
+                      : ''}
                   </div>
                 </div>
               )}
@@ -476,17 +490,19 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
             <div className="flex-1 min-h-0 flex flex-col bg-zinc-950/70 border border-zinc-800 rounded-lg overflow-hidden">
               <div className="px-3 py-2 bg-zinc-900/70 border-b border-zinc-800 flex items-center justify-between">
                 <span className="font-semibold text-zinc-200">
-                  Twoje Własne Reguły i Prefixy ({rules.length})
+                  {t('Your custom rules and prefixes ({n})', { n: rules.length })}
                 </span>
                 <span className="text-[11px] text-zinc-500">
-                  Własne reguły mają pierwszeństwo przed wbudowanymi
+                  {t('Custom rules take precedence over built-in ones')}
                 </span>
               </div>
 
               <div className="flex-1 overflow-y-auto divide-y divide-zinc-800/70">
                 {rules.length === 0 ? (
                   <div className="p-6 text-center text-zinc-500">
-                    Brak zdefiniowanych własnych reguł. Wbudowane tryby (RSCS, Trenchwars, CTF, Climb, INF, HTF...) działają automatycznie — poniżej możesz dodać własne prefixy klanowe, ligowe lub niestandardowe!
+                    {t(
+                      'No custom rules defined. Built-in modes (RSCS, Trenchwars, CTF, Climb, INF, HTF...) work automatically — you can add your own clan, league or custom prefixes here!'
+                    )}
                   </div>
                 ) : (
                   rules.map((r, idx) => (
@@ -518,14 +534,14 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
                             {r.name}
                             {r.targetGroupId && (
                               <span className="ml-2 text-[10px] font-normal text-zinc-400">
-                                → podpięte do: {r.targetGroupId.toUpperCase()}
+                                {t('→ attached to: {group}', { group: r.targetGroupId.toUpperCase() })}
                               </span>
                             )}
                           </div>
                           <div className="font-mono text-[11px] text-emerald-300/90 truncate">
                             {r.prefixes.length > 0 && r.prefixes.join(', ')}
                             {r.pattern && (
-                              <span className="text-amber-300 ml-2">wzór: {r.pattern}</span>
+                              <span className="text-amber-300 ml-2">{t('pattern: {pattern}', { pattern: r.pattern })}</span>
                             )}
                           </div>
                         </div>
@@ -537,7 +553,7 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
                           onClick={() => moveRule(idx, -1)}
                           disabled={idx === 0}
                           className="p-1 rounded hover:bg-zinc-800 text-zinc-400 disabled:opacity-30 cursor-pointer"
-                          title="Wyższy priorytet"
+                          title={t('Higher priority')}
                         >
                           <ArrowUp className="w-3.5 h-3.5" />
                         </button>
@@ -546,7 +562,7 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
                           onClick={() => moveRule(idx, 1)}
                           disabled={idx === rules.length - 1}
                           className="p-1 rounded hover:bg-zinc-800 text-zinc-400 disabled:opacity-30 cursor-pointer"
-                          title="Niższy priorytet"
+                          title={t('Lower priority')}
                         >
                           <ArrowDown className="w-3.5 h-3.5" />
                         </button>
@@ -555,13 +571,13 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
                           onClick={() => startEditRule(r)}
                           className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-[11px] text-zinc-200 cursor-pointer"
                         >
-                          Edytuj
+                          {t('Edit')}
                         </button>
                         <button
                           type="button"
                           onClick={() => setRules((prev) => prev.filter((item) => item.id !== r.id))}
                           className="p-1 rounded hover:bg-red-500/20 text-zinc-500 hover:text-red-400 cursor-pointer"
-                          title="Usuń regułę"
+                          title={t('Delete rule')}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -575,7 +591,7 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
             {/* Built-in Compound Modes Summary Reference */}
             <div className="bg-zinc-950/60 border border-zinc-800 rounded-lg p-2.5 max-h-36 overflow-y-auto">
               <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">
-                Wbudowane Tryby Złożone (aktywne zawsze automatycznie)
+                {t('Built-in compound modes (always active automatically)')}
               </div>
               <div className="grid grid-cols-2 gap-1.5 text-[11px]">
                 {BUILTIN_MODE_GROUPS.filter((g) => g.defaultPrefixes.length > 0).map((g) => (
@@ -584,10 +600,10 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
                       className="inline-block w-2 h-2 rounded-full mr-1.5"
                       style={{ backgroundColor: g.badgeColor }}
                     />
-                    <strong className="text-zinc-200">{g.shortName}:</strong>{' '}
+                    <strong className="text-zinc-200">{tText(g.shortName)}:</strong>{' '}
                     <span className="font-mono text-[10px] text-zinc-400">
                       {g.defaultPrefixes
-                        .map((p) => (p === '__none__' ? '(brak)' : p))
+                        .map((p) => (p === '__none__' ? t('(no prefix)') : p))
                         .join(', ')}
                     </span>
                   </div>
@@ -600,7 +616,7 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
         {/* Footer */}
         <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-950/70 flex items-center justify-between">
           <span className="text-[11px] text-zinc-500">
-            Zapisanie reguł natychmiast przeklasyfikuje wszystkie mapy w pamięci (nawet 50 000+ map bez ponownego czytania dysku).
+            {t('Saving the rules instantly reclassifies every map in memory (even 50,000+ maps, without re-reading the disk).')}
           </span>
           <div className="flex items-center gap-2">
             <button
@@ -608,7 +624,7 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
               onClick={onClose}
               className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-200 cursor-pointer"
             >
-              Anuluj
+              {t('Cancel')}
             </button>
             <button
               type="button"
@@ -616,7 +632,7 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
               onClick={handleSaveAll}
               className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white shadow-lg shadow-emerald-950/50 cursor-pointer"
             >
-              {saving ? 'Zapisywanie...' : 'Zapisz i Zastosuj Prefixy'}
+              {saving ? t('Saving...') : t('Save and apply prefixes')}
             </button>
           </div>
         </div>

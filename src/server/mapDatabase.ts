@@ -11,7 +11,8 @@ export interface SqliteCachedSummary {
 }
 
 // v3: summaries carry `parseWarnings` and the parser clamps over-long strings -> re-parse everything once
-const SCHEMA_VERSION = 3;
+// v4: parse warnings are English source text (the UI translates them) -> re-parse once
+const SCHEMA_VERSION = 4;
 
 /**
  * Persistent SQLite WAL summary cache built on Node's native `node:sqlite`.

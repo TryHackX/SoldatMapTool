@@ -5,6 +5,7 @@ import {
   PmsProp,
   PmsVertex,
 } from '@shared/pmsParser';
+import { t } from '../i18n';
 import { loadSoldatAssetImage } from './assetLoader';
 import { RenderLayerVisibility } from './types';
 
@@ -257,7 +258,7 @@ export class SoldatWebGLRenderer {
       preserveDrawingBuffer: true,
     });
     if (!gl) {
-      throw new Error('Twoja przeglądarka nie obsługuje WebGL2 wymaganego przez silnik Soldat Map Studio.');
+      throw new Error(t("Your browser doesn't support WebGL2, which the Soldat Map Studio engine requires."));
     }
     this.gl = gl;
 
@@ -793,7 +794,7 @@ export class SoldatWebGLRenderer {
   ): OffscreenReadback {
     const gl = this.gl;
     if (gl.isContextLost()) {
-      throw new Error('Utracono kontekst WebGL2 podczas renderowania warstwy.');
+      throw new Error(t('WebGL2 context lost while rendering a layer.'));
     }
 
     let useFloat = this.supportsFloatTarget();
@@ -829,7 +830,7 @@ export class SoldatWebGLRenderer {
 
     if (!allocate(useFloat)) {
       if (!useFloat || !allocate(false)) {
-        throw new Error(`Nie udało się utworzyć bufora renderowania ${width}×${height} px.`);
+        throw new Error(t('Could not create a {w}×{h} px render buffer.', { w: width, h: height }));
       }
       useFloat = false;
       this.floatTargetSupported = false;

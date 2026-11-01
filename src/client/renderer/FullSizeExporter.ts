@@ -1,4 +1,5 @@
 import { PmsMapData } from '@shared/pmsParser';
+import { t, tText } from '../i18n';
 import { loadSoldatObjectSprites } from './assetLoader';
 import { renderMapOverlays } from './OverlayRenderer';
 import { SoldatWebGLRenderer } from './SoldatWebGLRenderer';
@@ -31,7 +32,7 @@ function canvasToBlob(
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (blob) => {
-        if (!blob) reject(new Error('Nie udało się zakodować obrazu z Canvas.'));
+        if (!blob) reject(new Error(t('Could not encode the image from the canvas.')));
         else resolve(blob);
       },
       mimeType,
@@ -53,16 +54,17 @@ function hasAnyOverlayEnabled(layers: FullSizeExportSettings['layers']): boolean
   );
 }
 
+// Folder names follow the UI language, so the Polish UI keeps writing into the folders it always used
 export function resolveScreenshotSubfolder(
   settings: FullSizeExportSettings,
   ctx?: ExportMapContext
 ): string | undefined {
   if (settings.subfolderMode === 'prefix' && ctx?.prefix) {
-    const clean = ctx.prefix === '__none__' ? 'bez_prefixu' : ctx.prefix.replace(/_+$/, '');
-    return clean || 'inne';
+    const clean = ctx.prefix === '__none__' ? t('no_prefix') : ctx.prefix.replace(/_+$/, '');
+    return clean || t('other');
   }
   if (settings.subfolderMode === 'mode' && ctx?.modeGroupName) {
-    return ctx.modeGroupName.replace(/[<>:"/\\|?*]+/g, '').trim() || 'inne';
+    return tText(ctx.modeGroupName).replace(/[<>:"/\\|?*]+/g, '').trim() || t('other');
   }
   return undefined;
 }
@@ -104,7 +106,7 @@ export async function generateFullSizeScreenshot(
   context?: ExportMapContext
 ): Promise<ExportResultInfo> {
   if (context?.signal?.aborted) {
-    throw new DOMException('Anulowano eksport.', 'AbortError');
+    throw new DOMException(t('Export cancelled.'), 'AbortError');
   }
 
   const srcBounds = settings.boundsMode === 'full' ? map.fullBounds : map.polyBounds;
@@ -128,7 +130,7 @@ export async function generateFullSizeScreenshot(
   if (settings.skipExisting && settings.saveToServerExports) {
     const existing = await checkScreenshotAlreadyExists(fileName, subfolder, customFolder);
     if (existing.exists) {
-      onProgress?.(1.0, `Pominięto (już istnieje): ${fileName}`);
+      onProgress?.(1.0, t('Skipped (already exists): {file}', { file: fileName }));
       return {
         fileName,
         width: outWidth,
@@ -140,7 +142,7 @@ export async function generateFullSizeScreenshot(
     }
   }
 
-  onProgress?.(0.05, `Ładowanie tekstur i scenerii mapy ${mapBaseName}...`);
+  onProgress?.(0.05, t('Loading textures and sceneries of map {map}...', { map: mapBaseName }));
 
   const glCanvas = document.createElement('canvas');
   const glRenderer = new SoldatWebGLRenderer(glCanvas);
@@ -150,16 +152,16 @@ export async function generateFullSizeScreenshot(
   try {
     const loaded = await glRenderer.loadMap(map, { preferClassicBmp: settings.layers.preferClassicBmp });
     if (!loaded) {
-      throw new Error('Nie udało się załadować mapy na GPU (utracony kontekst WebGL2).');
+      throw new Error(t('Could not load the map onto the GPU (WebGL2 context lost).'));
     }
 
     if (context?.signal?.aborted) {
-      throw new DOMException('Anulowano eksport.', 'AbortError');
+      throw new DOMException(t('Export cancelled.'), 'AbortError');
     }
 
     // Case A: Single-pass GPU export (up to 4096 x 4096)
     if (outWidth <= SINGLE_PASS_LIMIT && outHeight <= SINGLE_PASS_LIMIT) {
-      onProgress?.(0.45, `Renderowanie pełnego widoku (${outWidth} × ${outHeight} px)...`);
+      onProgress?.(0.45, t('Rendering the full view ({w} × {h} px)...', { w: outWidth, h: outHeight }));
 
       glCanvas.width = outWidth;
       glCanvas.height = outHeight;
@@ -168,7 +170,7 @@ export async function generateFullSizeScreenshot(
         settings.layers
       );
       if (glRenderer.isContextLost()) {
-        throw new Error('Utracono kontekst WebGL2 podczas renderowania — screen nie został zapisany.');
+        throw new Error(t('WebGL2 context lost while rendering — the screenshot was not saved.'));
       }
 
       let finalCanvas = glCanvas;
@@ -199,7 +201,7 @@ export async function generateFullSizeScreenshot(
         finalCanvas = compCanvas;
       }
 
-      onProgress?.(0.8, 'Kodowanie pliku graficznego...');
+      onProgress?.(0.8, t('Encoding the image file...'));
       const mime =
         settings.format === 'jpeg'
           ? 'image/jpeg'
@@ -224,7 +226,9 @@ export async function generateFullSizeScreenshot(
         });
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok) {
-          throw new Error(data.error || `Nie udało się zapisać screena na dysku (HTTP ${resp.status}).`);
+          throw new Error(
+            data.error || t('Could not save the screenshot to disk (HTTP {status}).', { status: resp.status })
+          );
         }
         outputPath = data.outputPath;
         downloadUrl = data.downloadUrl;
@@ -234,7 +238,7 @@ export async function generateFullSizeScreenshot(
         triggerBlobDownload(blob, fileName);
       }
 
-      onProgress?.(1.0, 'Gotowe!');
+      onProgress?.(1.0, t('Done!'));
       return {
         fileName,
         width: outWidth,
@@ -252,7 +256,11 @@ export async function generateFullSizeScreenshot(
 
     onProgress?.(
       0.1,
-      `Inicjalizacja kafelkowego renderowania dużej mapy (${outWidth} × ${outHeight} px, ${totalTiles} kafelków)...`
+      t('Starting tiled rendering of a large map ({w} × {h} px, {tiles} tiles)...', {
+        w: outWidth,
+        h: outHeight,
+        tiles: totalTiles,
+      })
     );
 
     const startRes = await fetch('/api/screenshots/tile-session/start', {
@@ -271,7 +279,7 @@ export async function generateFullSizeScreenshot(
     });
     const startData = await startRes.json().catch(() => ({}));
     if (!startRes.ok) {
-      throw new Error(startData.error || 'Błąd inicjalizacji sesji kafelkowej na serwerze.');
+      throw new Error(startData.error || t('Failed to start the tile session on the server.'));
     }
     const sessionId: string = startData.sessionId;
     tileSessionId = sessionId;
@@ -283,7 +291,7 @@ export async function generateFullSizeScreenshot(
     for (let ry = 0; ry < rows; ry++) {
       for (let cx = 0; cx < cols; cx++) {
         if (context?.signal?.aborted) {
-          throw new DOMException('Anulowano eksport.', 'AbortError');
+          throw new DOMException(t('Export cancelled.'), 'AbortError');
         }
 
         const pxLeft = cx * TILE_SIZE;
@@ -308,7 +316,7 @@ export async function generateFullSizeScreenshot(
           settings.layers
         );
         if (glRenderer.isContextLost()) {
-          throw new Error('Utracono kontekst WebGL2 podczas renderowania kafelka — screen nie został zapisany.');
+          throw new Error(t('WebGL2 context lost while rendering a tile — the screenshot was not saved.'));
         }
 
         let tileTargetCanvas = glCanvas;
@@ -356,18 +364,23 @@ export async function generateFullSizeScreenshot(
           }
         );
         if (!tileRes.ok) {
-          throw new Error(`Błąd zapisu kafelka (${cx}, ${ry}).`);
+          throw new Error(t('Failed to save tile ({x}, {y}).', { x: cx, y: ry }));
         }
 
         tileIdx++;
         onProgress?.(
           0.12 + 0.76 * (tileIdx / totalTiles),
-          `Renderowanie kafelka ${tileIdx} / ${totalTiles} (${outWidth} × ${outHeight} px)...`
+          t('Rendering tile {n} / {total} ({w} × {h} px)...', {
+            n: tileIdx,
+            total: totalTiles,
+            w: outWidth,
+            h: outHeight,
+          })
         );
       }
     }
 
-    onProgress?.(0.92, 'Składanie pełnowymiarowego obrazu na dysku (Sharp)...');
+    onProgress?.(0.92, t('Assembling the full-size image on disk (Sharp)...'));
     const finRes = await fetch(
       `/api/screenshots/tile-session/${encodeURIComponent(sessionId)}/finalize`,
       {
@@ -380,7 +393,7 @@ export async function generateFullSizeScreenshot(
     tileSessionId = null; // finalize always consumes the session on the server
     if (!finRes.ok) {
       const errJson = await finRes.json().catch(() => ({}));
-      throw new Error(errJson.error || 'Błąd składania finalnego obrazu 100%.');
+      throw new Error(errJson.error || t('Failed to assemble the final 100% image.'));
     }
     const finData = await finRes.json();
 
@@ -393,7 +406,7 @@ export async function generateFullSizeScreenshot(
       a.remove();
     }
 
-    onProgress?.(1.0, 'Gotowe!');
+    onProgress?.(1.0, t('Done!'));
     return {
       fileName: finData.fileName,
       width: outWidth,

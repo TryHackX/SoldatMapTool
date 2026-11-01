@@ -3,6 +3,7 @@ import { MapCompactEntry, MapSortField } from '@shared/apiTypes';
 import { describeSearchTerm, parseSearchQuery } from '@shared/searchQuery';
 import { formatBytes } from '../utils/mapCache';
 import { useMapThumbnail } from '../utils/useMapThumbnail';
+import { locale, t, tText } from '../i18n';
 import {
   AlertTriangle,
   Ban,
@@ -50,13 +51,13 @@ interface MapBrowserPanelProps {
 }
 
 const SEARCH_EXAMPLES: Array<[string, string]> = [
-  ['props>300', 'więcej niż 300 scenerii (także polys, colliders, spawns, w, h, kb)'],
-  ['tex:ananas', 'tekstura zawiera „ananas” (scen:, title:, name:, src:, mode:, crc:)'],
-  ['prefix:ctf_cs_', 'nazwa zaczyna się od ctf_cs_'],
-  ['is:fav', 'ulubione (is:broken, is:dup, is:vanilla, is:custom, is:bad)'],
-  ['tag:turniej', 'mapy z Twoim tagiem'],
-  ['pogoda:snieg', 'pogoda: brak, deszcz, piasek, snieg'],
-  ['-is:dup', 'minus przed filtrem = wyklucz'],
+  ['props>300', t('more than 300 sceneries (also polys, colliders, spawns, w, h, kb)')],
+  ['tex:ananas', t('texture contains “ananas” (scen:, title:, name:, src:, mode:, crc:)')],
+  ['prefix:ctf_cs_', t('name starts with ctf_cs_')],
+  ['is:fav', t('favorites (is:broken, is:dup, is:vanilla, is:custom, is:bad)')],
+  ['tag:turniej', t('maps with your tag')],
+  ['pogoda:snieg', t('weather: none, rain, sand, snow')],
+  ['-is:dup', t('minus before a filter = exclude')],
 ];
 
 const FavoriteStar: React.FC<{
@@ -70,8 +71,8 @@ const FavoriteStar: React.FC<{
       e.stopPropagation();
       onToggle();
     }}
-    title={favorite ? 'Usuń z ulubionych' : 'Dodaj do ulubionych'}
-    aria-label={favorite ? 'Usuń z ulubionych' : 'Dodaj do ulubionych'}
+    title={favorite ? t('Remove from favorites') : t('Add to favorites')}
+    aria-label={favorite ? t('Remove from favorites') : t('Add to favorites')}
     aria-pressed={favorite}
     className={`shrink-0 cursor-pointer transition-opacity ${
       favorite ? 'text-yellow-400' : 'text-zinc-500 hover:text-yellow-300 opacity-0 group-hover:opacity-100'
@@ -117,7 +118,7 @@ const MapGridCard: React.FC<{
           />
         ) : (
           <span className="text-[10px] font-mono text-white/60 bg-black/40 px-2 py-0.5 rounded">
-            {thumbFailed ? 'Brak podglądu' : 'Render GPU...'}
+            {thumbFailed ? t('No preview') : t('GPU rendering...')}
           </span>
         )}
 
@@ -134,7 +135,7 @@ const MapGridCard: React.FC<{
             e.stopPropagation();
             onTogglePack(index, map.id, e.shiftKey);
           }}
-          title={inPack ? 'Usuń z paczki (Shift+Klik = zakres)' : 'Dodaj do paczki (Shift+Klik = zakres)'}
+          title={inPack ? t('Remove from pack (Shift+click = range)') : t('Add to pack (Shift+click = range)')}
           className={`absolute top-1.5 right-1.5 w-6 h-6 rounded-md flex items-center justify-center transition-all cursor-pointer ${
             inPack
               ? 'bg-violet-600 text-white shadow-md'
@@ -146,7 +147,7 @@ const MapGridCard: React.FC<{
 
         {map.missingAssetsCount > 0 && (
           <span
-            title={`Brakuje ${map.missingAssetsCount} plików graficznych!`}
+            title={t('Missing graphics files: {n}', { n: map.missingAssetsCount })}
             className="absolute top-1.5 left-1.5 bg-amber-500/90 text-zinc-950 px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-0.5"
           >
             <AlertTriangle className="w-3 h-3" />
@@ -428,8 +429,8 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
                     }}
                     title={
                       packMapIds.has(m.id)
-                        ? 'Usuń z paczki (Shift+Klik = zakres)'
-                        : 'Dodaj do paczki (Shift+Klik = zakres)'
+                        ? t('Remove from pack (Shift+click = range)')
+                        : t('Add to pack (Shift+click = range)')
                     }
                     className={`w-4 h-4 rounded flex items-center justify-center shrink-0 border transition-colors cursor-pointer ${
                       packMapIds.has(m.id)
@@ -443,7 +444,7 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
                   {/* Mode Color dot */}
                   <span
                     className="w-2 h-2 rounded-full shrink-0"
-                    title={m.modeGroupName}
+                    title={tText(m.modeGroupName)}
                     style={{ backgroundColor: m.badgeColor }}
                   />
 
@@ -454,13 +455,13 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
                       </span>
                       <FavoriteStar favorite={Boolean(m.favorite)} onToggle={() => onToggleFavorite(m.id, !m.favorite)} />
                       {m.missingAssetsCount > 0 && (
-                        <span title={`Brakuje ${m.missingAssetsCount} assetów`}>
+                        <span title={t('Missing assets: {n}', { n: m.missingAssetsCount })}>
                           <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                         </span>
                       )}
                       {m.duplicateCount > 1 && (
                         <span
-                          title={`Wykryto ${m.duplicateCount} map o identycznej sumie CRC32`}
+                          title={t('Found {n} maps with an identical CRC32 checksum', { n: m.duplicateCount })}
                           className="text-orange-400 shrink-0"
                         >
                           <Copy className="w-3 h-3" />
@@ -470,8 +471,8 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
                         <span
                           title={
                             m.limitViolationCount > 0
-                              ? 'Mapa przekracza limity silnika Soldat (np. > 500 scenerii) i nie wczyta się w grze'
-                              : 'Plik PMS jest częściowo uszkodzony'
+                              ? t("The map exceeds Soldat engine limits (e.g. > 500 sceneries) and won't load in game")
+                              : t('The PMS file is partially damaged')
                           }
                           className="text-red-400 shrink-0"
                         >
@@ -499,7 +500,7 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
                     </span>
                   ) : m.customAssetsCount > 0 ? (
                     <span
-                      title={`${m.customAssetsCount} niestandardowych plików do spakowania`}
+                      title={t('Custom files to pack: {n}', { n: m.customAssetsCount })}
                       className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/25"
                     >
                       +{m.customAssetsCount}
@@ -526,15 +527,15 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => onChangeSearchQuery(e.target.value)}
-            placeholder="Szukaj (np. ctf_cs props>300 tex:ananas)"
+            placeholder={t('Search (e.g. ctf_cs props>300 tex:ananas)')}
             className="w-full bg-zinc-950 border border-zinc-800 rounded-md pl-8.5 pr-12 py-1.5 text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/70"
           />
           <button
             type="button"
             onClick={() => setShowSearchHelp((v) => !v)}
-            aria-label="Składnia wyszukiwania"
+            aria-label={t('Search syntax')}
             aria-expanded={showSearchHelp}
-            title="Składnia wyszukiwania (filtry props>300, tex:, is:fav…)"
+            title={t('Search syntax (filters props>300, tex:, is:fav…)')}
             className={`absolute right-7 top-1/2 -translate-y-1/2 cursor-pointer ${
               showSearchHelp ? 'text-emerald-300' : 'text-zinc-500 hover:text-zinc-300'
             }`}
@@ -544,7 +545,7 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
           {searchQuery && (
             <button
               onClick={() => onChangeSearchQuery('')}
-              aria-label="Wyczyść wyszukiwanie"
+              aria-label={t('Clear search')}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 text-xs cursor-pointer"
             >
               ✕
@@ -553,17 +554,17 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
         </div>
 
         {parsedSearch.structured && (
-          <div className="flex flex-wrap gap-1" aria-label="Rozpoznane filtry wyszukiwania">
-            {parsedSearch.terms.map((t, i) => (
+          <div className="flex flex-wrap gap-1" aria-label={t('Recognized search filters')}>
+            {parsedSearch.terms.map((term, i) => (
               <span
                 key={i}
                 className={`px-1.5 py-0.5 rounded text-[10px] border ${
-                  t.kind === 'text'
+                  term.kind === 'text'
                     ? 'bg-zinc-800 border-zinc-700 text-zinc-300'
                     : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
                 }`}
               >
-                {describeSearchTerm(t)}
+                {describeSearchTerm(term, t)}
               </span>
             ))}
           </div>
@@ -571,7 +572,7 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
 
         {showSearchHelp && (
           <div className="bg-zinc-950 border border-zinc-800 rounded-md p-2 space-y-1 text-[10px] text-zinc-400">
-            <div className="text-zinc-300 font-semibold">Filtry (kliknij, aby dodać):</div>
+            <div className="text-zinc-300 font-semibold">{t('Filters (click to add):')}</div>
             {SEARCH_EXAMPLES.map(([example, hint]) => (
               <button
                 key={example}
@@ -583,32 +584,32 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
                 <span className="truncate">{hint}</span>
               </button>
             ))}
-            <div>Słowa bez dwukropka szukają w nazwie, tytule, teksturze i nazwach scenerii.</div>
+            <div>{t('Words without a colon search the name, title, texture and scenery names.')}</div>
           </div>
         )}
 
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 text-xs">
-            <span className="text-zinc-500 text-[11px]">Sortuj:</span>
+            <span className="text-zinc-500 text-[11px]">{t('Sort:')}</span>
             <select
               value={sortField}
               onChange={(e) => onChangeSortField(e.target.value as MapSortField)}
               className="bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-emerald-500/60"
             >
-              <option value="name">Nazwa (A–Z)</option>
-              <option value="polys">Poligony (malejąco)</option>
-              <option value="props">Scenerie (malejąco)</option>
-              <option value="width">Szerokość (malejąco)</option>
-              <option value="height">Wysokość (malejąco)</option>
-              <option value="size">Rozmiar pliku</option>
-              <option value="mtime">Ostatnio zmienione</option>
+              <option value="name">{t('Name (A–Z)')}</option>
+              <option value="polys">{t('Polygons (descending)')}</option>
+              <option value="props">{t('Sceneries (descending)')}</option>
+              <option value="width">{t('Width (descending)')}</option>
+              <option value="height">{t('Height (descending)')}</option>
+              <option value="size">{t('File size')}</option>
+              <option value="mtime">{t('Recently modified')}</option>
             </select>
           </div>
 
           <div className="flex items-center bg-zinc-950 border border-zinc-800 rounded p-0.5">
             <button
               onClick={() => onChangeViewMode('list')}
-              title="Widok wirtualnej listy (60 FPS dla 50k+ map)"
+              title={t('Virtual list view (60 FPS for 50k+ maps)')}
               className={`p-1 rounded cursor-pointer ${
                 viewMode === 'list'
                   ? 'bg-zinc-800 text-emerald-400'
@@ -619,7 +620,7 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
             </button>
             <button
               onClick={() => onChangeViewMode('grid')}
-              title="Wirtualna siatka z miniaturkami GPU"
+              title={t('Virtual grid with GPU thumbnails')}
               className={`p-1 rounded cursor-pointer ${
                 viewMode === 'grid'
                   ? 'bg-zinc-800 text-emerald-400'
@@ -633,26 +634,26 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
 
         {/* Bulk Actions */}
         <div className="flex items-center justify-between pt-1 border-t border-zinc-800/60 text-[11px]">
-          <span className="text-zinc-400" title={`Czas zapytania indeksu: ${queryDurationMs} ms`}>
-            Wyniki:{' '}
+          <span className="text-zinc-400" title={t('Index query time: {ms} ms', { ms: queryDurationMs })}>
+            {t('Results:')}{' '}
             <strong className="text-zinc-200 font-mono">
-              {totalFiltered.toLocaleString('pl-PL')}
+              {totalFiltered.toLocaleString(locale)}
             </strong>
           </span>
           <div className="flex items-center gap-1">
             <button
               onClick={onAddAllFilteredToPack}
               disabled={totalFiltered === 0}
-              title="Dodaj wszystkie aktualnie przefiltrowane mapy do paczki"
+              title={t('Add all currently filtered maps to the pack')}
               className="flex items-center gap-1 px-2 py-0.5 rounded bg-violet-500/15 hover:bg-violet-500/30 text-violet-200 border border-violet-500/30 disabled:opacity-40 transition-colors cursor-pointer"
             >
               <PackagePlus className="w-3 h-3" />
-              +Wszystkie
+              {t('+All')}
             </button>
             <button
               onClick={onRemoveFilteredFromPack}
               disabled={packMapIds.size === 0}
-              title="Usuń widoczne w filtrze mapy z paczki"
+              title={t('Remove the filtered maps from the pack')}
               className="p-1 rounded bg-zinc-800/80 hover:bg-red-500/20 text-zinc-400 hover:text-red-300 disabled:opacity-30 transition-colors cursor-pointer"
             >
               <Trash2 className="w-3 h-3" />
@@ -660,7 +661,7 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
             <button
               onClick={onOpenBatchScreenshot}
               disabled={totalFiltered === 0 && packMapIds.size === 0}
-              title="Wsadowe generowanie screenów 100% (Batch)"
+              title={t('Generate 100% screenshots in bulk (Batch)')}
               className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-200 border border-emerald-500/30 disabled:opacity-40 transition-colors cursor-pointer"
             >
               <Camera className="w-3 h-3" />
@@ -678,20 +679,20 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
       >
         {listError ? (
           <div className="h-48 flex flex-col items-center justify-center gap-2 text-center px-4 text-red-300 text-xs">
-            <span>Nie udało się pobrać listy map: {listError}</span>
+            <span>{t('Could not load the map list: {error}', { error: listError })}</span>
             {onRetryList && (
               <button
                 type="button"
                 onClick={onRetryList}
                 className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-100 cursor-pointer"
               >
-                Spróbuj ponownie
+                {t('Try again')}
               </button>
             )}
           </div>
         ) : totalFiltered === 0 ? (
           <div className="h-48 flex flex-col items-center justify-center text-center px-4 text-zinc-500 text-xs">
-            Brak map spełniających wybrane kryteria filtrowania.
+            {t('No maps match the selected filters.')}
           </div>
         ) : (
           <div style={{ height: totalHeightPx, position: 'relative', width: '100%' }}>

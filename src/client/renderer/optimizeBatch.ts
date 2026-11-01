@@ -7,6 +7,7 @@
  * overwrite someone else's file. No fidelity report per map (too expensive) — only a summary.
  */
 import { MapCompactEntry, OptimizeMapOptions, OverwritePolicy } from '@shared/apiTypes';
+import { t } from '../i18n';
 import { fetchAndParseMap } from '../utils/mapCache';
 import {
   checkOptimizeTarget,
@@ -113,11 +114,11 @@ export async function runOptimizeBatch(
       summary.processed++;
     };
 
-    report(0, 'Przygotowanie planu sklejania...');
+    report(0, t('Preparing the merging plan...'));
     try {
       if (/_o$/i.test(c.baseName)) {
         summary.skippedDerived++;
-        record({ status: 'skipped_derived', detail: 'To już wynik optymalizacji' });
+        record({ status: 'skipped_derived', detail: t('Already an optimization result') });
         continue;
       }
 
@@ -125,7 +126,7 @@ export async function runOptimizeBatch(
       const plan = await fetchOptimizePlan(c.id, { ...baseOptions, supersample: probeSupersample }, signal);
       if (plan.groups.length === 0) {
         summary.skippedNothingToMerge++;
-        record({ status: 'skipped_nothing', detail: 'Brak grup scenerii do sklejenia' });
+        record({ status: 'skipped_nothing', detail: t('No scenery groups to merge') });
         continue;
       }
 
@@ -133,7 +134,7 @@ export async function runOptimizeBatch(
       const owner = claimedNames.get(derivedKey);
       if (owner) {
         summary.failed++;
-        record({ status: 'failed', detail: `Ta sama nazwa wynikowa co ${owner} — pominięto` });
+        record({ status: 'failed', detail: t('Same output name as {name} — skipped', { name: owner }) });
         continue;
       }
       claimedNames.set(derivedKey, c.baseName);
@@ -148,7 +149,7 @@ export async function runOptimizeBatch(
           policy = 'own';
         } else {
           summary.skippedExisting++;
-          record({ status: 'skipped_exists', derivedBaseName: plan.derivedBaseName, detail: 'Plik wynikowy już istnieje' });
+          record({ status: 'skipped_exists', derivedBaseName: plan.derivedBaseName, detail: t('The output file already exists') });
           continue;
         }
       }

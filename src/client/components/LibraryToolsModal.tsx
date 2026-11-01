@@ -7,6 +7,7 @@ import {
   LibraryMoveResult,
   UnusedSceneryReport,
 } from '@shared/apiTypes';
+import { locale, t, tp, tr, tText } from '../i18n';
 import { formatBytes, openPathInExplorer } from '../utils/mapCache';
 import { useModalDismiss } from '../utils/useModalDismiss';
 import { AlertTriangle, Archive, CaseSensitive, CheckCircle2, Copy, FolderOpen, ImageOff, RefreshCw, X } from 'lucide-react';
@@ -42,7 +43,7 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
 }
 
 function formatDate(ms: number): string {
-  return new Date(ms).toLocaleDateString('pl-PL');
+  return new Date(ms).toLocaleDateString(locale);
 }
 
 export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, initialTab, onClose, onMetaUpdated }) => {
@@ -196,17 +197,19 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
         <div className="px-5 py-3.5 border-b border-zinc-800 bg-zinc-950/70 flex items-center justify-between gap-4">
           <div>
             <h2 className="text-base font-bold text-zinc-100 flex items-center gap-2">
-              <Archive className="w-5 h-5 text-emerald-400" /> Porządki w kolekcji
+              <Archive className="w-5 h-5 text-emerald-400" /> {t('Collection clean-up')}
             </h2>
             <p className="text-[11px] text-zinc-400">
-              Pliki są przenoszone do <code>data/backups/</code> (z listą PRZYWRACANIE.txt) — nic nie jest kasowane.
+              {tr('Files are moved to {path} (with a RESTORE.txt list) — nothing is deleted.', {
+                path: <code>data/backups/</code>,
+              })}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
             disabled={busy}
-            aria-label="Zamknij porządki"
+            aria-label={t('Close clean-up')}
             className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 disabled:opacity-40 cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -216,9 +219,9 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
         <div className="px-5 py-2 border-b border-zinc-800 flex items-center gap-1">
           {(
             [
-              ['duplicates', 'Duplikaty CRC32', <Copy key="d" className="w-3.5 h-3.5" />],
-              ['unused', 'Nieużywane scenerie', <ImageOff key="u" className="w-3.5 h-3.5" />],
-              ['case', 'Wielkość liter (Linux)', <CaseSensitive key="c" className="w-3.5 h-3.5" />],
+              ['duplicates', t('CRC32 duplicates'), <Copy key="d" className="w-3.5 h-3.5" />],
+              ['unused', t('Unused sceneries'), <ImageOff key="u" className="w-3.5 h-3.5" />],
+              ['case', t('Letter case (Linux)'), <CaseSensitive key="c" className="w-3.5 h-3.5" />],
             ] as const
           ).map(([id, label, icon]) => (
             <button
@@ -242,8 +245,8 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
             type="button"
             disabled={busy}
             onClick={() => loadTab(tab)}
-            title="Odśwież listę"
-            aria-label="Odśwież listę"
+            title={t('Refresh list')}
+            aria-label={t('Refresh list')}
             className="ml-auto p-1.5 rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -253,17 +256,20 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
         <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-3">
           {tab === 'duplicates' ? (
             !dups ? (
-              <div className="text-zinc-500">Wczytywanie grup duplikatów...</div>
+              <div className="text-zinc-500">{t('Loading duplicate groups...')}</div>
             ) : dups.groups.length === 0 ? (
               <div className="text-emerald-300 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4" /> W kolekcji nie ma map o identycznej sumie CRC32.
+                <CheckCircle2 className="w-4 h-4" /> {t('No maps in the collection share the same CRC32 checksum.')}
               </div>
             ) : (
               <>
                 <div className="text-zinc-400 leading-relaxed">
-                  {dups.totalGroups} grup identycznych map ({dups.totalRemovable} zbędnych kopii). Domyślnie zaznaczone są
-                  tylko grupy, w których wszystkie kopie mają <strong>tę samą nazwę</strong>. Kopie o różnych nazwach mogą
-                  być wpisane na listach map serwerów — przenieś je świadomie.
+                  {tp(dups.totalGroups, '{n} group of identical maps', '{n} groups of identical maps')} (
+                  {tp(dups.totalRemovable, '{n} redundant copy', '{n} redundant copies')}).{' '}
+                  {tr('By default only groups where all copies have {sameName} are selected.', {
+                    sameName: <strong>{t('the same name')}</strong>,
+                  })}{' '}
+                  {t('Copies with different names may be listed in server map lists — move them deliberately.')}
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -271,14 +277,14 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
                     onClick={() => setSelectedGroups(new Set(dups.groups.map((g) => g.crcHex)))}
                     className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 cursor-pointer"
                   >
-                    Zaznacz wszystkie grupy
+                    {t('Select all groups')}
                   </button>
                   <button
                     type="button"
                     onClick={() => setSelectedGroups(new Set())}
                     className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 cursor-pointer"
                   >
-                    Odznacz wszystkie
+                    {t('Deselect all')}
                   </button>
                 </div>
                 {dups.groups.slice(0, groupsShown).map((g) => (
@@ -304,7 +310,7 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
                     onClick={() => setGroupsShown((n) => n + GROUPS_PAGE)}
                     className="w-full py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 cursor-pointer"
                   >
-                    Pokaż kolejne grupy ({dups.groups.length - groupsShown})
+                    {t('Show more groups ({count})', { count: dups.groups.length - groupsShown })}
                   </button>
                 )}
               </>
@@ -312,20 +318,23 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
           ) : tab === 'case' ? (
             <CaseMismatchPanel report={caseReport} selected={selectedCase} onSelect={setSelectedCase} />
           ) : !unused ? (
-            <div className="text-zinc-500">Liczenie plików scenerii używanych przez mapy...</div>
+            <div className="text-zinc-500">{t('Counting scenery files used by maps...')}</div>
           ) : (
             <>
               <div className="text-zinc-400 leading-relaxed">
-                Folder <code className="text-zinc-300">{unused.folder}</code>: {unused.totalFiles} plików graficznych,{' '}
-                {unused.usedFiles} używanych przez zindeksowane mapy, {unused.vanillaSkipped} domyślnych plików gry
-                (pominięte). <strong className="text-amber-200">{unused.unusedCount}</strong> nieużywanych (
-                {formatBytes(unused.unusedBytes)}).
+                {tr('Folder {path}:', { path: <code className="text-zinc-300">{unused.folder}</code> })}{' '}
+                {tp(unused.totalFiles, '{n} image file', '{n} image files')},{' '}
+                {tp(unused.usedFiles, '{n} used by indexed maps', '{n} used by indexed maps')},{' '}
+                {tp(unused.vanillaSkipped, '{n} default game file (skipped)', '{n} default game files (skipped)')}.{' '}
+                <strong className="text-amber-200">{unused.unusedCount}</strong>{' '}
+                {tp(unused.unusedCount, 'unused ({size}).', 'unused ({size}).', { size: formatBytes(unused.unusedBytes) })}
               </div>
               <div className="bg-amber-950/40 border border-amber-600/40 rounded-lg px-3 py-2 text-amber-100 flex gap-2">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>
-                  Liczą się tylko mapy z indeksu Studio. Jeśli trzymasz mapy w innych miejscach (np. na serwerze), dodaj je
-                  w „Źródłach map” przed porządkami — inaczej ich scenerie też trafią na tę listę.
+                  {t(
+                    'Only maps in the Studio index count. If you keep maps elsewhere (e.g. on a server), add them in “Map sources” before cleaning up — otherwise their sceneries will end up on this list too.'
+                  )}
                 </span>
               </div>
               {unused.items.length > 0 && (
@@ -335,14 +344,14 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
                     onClick={() => setSelectedNames(new Set(unused.items.map((i) => i.name)))}
                     className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 cursor-pointer"
                   >
-                    Zaznacz wszystkie ({unused.items.length})
+                    {t('Select all ({count})', { count: unused.items.length })}
                   </button>
                   <button
                     type="button"
                     onClick={() => setSelectedNames(new Set())}
                     className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 cursor-pointer"
                   >
-                    Odznacz
+                    {t('Deselect')}
                   </button>
                 </div>
               )}
@@ -380,11 +389,11 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
                   onClick={() => setUnusedShown((n) => n + UNUSED_PAGE)}
                   className="w-full py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 cursor-pointer"
                 >
-                  Pokaż kolejne ({unused.items.length - unusedShown})
+                  {t('Show more ({count})', { count: unused.items.length - unusedShown })}
                 </button>
               )}
               {unused.truncated && (
-                <div className="text-[11px] text-zinc-500">Lista pokazuje 5000 największych plików.</div>
+                <div className="text-[11px] text-zinc-500">{t('The list shows the 5000 largest files.')}</div>
               )}
             </>
           )}
@@ -397,8 +406,15 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
           {result && (
             <div className="bg-emerald-950/60 border border-emerald-500/40 rounded px-3 py-2 text-emerald-100 flex items-center justify-between gap-3">
               <span>
-                {isRename ? 'Zmieniono nazwy' : 'Przeniesiono'} {result.moved} plików
-                {result.failed.length > 0 && `, nie udało się: ${result.failed.length} (${result.failed[0].name}: ${result.failed[0].error})`}
+                {isRename
+                  ? tp(result.moved, 'Renamed {n} file', 'Renamed {n} files')
+                  : tp(result.moved, 'Moved {n} file', 'Moved {n} files')}
+                {result.failed.length > 0 &&
+                  `, ${t('failed: {count} ({name}: {error})', {
+                    count: result.failed.length,
+                    name: result.failed[0].name,
+                    error: result.failed[0].error,
+                  })}`}
                 .
               </span>
               {result.backupDir && (
@@ -407,7 +423,7 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
                   onClick={() => openPathInExplorer(result.backupDir!)}
                   className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-100 flex items-center gap-1 shrink-0 cursor-pointer"
                 >
-                  <FolderOpen className="w-3.5 h-3.5" /> {isRename ? 'Lista zmian' : 'Kopia'}
+                  <FolderOpen className="w-3.5 h-3.5" /> {isRename ? t('Change list') : t('Backup')}
                 </button>
               )}
             </div>
@@ -415,17 +431,19 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
           <div className="flex items-center justify-between gap-3">
             <span className="text-zinc-400">
               {tab === 'duplicates'
-                ? `Do przeniesienia: ${moveCount} plików map`
+                ? tp(moveCount, 'To move: {n} map file', 'To move: {n} map files')
                 : tab === 'unused'
-                ? `Zaznaczone: ${moveCount} plików (${formatBytes(unusedSelectedBytes)})`
-                : `Do zmiany nazwy: ${moveCount} plików`}
+                ? tp(moveCount, 'Selected: {n} file ({size})', 'Selected: {n} files ({size})', {
+                    size: formatBytes(unusedSelectedBytes),
+                  })
+                : tp(moveCount, 'To rename: {n} file', 'To rename: {n} files')}
             </span>
             {confirming ? (
               <div className="flex items-center gap-2">
                 <span className="text-amber-200">
                   {isRename
-                    ? `Zmienić nazwy ${moveCount} plików (tylko wielkość liter)?`
-                    : `Przenieść ${moveCount} plików do kopii zapasowej?`}
+                    ? tp(moveCount, 'Rename {n} file (letter case only)?', 'Rename {n} files (letter case only)?')
+                    : tp(moveCount, 'Move {n} file to backup?', 'Move {n} files to backup?')}
                 </span>
                 <button
                   type="button"
@@ -433,7 +451,7 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
                   onClick={() => setConfirming(false)}
                   className="px-3 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 cursor-pointer"
                 >
-                  Anuluj
+                  {t('Cancel')}
                 </button>
                 <button
                   type="button"
@@ -441,7 +459,7 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
                   onClick={runMove}
                   className="px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-500 text-white font-semibold cursor-pointer disabled:opacity-50"
                 >
-                  {busy ? (isRename ? 'Zmiana nazw...' : 'Przenoszenie...') : isRename ? 'Tak, zmień' : 'Tak, przenieś'}
+                  {busy ? (isRename ? t('Renaming...') : t('Moving...')) : isRename ? t('Yes, rename') : t('Yes, move')}
                 </button>
               </div>
             ) : (
@@ -451,7 +469,7 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
                 onClick={() => setConfirming(true)}
                 className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold disabled:opacity-40 cursor-pointer"
               >
-                {isRename ? 'Zmień nazwy plików' : 'Przenieś do kopii zapasowej'}
+                {isRename ? t('Rename files') : t('Move to backup')}
               </button>
             )}
           </div>
@@ -463,42 +481,41 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
 
 const caseKey = (f: { category: string; diskName: string }) => `${f.category}/${f.diskName}`;
 
-/** "1 mapa", "3 mapy", "5 map" */
-function mapsLabel(n: number): string {
-  if (n === 1) return '1 mapa';
-  const few = n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14);
-  return `${n} ${few ? 'mapy' : 'map'}`;
-}
+/** "1 map", "3 maps" */
+const mapsLabel = (n: number) => tp(n, '{n} map', '{n} maps');
 
 const CaseMismatchPanel: React.FC<{
   report: CaseMismatchReport | null;
   selected: Set<string>;
   onSelect: (next: Set<string>) => void;
 }> = ({ report, selected, onSelect }) => {
-  if (!report) return <div className="text-zinc-500">Sprawdzanie nazw plików scenerii i tekstur...</div>;
+  if (!report) return <div className="text-zinc-500">{t('Checking scenery and texture file names...')}</div>;
   if (report.files.length === 0) {
     return (
       <div className="text-emerald-300 flex items-center gap-2">
-        <CheckCircle2 className="w-4 h-4" /> Nazwy wszystkich plików zgadzają się z mapami, także wielkością liter.
+        <CheckCircle2 className="w-4 h-4" /> {t('All file names match the maps, letter case included.')}
       </div>
     );
   }
   const renamable = report.files.filter((f) => f.renameTo);
   const others = report.files.filter((f) => !f.renameTo);
-  const kind = (category: string) => (category === 'textures' ? 'tekstura' : 'sceneria');
+  const kind = (category: string) => (category === 'textures' ? t('texture') : t('scenery'));
   const mapsOf = (f: CaseMismatchReport['files'][number]) => f.spellings.reduce((acc, s) => acc + s.mapCount, 0);
   return (
     <>
       <div className="text-zinc-400 leading-relaxed">
-        Plików z inną wielkością liter w mapach niż na dysku: {report.files.length} (dotyczy:{' '}
-        {mapsLabel(report.affectedMaps)}).
-        Windows i klient OpenSoldat tego nie rozróżniają, ale serwer na Linuksie, z którego gracze pobierają mapy, szuka
-        dokładnej nazwy. Mapy nie są zmieniane — zmienia się tylko nazwa pliku.
+        {t('Files whose letter case in maps differs from the disk: {count} (affects: {maps}).', {
+          count: report.files.length,
+          maps: mapsLabel(report.affectedMaps),
+        })}{' '}
+        {t(
+          'Windows and the OpenSoldat client ignore the difference, but a Linux server, from which players download maps, looks for the exact name. Maps are not changed — only the file name is.'
+        )}
       </div>
       {renamable.length > 0 && (
         <div className="space-y-1.5">
           <div className="font-semibold text-zinc-200">
-            Wystarczy zmienić nazwę ({renamable.length}) — wszystkie mapy zapisują plik tak samo
+            {t('A rename is enough ({count}) — all maps spell the file the same way', { count: renamable.length })}
           </div>
           <div className="divide-y divide-zinc-800/70 border border-zinc-800 rounded-lg">
             {renamable.map((f) => (
@@ -532,10 +549,12 @@ const CaseMismatchPanel: React.FC<{
       )}
       {others.length > 0 && (
         <div className="space-y-1.5">
-          <div className="font-semibold text-zinc-200">Zapisane w mapach na kilka sposobów ({others.length})</div>
+          <div className="font-semibold text-zinc-200">{t('Spelled several ways in maps ({count})', { count: others.length })}</div>
           <div className="text-zinc-400 leading-relaxed">
-            Na Windowsie plik może mieć tylko jedną z tych nazw. Kreator paczek z opcją „Napraw wielkość liter pod
-            serwery Linux” dołącza go pod każdą pisownią, więc serwer z rozpakowaną paczką znajdzie go dla każdej mapy.
+            {t(
+              'On Windows a file can have only one of these names. The Pack Builder with the “{option}” option includes it under every spelling, so a server with the unpacked pack finds it for every map.',
+              { option: t('Fix letter case for Linux servers') }
+            )}
           </div>
           <div className="divide-y divide-zinc-800/70 border border-zinc-800 rounded-lg">
             {others.map((f) => (
@@ -545,7 +564,7 @@ const CaseMismatchPanel: React.FC<{
                   <span className="block text-[11px] text-zinc-500 font-mono">
                     {f.spellings.length > 1
                       ? f.spellings.map((s) => `${s.name} (${s.mapCount})`).join(' • ')
-                      : `plik poza folderem gry: ${f.folder}`}
+                      : t('file outside the game folder: {folder}', { folder: f.folder })}
                   </span>
                 </span>
                 <span className="text-zinc-500 shrink-0">
@@ -581,11 +600,11 @@ const DuplicateGroupCard: React.FC<{
       </span>
       {group.sameName ? (
         <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/25 shrink-0">
-          {group.files.length} identyczne kopie
+          {tp(group.files.length, '{n} identical copy', '{n} identical copies')}
         </span>
       ) : (
         <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-200 border border-amber-500/35 shrink-0">
-          różne nazwy — sprawdź listy map serwerów
+          {t('different names — check the server map lists')}
         </span>
       )}
     </label>
@@ -601,14 +620,14 @@ const DuplicateGroupCard: React.FC<{
               className="border-zinc-700 bg-zinc-900 text-emerald-500"
             />
             <span className={`text-[10px] w-14 shrink-0 ${keepId === f.id ? 'text-emerald-300' : 'text-zinc-500'}`}>
-              {keepId === f.id ? 'zostaje' : selected ? 'do kopii' : '—'}
+              {keepId === f.id ? t('keep') : selected ? t('to backup') : '—'}
             </span>
             <span className="font-mono text-zinc-300 truncate" title={f.fullPath}>
               {f.fullPath}
             </span>
           </span>
           <span className="text-zinc-500 shrink-0">
-            {f.sourceLabel} • {formatBytes(f.fileSize)} • {formatDate(f.mtimeMs)}
+            {tText(f.sourceLabel)} • {formatBytes(f.fileSize)} • {formatDate(f.mtimeMs)}
           </span>
         </label>
       ))}

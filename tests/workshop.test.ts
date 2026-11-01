@@ -35,7 +35,7 @@ test('unreadable .pms files stay in the index as incompatible entries', async ()
   assert.equal(scanner.getScanStatus().failedFiles, 1);
   const broken = scanner.getMapEntry('ctf_broken');
   assert.ok(broken);
-  assert.ok(broken.parseWarnings.some((w) => w.includes('Nie można odczytać')));
+  assert.ok(broken.parseWarnings.some((w) => w.includes('Cannot read')));
   assert.equal(scanner.getMapEntry('ctf_ok')?.parseWarnings.length, 0);
 });
 

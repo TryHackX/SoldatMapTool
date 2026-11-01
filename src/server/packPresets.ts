@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { PackBuildOptions, PackPreset } from '../shared/apiTypes';
+import { t } from './i18n';
 import { readJsonStoreFile } from './jsonStoreFile';
 
 const MAX_PRESETS = 50;
@@ -26,12 +27,12 @@ export class PackPresetStore {
 
   public save(rawName: unknown, rawOptions: unknown): PackPreset[] {
     const name = sanitizePresetName(rawName);
-    if (!name) throw new Error('Podaj nazwę presetu.');
+    if (!name) throw new Error(t('Enter a preset name.'));
     const preset: PackPreset = { name, options: sanitizePresetOptions(rawOptions), updatedAt: Date.now() };
     const idx = this.presets.findIndex((p) => p.name.toLowerCase() === name.toLowerCase());
     if (idx >= 0) this.presets[idx] = preset;
     else {
-      if (this.presets.length >= MAX_PRESETS) throw new Error(`Można zapisać najwyżej ${MAX_PRESETS} presetów.`);
+      if (this.presets.length >= MAX_PRESETS) throw new Error(t('You can save at most {max} presets.', { max: MAX_PRESETS }));
       this.presets.push(preset);
     }
     this.persist();

@@ -1,7 +1,34 @@
 import { PmsMapData } from '@shared/pmsParser';
-import { POLY_TYPES, SPAWN_TYPES } from '@shared/soldatConstants';
+import { POLY_TYPES, SPAWN_TYPES, SpawnTypeMeta } from '@shared/soldatConstants';
+import { lang, t } from '../i18n';
 import { ObjectSpritesBundle } from './assetLoader';
 import { RenderLayerVisibility } from './types';
+
+// English names of the spawn / object types (SPAWN_TYPES in shared code only carries the Polish ones)
+const SPAWN_TYPE_NAMES_EN: Record<number, string> = {
+  0: 'General Spawn (DM/PM/RM)',
+  1: 'Alpha Spawn (Red)',
+  2: 'Bravo Spawn (Blue)',
+  3: 'Charlie Spawn (Yellow)',
+  4: 'Delta Spawn (Green)',
+  5: 'Alpha Flag (Red)',
+  6: 'Bravo Flag (Blue)',
+  7: 'Grenade Kit',
+  8: 'Medikit',
+  9: 'Cluster Grenades',
+  10: 'Vest',
+  11: 'Flame God (Flamer)',
+  12: 'Berserker',
+  13: 'Predator (Invisibility)',
+  14: 'Yellow Flag (PM / HTF)',
+  15: 'Rambo Bow',
+  16: 'Stationary Gun (M2)',
+};
+
+/** Name of a spawn / flag / bonus type in the active language (viewport hover hint, map details drawer) */
+export function spawnTypeName(meta: SpawnTypeMeta): string {
+  return lang === 'pl' ? meta.namePl : SPAWN_TYPE_NAMES_EN[meta.team] ?? meta.namePl;
+}
 
 export interface RulerMeasurement {
   x1: number;
@@ -441,7 +468,7 @@ export function renderMapOverlays(
       }
 
       // Badge label above pole
-      const badgeText = sp.team === 5 ? 'ALPHA' : sp.team === 6 ? 'BRAVO' : 'FLAGA';
+      const badgeText = sp.team === 5 ? 'ALPHA' : sp.team === 6 ? 'BRAVO' : t('FLAG');
       ctx.font = `700 ${Math.max(9, Math.round(9.5 * markerScale))}px "Inter", sans-serif`;
       const tw = ctx.measureText(badgeText).width + 10 * markerScale;
       const th = 15 * markerScale;

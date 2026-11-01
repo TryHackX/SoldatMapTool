@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import AdmZip from 'adm-zip';
+import { t } from './i18n';
 
 /**
  * Limits for archives from the internet (map packs). A crafted ZIP can declare absurd sizes (memory
@@ -33,9 +34,14 @@ export function isZipSymlink(entry: AdmZip.IZipEntry): boolean {
 
 /** Reasons an entry cannot be decompressed safely (null = fine) */
 export function zipEntryProblem(entry: AdmZip.IZipEntry): string | null {
-  if (entry.header.encrypted) return `Plik ${entry.entryName} jest zaszyfrowany — takie archiwa nie są obsługiwane.`;
+  if (entry.header.encrypted) {
+    return t('File {file} is encrypted — such archives are not supported.', { file: entry.entryName });
+  }
   if (entry.header.method !== STORED && entry.header.method !== DEFLATED) {
-    return `Plik ${entry.entryName} używa nieobsługiwanej metody kompresji (${entry.header.method}) — rozpakuj archiwum innym programem.`;
+    return t('File {file} uses an unsupported compression method ({method}) — extract the archive with another program.', {
+      file: entry.entryName,
+      method: entry.header.method,
+    });
   }
   return null;
 }
@@ -53,7 +59,7 @@ function assertNoLinkOnPath(root: string, target: string): void {
       return; // the rest of the path does not exist yet
     }
     if (stat.isSymbolicLink()) {
-      throw new ZipSafetyError(`Ścieżka ${rel} prowadzi przez dowiązanie symboliczne — wypakowanie przerwane.`);
+      throw new ZipSafetyError(t('Path {path} goes through a symbolic link — extraction stopped.', { path: rel }));
     }
   }
 }
@@ -84,7 +90,9 @@ export function extractZipSafely(
   const zip = new AdmZip(archivePath);
   const entries = zip.getEntries();
   if (entries.length > limits.maxEntries) {
-    throw new ZipSafetyError(`Archiwum ma ${entries.length} wpisów (limit ${limits.maxEntries}).`);
+    throw new ZipSafetyError(
+      t('The archive has {count} entries (limit {limit}).', { count: entries.length, limit: limits.maxEntries })
+    );
   }
 
   const root = path.resolve(destDir);
@@ -100,26 +108,33 @@ export function extractZipSafely(
     }
     const target = path.resolve(root, entry.entryName);
     if (!target.startsWith(root + path.sep)) {
-      throw new ZipSafetyError(`Niebezpieczna ścieżka w archiwum: ${entry.entryName}`);
+      throw new ZipSafetyError(t('Unsafe path in the archive: {path}', { path: entry.entryName }));
     }
     const problem = zipEntryProblem(entry);
     if (problem) throw new ZipSafetyError(problem);
     if (seenDataOffsets.has(entry.header.offset)) {
-      throw new ZipSafetyError(`Archiwum zawiera nakładające się wpisy (${entry.entryName}) — wygląda na spreparowane.`);
+      throw new ZipSafetyError(
+        t('The archive contains overlapping entries ({file}) — it looks crafted.', { file: entry.entryName })
+      );
     }
     seenDataOffsets.add(entry.header.offset);
     if (entry.header.size > limits.maxEntryBytes) {
-      throw new ZipSafetyError(`Plik ${entry.entryName} w archiwum jest za duży (${entry.header.size} B).`);
+      throw new ZipSafetyError(
+        t('File {file} in the archive is too large ({size} B).', { file: entry.entryName, size: entry.header.size })
+      );
     }
     totalBytes += entry.header.size;
     if (totalBytes > limits.maxTotalBytes) {
-      throw new ZipSafetyError('Zawartość archiwum po rozpakowaniu przekroczyłaby limit rozmiaru.');
+      throw new ZipSafetyError(t('The extracted archive contents would exceed the size limit.'));
     }
     plan.push({ entry, rel: path.relative(root, target) });
   }
   if (totalBytes > Math.max(limits.ratioFloorBytes, archiveSize * limits.maxCompressionRatio)) {
     throw new ZipSafetyError(
-      `Archiwum (${archiveSize} B) rozpakowałoby się do ${totalBytes} B — to wygląda na „zip-bombę”, wypakowanie przerwane.`
+      t('The archive ({archiveSize} B) would extract to {totalBytes} B — this looks like a "zip bomb", extraction stopped.', {
+        archiveSize,
+        totalBytes,
+      })
     );
   }
 
@@ -131,7 +146,7 @@ export function extractZipSafely(
       fs.mkdirSync(path.dirname(staged), { recursive: true });
       const data = entry.getData(); // throws on a bad CRC
       if (data.length !== entry.header.size) {
-        throw new ZipSafetyError(`Uszkodzony plik w archiwum: ${entry.entryName}`);
+        throw new ZipSafetyError(t('Corrupted file in the archive: {file}', { file: entry.entryName }));
       }
       fs.writeFileSync(staged, data);
     }

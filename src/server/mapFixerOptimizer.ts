@@ -37,6 +37,7 @@ import {
 } from '../shared/pmsParser';
 import { bakeTilesFor, estimateTileCrop, MAX_BAKE_TILES } from '../shared/bakeTiling';
 import { decodeBmpToRgba } from './bmpDecoder';
+import { t } from './i18n';
 import { SoldatMapScanner } from './soldatScanner';
 
 // Explicit canonical Soldat 1.6 dimensions (overrides unreferenced or 1.7.1-remastered official map entries)
@@ -289,7 +290,7 @@ export class SoldatMapWorkshop {
     const entry = this.scanner.getMapEntry(mapId);
     const fullPath = this.scanner.getMapFilePath(mapId);
     if (!entry || !fullPath || !fs.existsSync(fullPath)) {
-      throw new WorkshopError(`Nie znaleziono pliku mapy: ${mapId}`, 404);
+      throw new WorkshopError(t('Map file not found: {id}', { id: mapId }), 404);
     }
 
     const rawBytes = fs.readFileSync(fullPath);
@@ -374,7 +375,7 @@ export class SoldatMapWorkshop {
 
       if (p.width <= 0 || p.height <= 0) {
         detectedReason = 'invalid_zero_dims';
-        reasonLabelPl = 'Zerowy / ujemny wymiar w PMS (w grze sceneria jest niewidoczna lub odbita)';
+        reasonLabelPl = t('Zero / negative size in the PMS (the scenery is invisible or mirrored in game)');
         recommended = true;
       } else if (p.width !== true1x.w || p.height !== true1x.h) {
         // Check if this is an HD-upscaled vanilla/pack texture stored at HD dimensions in PMS
@@ -391,7 +392,7 @@ export class SoldatMapWorkshop {
           if (maxAbsScale >= 0.55) {
             detectedReason = 'hd_upscale_enlarged';
             const factor = (diskDims!.w / true1x.w).toFixed(1).replace(/\.0$/, '');
-            reasonLabelPl = `Powiększona ${factor}× sceneria HD po zapisie w starym PolyWorks`;
+            reasonLabelPl = t('HD scenery enlarged {factor}× after saving in the old PolyWorks', { factor });
             recommended = true;
           }
           // Otherwise maxAbsScale < 0.55 -> mapper intentionally scaled down HD asset in 1.7.1 PolyWorks; leave intact!
@@ -412,17 +413,18 @@ export class SoldatMapWorkshop {
             const isPotBug = isPowerOfTwo(p.width) && isPowerOfTwo(p.height);
 
             detectedReason = 'pot_or_stale';
+            const sizeChange = { from: `${p.width}×${p.height}`, to: `${true1x.w}×${true1x.h}` };
             if (isPotBug && aspectDiffRatio > 0.03) {
-              reasonLabelPl = `Rozciągnięta tekstura Power-of-Two (${p.width}×${p.height} → ${true1x.w}×${true1x.h})`;
+              reasonLabelPl = t('Stretched Power-of-Two texture ({from} → {to})', sizeChange);
               recommended = true;
             } else if (isPotBug) {
-              reasonLabelPl = `Błędny rozmiar Power-of-Two z MapMakera (${p.width}×${p.height} → ${true1x.w}×${true1x.h})`;
+              reasonLabelPl = t('Wrong Power-of-Two size from MapMaker ({from} → {to})', sizeChange);
               recommended = true;
             } else if (aspectDiffRatio > 0.03) {
-              reasonLabelPl = `Zniekształcone proporcje scenerii (${p.width}×${p.height} → ${true1x.w}×${true1x.h})`;
+              reasonLabelPl = t('Distorted scenery proportions ({from} → {to})', sizeChange);
               recommended = true;
             } else {
-              reasonLabelPl = `Różnica wymiaru względem pliku (${p.width}×${p.height} → ${true1x.w}×${true1x.h})`;
+              reasonLabelPl = t('Size differs from the file ({from} → {to})', sizeChange);
               recommended = Math.abs(p.width - true1x.w) > 2 || Math.abs(p.height - true1x.h) > 2;
             }
           }
@@ -587,7 +589,7 @@ export class SoldatMapWorkshop {
   ): void {
     if (path.resolve(sourcePath).toLowerCase() === path.resolve(outputPath).toLowerCase()) {
       throw new WorkshopError(
-        'Mapa wynikowa miałaby tę samą nazwę i folder co mapa źródłowa — zapis przerwany, aby nie nadpisać oryginału.',
+        t('The output map would have the same name and folder as the source map — saving stopped so the original is not overwritten.'),
         400
       );
     }
@@ -596,12 +598,16 @@ export class SoldatMapWorkshop {
       const rec = this.getGeneratedOutputRecord(outputPath);
       if (rec && rec.sourceMapId === sourceMapId) return;
       throw new WorkshopError(
-        `Plik ${path.basename(outputPath)} istnieje i nie jest niezmienionym wynikiem Studio dla tej mapy — pominięto.`,
+        t('File {file} exists and is not an unchanged Studio output for this map — skipped.', {
+          file: path.basename(outputPath),
+        }),
         409
       );
     }
     throw new WorkshopError(
-      `Plik ${path.basename(outputPath)} już istnieje w folderze docelowym. Potwierdź nadpisanie, aby kontynuować.`,
+      t('File {file} already exists in the target folder. Confirm the overwrite to continue.', {
+        file: path.basename(outputPath),
+      }),
       409
     );
   }
@@ -613,7 +619,7 @@ export class SoldatMapWorkshop {
     customOutputFolder?: string
   ): DerivedTargetCheck {
     const entry = this.scanner.getMapEntry(mapId);
-    if (!entry) throw new WorkshopError(`Nie znaleziono mapy: ${mapId}`, 404);
+    if (!entry) throw new WorkshopError(t('Map not found: {id}', { id: mapId }), 404);
     const derivedBaseName = makeDerivedMapName(entry.baseName, '_f', maxBaseLength || 24);
     const targetDir = this.resolveTargetMapsDir(destination, customOutputFolder, 'fixed_maps');
     return this.describeTarget(path.join(targetDir, `${derivedBaseName}.pms`), derivedBaseName, null);
@@ -630,7 +636,7 @@ export class SoldatMapWorkshop {
     const entry = this.scanner.getMapEntry(req.mapId);
     const srcPath = this.scanner.getMapFilePath(req.mapId);
     if (!entry || !srcPath || !fs.existsSync(srcPath)) {
-      throw new WorkshopError(`Nie znaleziono mapy źródłowej: ${req.mapId}`, 404);
+      throw new WorkshopError(t('Source map not found: {id}', { id: req.mapId }), 404);
     }
 
     const origBytes = fs.readFileSync(srcPath);
@@ -774,7 +780,7 @@ export class SoldatMapWorkshop {
     const entry = this.scanner.getMapEntry(mapId);
     const fullPath = this.scanner.getMapFilePath(mapId);
     if (!entry || !fullPath || !fs.existsSync(fullPath)) {
-      throw new WorkshopError(`Nie znaleziono pliku mapy: ${mapId}`, 404);
+      throw new WorkshopError(t('Map file not found: {id}', { id: mapId }), 404);
     }
 
     const pms = parsePmsFull(fs.readFileSync(fullPath));
@@ -1046,7 +1052,7 @@ export class SoldatMapWorkshop {
 
   public async checkOptimizeTarget(mapId: string, options: OptimizeMapOptions): Promise<DerivedTargetCheck> {
     const entry = this.scanner.getMapEntry(mapId);
-    if (!entry) throw new WorkshopError(`Nie znaleziono mapy: ${mapId}`, 404);
+    if (!entry) throw new WorkshopError(t('Map not found: {id}', { id: mapId }), 404);
     let fixesApplied = false;
     if (options.fixFirst) {
       const srcPath = this.scanner.getMapFilePath(mapId);
@@ -1077,7 +1083,7 @@ export class SoldatMapWorkshop {
   public startOptimizeSession(mapId: string, options: OptimizeMapOptions): string {
     this.pruneStaleSessions();
     if (!this.scanner.getMapEntry(mapId)) {
-      throw new WorkshopError(`Nie znaleziono mapy źródłowej: ${mapId}`, 404);
+      throw new WorkshopError(t('Source map not found: {id}', { id: mapId }), 404);
     }
     const id = crypto.randomUUID();
     const tempDir = path.join(this.sessionsRoot, id);
@@ -1089,21 +1095,23 @@ export class SoldatMapWorkshop {
 
   public async addOptimizeTile(sessionId: string, rawMeta: unknown, png: Buffer): Promise<void> {
     const session = this.optimizeSessions.get(sessionId);
-    if (!session || session.committing) throw new WorkshopError('Sesja optymalizacji wygasła lub nie istnieje.', 404);
+    if (!session || session.committing) {
+      throw new WorkshopError(t('The optimization session has expired or does not exist.'), 404);
+    }
     session.lastActivity = Date.now();
-    if (!Buffer.isBuffer(png) || png.length < 8) throw new WorkshopError('Pusty plik PNG kafelka.', 400);
+    if (!Buffer.isBuffer(png) || png.length < 8) throw new WorkshopError(t('Empty tile PNG file.'), 400);
 
     const meta = rawMeta as Partial<BakedSceneryTileUpload>;
     const level = Number(meta.level);
     const nums = [meta.worldX, meta.worldY, meta.scaleX, meta.scaleY, meta.insertOrderKey].map(Number);
     if (![0, 1, 2].includes(level) || nums.some((n) => !Number.isFinite(n)) || Number(meta.scaleX) <= 0 || Number(meta.scaleY) <= 0) {
-      throw new WorkshopError('Nieprawidłowe metadane kafelka warstwy.', 400);
+      throw new WorkshopError(t('Invalid layer tile metadata.'), 400);
     }
 
     // Width/height must match the real PNG, otherwise Soldat would stretch the tile
     const pngMeta = await sharp(png).metadata();
     if (pngMeta.format !== 'png' || !pngMeta.width || !pngMeta.height) {
-      throw new WorkshopError('Przesłany kafelek nie jest prawidłowym plikiem PNG.', 400);
+      throw new WorkshopError(t('The uploaded tile is not a valid PNG file.'), 400);
     }
 
     let fileName = sanitizeSceneryPngName(String(meta.tileFileName || 'layer.png'));
@@ -1150,7 +1158,9 @@ export class SoldatMapWorkshop {
     expected?: { derivedBaseName: string; propFixes: OptimizePropFix[] }
   ): Promise<OptimizeSaveResponse> {
     const session = this.optimizeSessions.get(sessionId);
-    if (!session || session.committing) throw new WorkshopError('Sesja optymalizacji wygasła lub nie istnieje.', 404);
+    if (!session || session.committing) {
+      throw new WorkshopError(t('The optimization session has expired or does not exist.'), 404);
+    }
     session.committing = true;
 
     try {
@@ -1158,7 +1168,7 @@ export class SoldatMapWorkshop {
       const entry = this.scanner.getMapEntry(mapId);
       const srcPath = this.scanner.getMapFilePath(mapId);
       if (!entry || !srcPath || !fs.existsSync(srcPath)) {
-        throw new WorkshopError(`Nie znaleziono mapy źródłowej: ${mapId}`, 404);
+        throw new WorkshopError(t('Source map not found: {id}', { id: mapId }), 404);
       }
 
       const origBytes = fs.readFileSync(srcPath);
@@ -1181,7 +1191,7 @@ export class SoldatMapWorkshop {
             JSON.stringify(fixes.map((f) => [f.propIndex, f.width, f.height])))
       ) {
         throw new WorkshopError(
-          'Mapa lub jej scenerie zmieniły się od przygotowania planu — przygotuj podgląd lub plan ponownie.',
+          t('The map or its sceneries changed since the plan was prepared — prepare the preview or plan again.'),
           409
         );
       }
@@ -1195,9 +1205,12 @@ export class SoldatMapWorkshop {
 
       // A tile name colliding with a scenery file the source map itself uses would corrupt the source map
       const sourceSceneryLower = new Set(pms.scenery.map((s) => s.filename.toLowerCase()));
-      for (const t of session.tiles) {
-        if (sourceSceneryLower.has(t.tileFileName.toLowerCase())) {
-          throw new WorkshopError(`Nazwa kafelka ${t.tileFileName} koliduje ze sceneriami mapy źródłowej.`, 400);
+      for (const tile of session.tiles) {
+        if (sourceSceneryLower.has(tile.tileFileName.toLowerCase())) {
+          throw new WorkshopError(
+            t('Tile name {name} collides with the sceneries of the source map.', { name: tile.tileFileName }),
+            400
+          );
         }
       }
 
@@ -1308,9 +1321,11 @@ export class SoldatMapWorkshop {
       });
       if (introduced.length > 0) {
         throw new WorkshopError(
-          `Wynik przekroczyłby limity silnika Soldat (${introduced
-            .map((v) => `${v.labelPl}: ${v.value} > ${v.limit}`)
-            .join(', ')}) — gra nie wczytałaby mapy. Włącz czyszczenie nieużywanych scenerii lub zmniejsz liczbę kafelków (większy kafelek / niższa jakość).`,
+          t(
+            'The result would exceed the Soldat engine limits ({limits}) — the game would not load the map. ' +
+              'Enable removal of unused sceneries or reduce the number of tiles (larger tile / lower quality).',
+            { limits: introduced.map((v) => `${t(v.label)}: ${v.value} > ${v.limit}`).join(', ') }
+          ),
           400
         );
       }
@@ -1379,7 +1394,7 @@ export class SoldatMapWorkshop {
         newMapId,
         removedOrphanPngs,
         floatPrecision: session.tiles.length > 0 && session.tiles.every((t) => t.floatPrecision),
-        limitWarnings: limitViolations.map((v) => `${v.labelPl}: ${v.value} > ${v.limit}`),
+        limitWarnings: limitViolations.map((v) => `${t(v.label)}: ${v.value} > ${v.limit}`),
         backupDir: backup.directory,
       };
     } finally {
@@ -1397,7 +1412,7 @@ export class SoldatMapWorkshop {
     }
     if (destination === 'custom') {
       if (!customFolder?.trim()) {
-        throw new WorkshopError('Wybierz własny folder docelowy albo zmień miejsce zapisu.', 400);
+        throw new WorkshopError(t('Choose a custom target folder or change the save location.'), 400);
       }
       return path.resolve(customFolder.trim());
     }
@@ -1416,7 +1431,7 @@ export class SoldatMapWorkshop {
       };
     }
     if (destination === 'custom' && !customFolder?.trim()) {
-      throw new WorkshopError('Wybierz własny folder docelowy albo zmień miejsce zapisu.', 400);
+      throw new WorkshopError(t('Choose a custom target folder or change the save location.'), 400);
     }
     const base =
       destination === 'custom'

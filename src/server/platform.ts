@@ -2,6 +2,7 @@ import { execFile, execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { t } from './i18n';
 
 // Windows, Linux and macOS differences: the default game folder, the file manager and the native file pickers
 
@@ -183,7 +184,7 @@ export async function pickPathDialog(kind: 'folder' | 'file', text: string): Pro
   } catch (err) {
     if (err instanceof DialogUnavailableError) {
       throw new DialogUnavailableError(
-        'Okno wyboru wymaga programu zenity albo kdialog (np. sudo apt install zenity) — możesz też wpisać ścieżkę ręcznie.'
+        t('The picker dialog needs zenity or kdialog (e.g. sudo apt install zenity) — you can also type the path manually.')
       );
     }
     throw err;

@@ -246,7 +246,7 @@ test('duplicate groups: keeper suggestion, last-copy protection and move to back
   assert.equal(result.moved, 1);
   assert.equal(fs.existsSync(path.join(archive, 'ctf_dup.pms')), false);
   assert.ok(fs.existsSync(path.join(result.backupDir!, 'Archiwum', 'ctf_dup.pms')));
-  assert.ok(fs.readFileSync(path.join(result.backupDir!, 'PRZYWRACANIE.txt'), 'utf-8').includes('ctf_dup.pms'));
+  assert.ok(fs.readFileSync(path.join(result.backupDir!, 'RESTORE.txt'), 'utf-8').includes('ctf_dup.pms'));
 });
 
 test('unused scenery report skips used (also .bmp/.png variants) and default game files', async () => {

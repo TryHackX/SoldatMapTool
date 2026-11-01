@@ -92,7 +92,7 @@ test('case report: a file every map spells one way is renamed, one spelled sever
   const names = fs.readdirSync(path.join(env.root, 'scenery-gfx'));
   assert.ok(names.includes('Rock.png') && !names.includes('rock.png'), names.join(', '));
   assert.equal(fs.readFileSync(path.join(env.root, 'scenery-gfx', 'Rock.png'), 'utf-8'), 'rock.png', 'content kept');
-  const restore = fs.readFileSync(path.join(result.backupDir!, 'PRZYWRACANIE.txt'), 'utf-8');
+  const restore = fs.readFileSync(path.join(result.backupDir!, 'RESTORE.txt'), 'utf-8');
   assert.ok(restore.includes(`${path.join(env.root, 'scenery-gfx', 'rock.png')}\t`));
 
   await env.scanner.scanAsync(true);

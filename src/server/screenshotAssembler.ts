@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import sharp from 'sharp';
+import { t } from './i18n';
 
 interface TileSession {
   id: string;
@@ -60,10 +61,16 @@ export function createTileSession(params: {
   const width = Math.round(Number(params.width));
   const height = Math.round(Number(params.height));
   if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) {
-    throw new Error('Nieprawidłowe wymiary obrazu.');
+    throw new Error(t('Invalid image dimensions.'));
   }
   if (width > MAX_OUTPUT_DIM || height > MAX_OUTPUT_DIM) {
-    throw new Error(`Obraz ${width}×${height} px przekracza limit ${MAX_OUTPUT_DIM} px na bok — zmniejsz skalę.`);
+    throw new Error(
+      t('The {width}×{height} px image exceeds the limit of {limit} px per side — reduce the scale.', {
+        width,
+        height,
+        limit: MAX_OUTPUT_DIM,
+      })
+    );
   }
   const format = params.format === 'jpeg' || params.format === 'webp' ? params.format : 'png';
 
@@ -94,21 +101,21 @@ export function addSessionTile(
 ): void {
   const session = sessions.get(sessionId);
   if (!session) {
-    throw new Error(`Nie znaleziono sesji renderowania kafelkowego: ${sessionId}`);
+    throw new Error(t('Tiled render session not found: {id}', { id: sessionId }));
   }
-  const l = Math.round(left);
-  const t = Math.round(top);
-  if (!Number.isFinite(l) || !Number.isFinite(t) || l < 0 || t < 0 || l >= session.width || t >= session.height) {
-    throw new Error('Nieprawidłowa pozycja kafelka.');
+  const x = Math.round(left);
+  const y = Math.round(top);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x >= session.width || y >= session.height) {
+    throw new Error(t('Invalid tile position.'));
   }
   if (!Buffer.isBuffer(pngBuffer) || pngBuffer.length === 0) {
-    throw new Error('Pusty kafelek.');
+    throw new Error(t('Empty tile.'));
   }
-  const tilePath = path.join(session.tempDir, `tile_${l}_${t}.png`);
+  const tilePath = path.join(session.tempDir, `tile_${x}_${y}.png`);
   fs.writeFileSync(tilePath, pngBuffer);
   // A re-sent tile replaces the previous one instead of being composited twice
-  session.tiles = session.tiles.filter((x) => x.left !== l || x.top !== t);
-  session.tiles.push({ input: tilePath, left: l, top: t });
+  session.tiles = session.tiles.filter((tile) => tile.left !== x || tile.top !== y);
+  session.tiles.push({ input: tilePath, left: x, top: y });
 }
 
 export function cancelTileSession(sessionId: string): void {
@@ -130,7 +137,7 @@ export async function finalizeTileSession(
 ): Promise<{ outputPath: string; fileName: string; sizeBytes: number }> {
   const session = sessions.get(sessionId);
   if (!session) {
-    throw new Error(`Nie znaleziono sesji renderowania kafelkowego: ${sessionId}`);
+    throw new Error(t('Tiled render session not found: {id}', { id: sessionId }));
   }
 
   try {

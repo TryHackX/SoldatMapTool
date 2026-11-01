@@ -14,6 +14,7 @@ import { CustomPrefixRule } from '@shared/prefixUtils';
 import { parseSearchQuery } from '@shared/searchQuery';
 import { APP_VERSION } from '@shared/version';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { locale, t, tp, tr } from './i18n';
 import type { LibraryToolsTab } from './components/LibraryToolsModal';
 import { MapBrowserPanel, MapSortField } from './components/MapBrowserPanel';
 import { MapInspectorDrawer } from './components/MapInspectorDrawer';
@@ -127,6 +128,15 @@ function loadPersistedPack(legacy: PersistedUiState): string[] {
   }
   return strArray(legacy.packMapIds);
 }
+
+const scanPhaseLabel = (phase: ScanProgressStatus['phase']): string =>
+  phase === 'discovering'
+    ? t('finding files')
+    : phase === 'indexing'
+    ? t('indexing')
+    : phase === 'finalizing'
+    ? t('finishing')
+    : t('idle');
 
 export const App: React.FC = () => {
   const [persisted] = useState(loadPersistedUiState);
@@ -829,7 +839,7 @@ export const App: React.FC = () => {
           setCompareTarget({
             forMapId: activeMapId,
             key: `original:${activeMapId}`,
-            label: `${activeMapDetails?.baseName ?? 'mapa'} (oryginał)`,
+            label: t('{name} (original)', { name: activeMapDetails?.baseName ?? t('map') }),
             data: activeMapData,
           })
       : null;
@@ -868,7 +878,7 @@ export const App: React.FC = () => {
               <button
                 type="button"
                 onClick={() => openPathInExplorer(meta.soldatPath)}
-                title="Otwórz folder Soldata w menedżerze plików"
+                title={t('Open the Soldat folder in the file manager')}
                 className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 cursor-pointer shrink-0"
               >
                 <FolderOpen className="w-3.5 h-3.5" />
@@ -876,9 +886,9 @@ export const App: React.FC = () => {
               <span className="text-zinc-600">•</span>
               <span className="shrink-0">
                 <strong className="text-zinc-200 font-mono">
-                  {meta.totalMaps.toLocaleString('pl-PL')}
+                  {meta.totalMaps.toLocaleString(locale)}
                 </strong>{' '}
-                map ({meta.scanDurationMs} ms)
+                {tp(meta.totalMaps, 'map', 'maps')} ({meta.scanDurationMs} ms)
               </span>
             </div>
           )}
@@ -888,8 +898,8 @@ export const App: React.FC = () => {
           <button
             type="button"
             onClick={() => setPanels((p) => ({ ...p, sidebar: !p.sidebar }))}
-            title={panels.sidebar ? 'Ukryj panel kategorii i prefixów' : 'Pokaż panel kategorii i prefixów'}
-            aria-label="Przełącz panel kategorii"
+            title={panels.sidebar ? t('Hide the categories and prefixes panel') : t('Show the categories and prefixes panel')}
+            aria-label={t('Toggle the categories panel')}
             aria-pressed={panels.sidebar}
             className={`p-1.5 rounded-lg border text-xs cursor-pointer ${
               panels.sidebar
@@ -902,8 +912,8 @@ export const App: React.FC = () => {
           <button
             type="button"
             onClick={() => setPanels((p) => ({ ...p, inspector: !p.inspector }))}
-            title={panels.inspector ? 'Ukryj panel szczegółów mapy' : 'Pokaż panel szczegółów mapy'}
-            aria-label="Przełącz panel szczegółów"
+            title={panels.inspector ? t('Hide the map details panel') : t('Show the map details panel')}
+            aria-label={t('Toggle the details panel')}
             aria-pressed={panels.inspector}
             className={`p-1.5 rounded-lg border text-xs cursor-pointer ${
               panels.inspector
@@ -918,22 +928,24 @@ export const App: React.FC = () => {
             type="button"
             onClick={() => setWorkshopModalState({ open: true, tab: 'fix' })}
             disabled={!activeMapDetails}
-            title="Warsztat Map Soldat: automatyczna naprawa scenerii po przejściu na 1.7.1 (_f.pms) oraz łączenie warstw Optimize Sceneries (_o.pms)"
+            title={t(
+              'Soldat Map Workshop: automatic scenery repair after the move to 1.7.1 (_f.pms) and Optimize Sceneries layer merging (_o.pms)'
+            )}
             className="px-2.5 py-1.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-xs font-semibold text-amber-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
           >
             <Wrench className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden lg:inline">Warsztat _f / _o</span>
+            <span className="hidden lg:inline">{t('Workshop _f / _o')}</span>
           </button>
 
           <button
             type="button"
             onClick={() => setPrefixStudioState({ open: true, draftPrefix: null })}
             disabled={!meta}
-            title="Zarządzaj własnymi prefixami, kategoriami klanowymi oraz regułami RSCS / Trenchwars"
+            title={t('Manage custom prefixes, clan categories and RSCS / Trenchwars rules')}
             className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs text-zinc-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
           >
             <Tags className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="hidden lg:inline">Własne Prefixy</span>
+            <span className="hidden lg:inline">{t('Custom Prefixes')}</span>
             {meta && meta.customRules.length > 0 && (
               <span className="font-mono text-[10px] px-1 rounded bg-emerald-500/20 text-emerald-300">
                 {meta.customRules.length}
@@ -945,11 +957,13 @@ export const App: React.FC = () => {
             type="button"
             onClick={() => setLibraryToolsState({ open: true, tab: 'duplicates' })}
             disabled={!meta || isBgScanning}
-            title="Porządki: duplikaty map (identyczne CRC32), nieużywane pliki scenerii i wielkość liter w nazwach plików (Linux)"
+            title={t(
+              'Clean-up: duplicate maps (identical CRC32), unused scenery files and letter case in file names (Linux)'
+            )}
             className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs text-zinc-300 flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
           >
             <Archive className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="hidden lg:inline">Porządki</span>
+            <span className="hidden lg:inline">{t('Clean-up')}</span>
             {meta && meta.duplicateMapsCount > 0 && (
               <span className="font-mono text-[10px] px-1 rounded bg-orange-500/20 text-orange-300">
                 {meta.duplicateMapsCount}
@@ -961,36 +975,36 @@ export const App: React.FC = () => {
             type="button"
             onClick={() => triggerLoadMeta(true)}
             disabled={isBgScanning}
-            title="Odśwież indeks map i plików na dysku (SQLite WAL)"
+            title={t('Refresh the index of maps and files on disk (SQLite WAL)')}
             className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs text-zinc-300 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
           >
             <RefreshCw
               className={`w-3.5 h-3.5 ${isBgScanning ? 'animate-spin text-emerald-400' : ''}`}
             />
-            <span className="hidden lg:inline">Odśwież</span>
+            <span className="hidden lg:inline">{t('Refresh')}</span>
           </button>
 
           <button
             type="button"
             onClick={() => setSettingsModalOpen(true)}
             disabled={!meta}
-            title="Folder gry Soldat i dodatkowe źródła map"
+            title={t('Settings: language, Soldat game folder and extra map sources')}
             className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs text-zinc-300 flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
           >
             <Settings className="w-3.5 h-3.5" />
-            <span className="hidden lg:inline">Źródła Map</span>
+            <span className="hidden lg:inline">{t('Settings')}</span>
           </button>
 
           <button
             type="button"
             onClick={() => setPackModalOpen(true)}
-            title="Kreator paczek map"
+            title={t('Map pack builder')}
             className="px-3.5 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-violet-950/60 transition-colors cursor-pointer"
           >
             <Package className="w-4 h-4" />
-            <span className="hidden xl:inline">Kreator Paczek Map</span>
+            <span className="hidden xl:inline">{t('Map Pack Builder')}</span>
             <span className="font-mono bg-black/30 px-1.5 py-0.5 rounded text-[11px]">
-              {packMapIds.size.toLocaleString('pl-PL')}
+              {packMapIds.size.toLocaleString(locale)}
             </span>
           </button>
         </div>
@@ -1002,12 +1016,12 @@ export const App: React.FC = () => {
           <div className="flex items-center gap-2 text-emerald-200 truncate">
             <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400 shrink-0" />
             <span>
-              Indeksowanie kolekcji map ({liveScanStatus.phase}):{' '}
+              {t('Indexing the map collection ({phase}):', { phase: scanPhaseLabel(liveScanStatus.phase) })}{' '}
               <strong className="font-mono">
-                {liveScanStatus.scannedFiles.toLocaleString('pl-PL')} /{' '}
-                {liveScanStatus.totalFiles.toLocaleString('pl-PL')}
+                {liveScanStatus.scannedFiles.toLocaleString(locale)} /{' '}
+                {liveScanStatus.totalFiles.toLocaleString(locale)}
               </strong>{' '}
-              {liveScanStatus.mapsPerSec > 0 && `• ${liveScanStatus.mapsPerSec} map/s`}{' '}
+              {liveScanStatus.mapsPerSec > 0 && `• ${t('{n} maps/s', { n: liveScanStatus.mapsPerSec })}`}{' '}
               {liveScanStatus.currentFile && `• ${liveScanStatus.currentFile}`}
             </span>
           </div>
@@ -1023,7 +1037,7 @@ export const App: React.FC = () => {
       {/* Scan Error Banner */}
       {scanError && (
         <div className="bg-red-950 border-b border-red-800 px-4 py-2 text-xs text-red-200 flex items-center justify-between gap-3">
-          <span>Błąd połączenia z serwerem indeksującym: {scanError}</span>
+          <span>{t('Cannot reach the indexing server: {error}', { error: scanError })}</span>
           <button
             type="button"
             onClick={() => setScanError(null)}
@@ -1038,15 +1052,17 @@ export const App: React.FC = () => {
       {meta && !meta.validSoldatDir && !liveScanStatus?.scanning && (
         <div className="bg-amber-950/90 border-b border-amber-700/60 px-4 py-2 text-xs text-amber-100 flex items-center justify-between gap-3">
           <span>
-            Folder gry Soldat <code className="font-mono">{meta.soldatPath}</code> nie istnieje lub nie zawiera
-            katalogu <code>maps/</code> — tekstury, scenerie i mapy nie będą widoczne.
+            {tr(
+              'The Soldat game folder {path} does not exist or has no {maps} folder — textures, sceneries and maps will not be visible.',
+              { path: <code className="font-mono">{meta.soldatPath}</code>, maps: <code>maps/</code> }
+            )}
           </span>
           <button
             type="button"
             onClick={() => setSettingsModalOpen(true)}
             className="px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white font-semibold cursor-pointer shrink-0"
           >
-            Ustaw folder Soldata
+            {t('Set the Soldat folder')}
           </button>
         </div>
       )}
@@ -1118,7 +1134,7 @@ export const App: React.FC = () => {
           onToggleFavorite={handleToggleFavorite}
         />
 
-        <ErrorBoundary fallbackTitle="Błąd renderowania widoku mapy WebGL2">
+        <ErrorBoundary fallbackTitle={t('WebGL2 map view rendering error')}>
           <MapViewport
             mapEntry={
               livePreviewMap && livePreviewMap.forMapId === activeMapId ? activeMapDetails : viewportEntry
@@ -1145,7 +1161,7 @@ export const App: React.FC = () => {
             }
             onClearPreviewMode={() => setLivePreviewMap(null)}
             compare={compareTarget && compareTarget.forMapId === activeMapId ? compareTarget : null}
-            mainLabel={previewActive ? 'podgląd zmian' : activeMapDetails?.baseName}
+            mainLabel={previewActive ? t('preview of changes') : activeMapDetails?.baseName}
             compareCandidates={compareCandidates}
             onStartCompare={handleStartCompare}
             onCompareWithOriginal={handleCompareWithOriginal}
@@ -1169,7 +1185,7 @@ export const App: React.FC = () => {
       </div>
 
       {/* Modals */}
-      <ErrorBoundary overlay fallbackTitle="Nie udało się wczytać okna aplikacji (np. po aktualizacji) — odśwież stronę">
+      <ErrorBoundary overlay fallbackTitle={t('Could not load the application window (e.g. after an update) — refresh the page')}>
       <Suspense fallback={null}>
       {workshopMounted && (
       <MapWorkshopModal
@@ -1180,7 +1196,7 @@ export const App: React.FC = () => {
         currentMapData={activeMapData}
         preferClassicBmp={layers.preferClassicBmp}
         batchCount={packMapIds.size > 0 ? packMapIds.size : totalFiltered}
-        batchSourceLabel={packMapIds.size > 0 ? 'z koszyka paczki' : 'z aktualnego filtra'}
+        batchSourceLabel={packMapIds.size > 0 ? t('from the pack selection') : t('from the current filter')}
         onResolveBatchCandidates={handleResolveBatchCandidates}
         onApplyLivePreviewMap={(previewData, bannerText) => {
           if (activeMapId) {
@@ -1228,7 +1244,7 @@ export const App: React.FC = () => {
         currentMapData={activeMapData}
         currentLayers={layers}
         batchCount={packMapIds.size > 0 ? packMapIds.size : totalFiltered}
-        batchSourceLabel={packMapIds.size > 0 ? 'z koszyka paczki' : 'z aktualnego filtra'}
+        batchSourceLabel={packMapIds.size > 0 ? t('from the pack selection') : t('from the current filter')}
         onResolveBatchCandidates={handleResolveBatchCandidates}
       />
       )}
