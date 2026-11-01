@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MapCompactEntry, MapSortField } from '@shared/apiTypes';
+import { describeSearchTerm, parseSearchQuery } from '@shared/searchQuery';
 import { formatBytes } from '../utils/mapCache';
 import { useMapThumbnail } from '../utils/useMapThumbnail';
 import {
@@ -10,8 +11,10 @@ import {
   Copy,
   LayoutGrid,
   List,
+  HelpCircle,
   PackagePlus,
   Search,
+  Star,
   Trash2,
 } from 'lucide-react';
 
@@ -43,7 +46,40 @@ interface MapBrowserPanelProps {
   resetScrollToken: number;
   listError?: string | null;
   onRetryList?: () => void;
+  onToggleFavorite: (mapId: string, favorite: boolean) => void;
 }
+
+const SEARCH_EXAMPLES: Array<[string, string]> = [
+  ['props>300', 'więcej niż 300 scenerii (także polys, colliders, spawns, w, h, kb)'],
+  ['tex:ananas', 'tekstura zawiera „ananas” (scen:, title:, name:, src:, mode:, crc:)'],
+  ['prefix:ctf_cs_', 'nazwa zaczyna się od ctf_cs_'],
+  ['is:fav', 'ulubione (is:broken, is:dup, is:vanilla, is:custom, is:bad)'],
+  ['tag:turniej', 'mapy z Twoim tagiem'],
+  ['pogoda:snieg', 'pogoda: brak, deszcz, piasek, snieg'],
+  ['-is:dup', 'minus przed filtrem = wyklucz'],
+];
+
+const FavoriteStar: React.FC<{
+  favorite: boolean;
+  onToggle: () => void;
+  className?: string;
+}> = ({ favorite, onToggle, className = '' }) => (
+  <button
+    type="button"
+    onClick={(e) => {
+      e.stopPropagation();
+      onToggle();
+    }}
+    title={favorite ? 'Usuń z ulubionych' : 'Dodaj do ulubionych'}
+    aria-label={favorite ? 'Usuń z ulubionych' : 'Dodaj do ulubionych'}
+    aria-pressed={favorite}
+    className={`shrink-0 cursor-pointer transition-opacity ${
+      favorite ? 'text-yellow-400' : 'text-zinc-500 hover:text-yellow-300 opacity-0 group-hover:opacity-100'
+    } ${className}`}
+  >
+    <Star className="w-3.5 h-3.5" fill={favorite ? 'currentColor' : 'none'} />
+  </button>
+);
 
 const MapGridCard: React.FC<{
   map: MapCompactEntry;
@@ -52,7 +88,8 @@ const MapGridCard: React.FC<{
   inPack: boolean;
   onSelect: (index: number, map: MapCompactEntry) => void;
   onTogglePack: (index: number, mapId: string, shiftKey: boolean) => void;
-}> = React.memo(({ map, index, isActive, inPack, onSelect, onTogglePack }) => {
+  onToggleFavorite: (mapId: string, favorite: boolean) => void;
+}> = React.memo(({ map, index, isActive, inPack, onSelect, onTogglePack, onToggleFavorite }) => {
   const { url: thumbUrl, failed: thumbFailed } = useMapThumbnail(map.id, map.crc32, map.hasThumbnail, true);
 
   return (
@@ -83,6 +120,12 @@ const MapGridCard: React.FC<{
             {thumbFailed ? 'Brak podglądu' : 'Render GPU...'}
           </span>
         )}
+
+        <FavoriteStar
+          favorite={Boolean(map.favorite)}
+          onToggle={() => onToggleFavorite(map.id, !map.favorite)}
+          className="absolute top-2 right-9 drop-shadow"
+        />
 
         {/* Pack toggle badge */}
         <button
@@ -165,10 +208,13 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
   resetScrollToken,
   listError,
   onRetryList,
+  onToggleFavorite,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportH, setViewportH] = useState(700);
+  const [showSearchHelp, setShowSearchHelp] = useState(false);
+  const parsedSearch = useMemo(() => parseSearchQuery(searchQuery), [searchQuery]);
   const lastPackClickIdxRef = useRef<number | null>(null);
 
   // Measure virtual scroll viewport height
@@ -331,6 +377,7 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
                 inPack={packMapIds.has(m0.id)}
                 onSelect={onSelectMapAt}
                 onTogglePack={handlePackCheckboxClick}
+                onToggleFavorite={onToggleFavorite}
               />
             ) : (
               <div className="h-[146px] rounded-lg bg-zinc-900/40 border border-zinc-800/50 animate-pulse" />
@@ -345,6 +392,7 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
                   inPack={packMapIds.has(m1.id)}
                   onSelect={onSelectMapAt}
                   onTogglePack={handlePackCheckboxClick}
+                  onToggleFavorite={onToggleFavorite}
                 />
               ) : (
                 <div className="h-[146px] rounded-lg bg-zinc-900/40 border border-zinc-800/50 animate-pulse" />
@@ -404,6 +452,7 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
                       <span className="font-mono text-xs font-medium truncate">
                         {m.baseName}
                       </span>
+                      <FavoriteStar favorite={Boolean(m.favorite)} onToggle={() => onToggleFavorite(m.id, !m.favorite)} />
                       {m.missingAssetsCount > 0 && (
                         <span title={`Brakuje ${m.missingAssetsCount} assetów`}>
                           <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
@@ -477,9 +526,21 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => onChangeSearchQuery(e.target.value)}
-            placeholder="Szukaj mapy, tytułu, tekstury, trybu..."
-            className="w-full bg-zinc-950 border border-zinc-800 rounded-md pl-8.5 pr-7 py-1.5 text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/70"
+            placeholder="Szukaj (np. ctf_cs props>300 tex:ananas)"
+            className="w-full bg-zinc-950 border border-zinc-800 rounded-md pl-8.5 pr-12 py-1.5 text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/70"
           />
+          <button
+            type="button"
+            onClick={() => setShowSearchHelp((v) => !v)}
+            aria-label="Składnia wyszukiwania"
+            aria-expanded={showSearchHelp}
+            title="Składnia wyszukiwania (filtry props>300, tex:, is:fav…)"
+            className={`absolute right-7 top-1/2 -translate-y-1/2 cursor-pointer ${
+              showSearchHelp ? 'text-emerald-300' : 'text-zinc-500 hover:text-zinc-300'
+            }`}
+          >
+            <HelpCircle className="w-3.5 h-3.5" />
+          </button>
           {searchQuery && (
             <button
               onClick={() => onChangeSearchQuery('')}
@@ -490,6 +551,41 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
             </button>
           )}
         </div>
+
+        {parsedSearch.structured && (
+          <div className="flex flex-wrap gap-1" aria-label="Rozpoznane filtry wyszukiwania">
+            {parsedSearch.terms.map((t, i) => (
+              <span
+                key={i}
+                className={`px-1.5 py-0.5 rounded text-[10px] border ${
+                  t.kind === 'text'
+                    ? 'bg-zinc-800 border-zinc-700 text-zinc-300'
+                    : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200'
+                }`}
+              >
+                {describeSearchTerm(t)}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {showSearchHelp && (
+          <div className="bg-zinc-950 border border-zinc-800 rounded-md p-2 space-y-1 text-[10px] text-zinc-400">
+            <div className="text-zinc-300 font-semibold">Filtry (kliknij, aby dodać):</div>
+            {SEARCH_EXAMPLES.map(([example, hint]) => (
+              <button
+                key={example}
+                type="button"
+                onClick={() => onChangeSearchQuery(`${searchQuery.trim()} ${example}`.trim())}
+                className="w-full text-left flex gap-2 hover:bg-zinc-900 rounded px-1 py-0.5 cursor-pointer"
+              >
+                <code className="text-emerald-300 shrink-0">{example}</code>
+                <span className="truncate">{hint}</span>
+              </button>
+            ))}
+            <div>Słowa bez dwukropka szukają w nazwie, tytule, teksturze i nazwach scenerii.</div>
+          </div>
+        )}
 
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 text-xs">

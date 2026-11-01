@@ -1,5 +1,38 @@
 # Changelog
 
+## 2.3.0 — 2026-11-01
+
+Druga iteracja planu rozwoju — wszystkie pozostałe pozycje z `docs/PLAN_ROZWOJU.md`.
+
+### Warsztat map
+- „Najpierw napraw wymiary scenerii 1.7.1, potem sklej” — `_f` i `_o` jednym kliknięciem (wynik `<mapa>_f_o`),
+  również w trybie wsadowym.
+- Miniatury „teraz / po” w tabeli diagnozy `_f`.
+- Okno potwierdzenia nadpisania informuje o kopii zapasowej (wcześniej błędnie straszyło „bezpowrotnym” usunięciem).
+
+### Podgląd map
+- Obrysy scenerii z problemami 1.7.1 na mapie (przycisk „Problemy 1.7.1”).
+- Ramka „Widok gracza” (480 jednostek wysokości, wybór proporcji ekranu).
+- Minimapa z prostokątem widoku — kliknięcie przesuwa kamerę.
+- Porównanie dwóch wersji mapy suwakiem (oryginał / `_f` / `_o` / podgląd zmian).
+
+### Biblioteka
+- Wyszukiwanie z filtrami: `props>300 tex:ananas prefix:ctf_cs_ is:fav -is:dup tag:turniej`.
+- Ulubione mapy i własne tagi.
+- „Porządki”: menedżer duplikatów CRC32 i raport nieużywanych scenerii — pliki trafiają do kopii zapasowej,
+  nigdy nie są kasowane.
+
+### Paczki i zrzuty
+- Presety opcji paczek.
+- Manifest sum CRC32 map w paczce.
+- Wznawianie przerwanej serii screenów.
+
+### Inżynieria
+- Lokalne fonty (działa offline, bez Google Fonts).
+- Dziennik serwera w `data/logs/`.
+- Okna ładowane przy pierwszym otwarciu — mniejsza paczka startowa.
+- 32 testy automatyczne.
+
 ## 2.2.0 — 2026-11-01
 
 Pełny audyt kodu w dwóch fazach — szczegóły w `docs/AUDYT.md`, plan dalszego rozwoju w `docs/PLAN_ROZWOJU.md`.

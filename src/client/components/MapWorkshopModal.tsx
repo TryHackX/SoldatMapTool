@@ -10,6 +10,7 @@ import {
   MapOptimizePlanResponse,
   OptimizeMapOptions,
   OptimizeSaveResponse,
+  SceneryFixIssueGroup,
 } from '@shared/apiTypes';
 import {
   cloneMapWithPropFixes,
@@ -122,6 +123,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
   const [giantPropThresholdPx, setGiantPropThresholdPx] = useState(1600);
   const [skipIsolatedSingleProps, setSkipIsolatedSingleProps] = useState(true);
   const [optRemoveUnused, setOptRemoveUnused] = useState(true);
+  const [fixFirst, setFixFirst] = useState(false);
   const [optClassicBmp, setOptClassicBmp] = useState(preferClassicBmp);
   const [optDestination, setOptDestination] = useState<
     'soldat_maps' | 'exports_optimized' | 'custom'
@@ -227,8 +229,10 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
       maxBaseLength,
       destination: optDestination,
       customOutputFolder: optCustomFolder || undefined,
+      fixFirst,
     }),
     [
+      fixFirst,
       mergeBack,
       mergeMid,
       mergeFront,
@@ -286,9 +290,15 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
   const derivedFixName = currentMapEntry
     ? makeDerivedMapName(currentMapEntry.baseName, '_f', maxBaseLength)
     : 'mapa_f';
-  const derivedOptName = currentMapEntry
-    ? makeDerivedMapName(currentMapEntry.baseName, '_o', maxBaseLength)
-    : 'mapa_o';
+  // The server decides the final name (`_f_o` only when fixFirst really repaired something)
+  const derivedOptName =
+    optPlan && currentMapEntry && optPlan.mapId === currentMapEntry.id
+      ? optPlan.derivedBaseName
+      : currentMapEntry
+      ? makeDerivedMapName(currentMapEntry.baseName, '_o', maxBaseLength)
+      : 'mapa_o';
+  const planFixCount =
+    optPlan && currentMapEntry && optPlan.mapId === currentMapEntry.id ? optPlan.appliedPropFixes?.length ?? 0 : 0;
 
   const analysisMatchesMap = Boolean(analysis && currentMapEntry && analysis.mapId === currentMapEntry.id);
   const selectedPropFixCount = (analysisMatchesMap ? analysis?.issues || [] : [])
@@ -855,6 +865,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                             </div>
 
                             <div className="flex items-center gap-3 shrink-0 font-mono">
+                              <SceneryFixThumbs issue={issue} />
                               <div className="text-right">
                                 <span className="text-red-300 line-through">
                                   {issue.pmsWidth}×{issue.pmsHeight}
@@ -1187,6 +1198,33 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                   />
                 </div>
               </div>
+
+              {/* Fix 1.7.1 sizes first (A5): one click instead of _f followed by _o */}
+              <label className="flex items-start gap-2.5 bg-zinc-950/80 border border-amber-500/25 rounded-lg p-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={fixFirst}
+                  onChange={(e) => setFixFirst(e.target.checked)}
+                  className="mt-0.5 rounded border-zinc-700 bg-zinc-900 text-amber-500"
+                />
+                <span className="space-y-0.5">
+                  <span className="block font-semibold text-zinc-200">
+                    Najpierw napraw wymiary scenerii 1.7.1 (jak <code>_f</code>), potem sklej
+                  </span>
+                  <span className="block text-[11px] text-zinc-400 leading-relaxed">
+                    Sklejanie mapy z rozciągniętymi sceneriami utrwaliłoby błąd w warstwach PNG. Zalecane poprawki są
+                    stosowane w pamięci (bez pliku pośredniego), a wynik dostaje nazwę <code>_f_o</code>.
+                    {fixFirst && optPlan && optPlan.mapId === currentMapEntry?.id && (
+                      <span className={planFixCount > 0 ? 'text-amber-300' : 'text-zinc-500'}>
+                        {' '}
+                        {planFixCount > 0
+                          ? `Ta mapa: ${planFixCount} scenerii zostanie poprawionych przed sklejeniem.`
+                          : 'Ta mapa nie wymaga poprawek — wynik zostanie zapisany jako zwykłe _o.'}
+                      </span>
+                    )}
+                  </span>
+                </span>
+              </label>
 
               {/* Quality & Tile Size */}
               <div className="grid grid-cols-2 gap-3">
@@ -1923,6 +1961,41 @@ const FidelityCard: React.FC<{
           Ustawienia zmieniły się po utworzeniu podglądu — zapis wypali warstwy ponownie z nowymi ustawieniami.
         </div>
       )}
+    </div>
+  );
+};
+
+/**
+ * The scenery image drawn at its current PMS size and at the corrected size, on the same scale, so the
+ * stretch (or enlargement) the fix removes is visible at a glance.
+ */
+const SceneryFixThumbs: React.FC<{ issue: SceneryFixIssueGroup }> = ({ issue }) => {
+  const [failed, setFailed] = useState(false);
+  const pw = Math.max(1, Math.abs(issue.pmsWidth));
+  const ph = Math.max(1, Math.abs(issue.pmsHeight));
+  const ew = Math.max(1, Math.abs(issue.expectedWidth));
+  const eh = Math.max(1, Math.abs(issue.expectedHeight));
+  const scale = Math.min(64 / Math.max(pw, ew), 34 / Math.max(ph, eh));
+  const url = `/api/assets?category=scenery-gfx&name=${encodeURIComponent(issue.sceneryName)}&convert=png&colorkey=1`;
+  if (failed) return null;
+  const box = (w: number, h: number, label: string, cls: string) => (
+    <div className="flex flex-col items-center gap-0.5" title={`${label}: ${w}×${h}`}>
+      <div className="h-[34px] flex items-end">
+        <img
+          src={url}
+          alt=""
+          onError={() => setFailed(true)}
+          style={{ width: Math.max(2, Math.round(w * scale)), height: Math.max(2, Math.round(h * scale)) }}
+          className={`object-fill rounded-sm border ${cls} bg-[repeating-conic-gradient(#27272a_0%_25%,#18181b_0%_50%)] bg-[length:8px_8px]`}
+        />
+      </div>
+      <span className="text-[9px] text-zinc-500 font-sans">{label}</span>
+    </div>
+  );
+  return (
+    <div className="flex items-end gap-1.5">
+      {box(pw, ph, 'teraz', 'border-red-500/50')}
+      {box(ew, eh, 'po', 'border-emerald-500/50')}
     </div>
   );
 };

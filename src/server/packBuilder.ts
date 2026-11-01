@@ -8,6 +8,7 @@ import {
   PackPreviewFile,
   PackPreviewResponse,
 } from '../shared/apiTypes';
+import { APP_VERSION } from '../shared/version';
 import { SoldatMapScanner } from './soldatScanner';
 
 interface InternalPackPlan {
@@ -28,6 +29,11 @@ interface InternalPackPlan {
 export function packMapsListName(packName: string): string {
   const stem = packName.replace(/[^\w.-]+/g, '_').replace(/^_+|_+$/g, '') || 'pack';
   return `mapslist_${stem}.txt`;
+}
+
+/** Name of the CRC32 manifest (map name, OpenSoldat CRC32, size) generated into a pack */
+export function packCrcManifestName(packName: string): string {
+  return packMapsListName(packName).replace(/^mapslist_/, 'maps_crc32_');
 }
 
 function sanitizeFileName(name: string): string {
@@ -269,6 +275,18 @@ function collectPackPlan(
     });
   }
 
+  if (options.generateCrcManifest && selectedMaps.length > 0) {
+    const listName = packCrcManifestName(options.packName || 'Soldat_Map_Pack');
+    filesMap.set(listName.toLowerCase(), {
+      archivePath: listName,
+      diskPath: '<generated>',
+      category: 'generated',
+      sizeBytes: Buffer.byteLength(generateCrcManifestContent(options.packName || 'Soldat_Map_Pack', selectedMaps), 'utf-8'),
+      usedByMapsCount: selectedMaps.length,
+      sampleMaps: selectedMaps.slice(0, 6).map((m) => m.baseName),
+    });
+  }
+
   if (options.generateReadmeManifest && selectedMaps.length > 0) {
     const content = generateManifestContent(
       options.packName || 'Soldat_Map_Pack',
@@ -386,6 +404,38 @@ export function buildPackPreview(
   };
 }
 
+/**
+ * Map list with the OpenSoldat CRC32 of every .pms (the checksum client and server compare to decide whether
+ * a map has to be downloaded), so a server admin can verify the pack contents.
+ */
+export function generateCrcManifestContent(packName: string, maps: MapIndexEntry[]): string {
+  const lines = [
+    `# Soldat Map Studio v${APP_VERSION} — sumy kontrolne map paczki "${packName}"`,
+    `# Wygenerowano: ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC`,
+    '# CRC32 w formacie OpenSoldat (ta sama suma, którą gra porównuje wersje map)',
+    '# mapa;crc32;rozmiar_bajtow;plik',
+  ];
+  for (const m of maps) {
+    const crc = (m.crc32 >>> 0).toString(16).toUpperCase().padStart(8, '0');
+    lines.push(`${m.baseName};${crc};${m.fileSize};maps/${m.fileName}`);
+  }
+  lines.push('');
+  return lines.join('\r\n');
+}
+
+/** Content of a generated pack file, chosen by its archive name */
+function generatedFileContent(
+  archivePath: string,
+  packName: string,
+  maps: MapIndexEntry[],
+  warnings: PackMissingWarning[]
+): string {
+  const lower = archivePath.toLowerCase();
+  if (lower.startsWith('mapslist')) return generateMapsListContent(maps);
+  if (lower.startsWith('maps_crc32')) return generateCrcManifestContent(packName, maps);
+  return generateManifestContent(packName, maps, warnings);
+}
+
 function generateMapsListContent(maps: MapIndexEntry[]): string {
   return maps.map((m) => m.baseName).join('\r\n') + '\r\n';
 }
@@ -398,7 +448,7 @@ function generateManifestContent(
   const lines: string[] = [];
   lines.push('================================================================');
   lines.push(` SOLDAT MAP PACK: ${packName}`);
-  lines.push(` Wygenerowano przez: Soldat Map Studio v2.0 (MPA Pro)`);
+  lines.push(` Wygenerowano przez: Soldat Map Studio v${APP_VERSION} (MPA Pro)`);
   lines.push(` Data: ${new Date().toISOString().replace('T', ' ').slice(0, 19)}`);
   lines.push(` Liczba map: ${maps.length}`);
   lines.push('================================================================');
@@ -517,9 +567,7 @@ export async function executePackBuild(
         const destPath = path.join(targetFolder, ...file.archivePath.split('/'));
         await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
         if (file.category === 'generated') {
-          const content = file.archivePath.toLowerCase().startsWith('mapslist')
-            ? generateMapsListContent(selectedMaps)
-            : generateManifestContent(safeName, selectedMaps, plan.allMissingWarnings);
+          const content = generatedFileContent(file.archivePath, safeName, selectedMaps, plan.allMissingWarnings);
           await fs.promises.writeFile(destPath, content, 'utf-8');
           copied++;
         } else {
@@ -553,6 +601,7 @@ export async function executePackBuild(
           mapIds: [singleMap.id],
           generateMapsListTxt: false,
           generateReadmeManifest: false,
+          generateCrcManifest: false,
         },
         [singleMap],
         scanner
@@ -587,6 +636,7 @@ export async function executePackBuild(
             mapIds: [map.id],
             generateMapsListTxt: false,
             generateReadmeManifest: false,
+            generateCrcManifest: false,
           },
           [map],
           scanner
@@ -697,13 +747,9 @@ function createZipArchive(
 
     for (const f of files) {
       if (f.category === 'generated') {
-        if (f.archivePath.toLowerCase().startsWith('mapslist')) {
-          archive.append(generateMapsListContent(selectedMaps), { name: f.archivePath });
-        } else {
-          archive.append(generateManifestContent(packName, selectedMaps, warnings), {
-            name: f.archivePath,
-          });
-        }
+        archive.append(generatedFileContent(f.archivePath, packName, selectedMaps, warnings), {
+          name: f.archivePath,
+        });
         fileCount++;
       } else if (fs.existsSync(f.diskPath)) {
         archive.file(f.diskPath, { name: f.archivePath });

@@ -1,28 +1,25 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ExtraMapSource,
   IndexMetaResponse,
   MapCompactEntry,
   MapIndexEntry,
   MapQueryRequest,
+  MapUserDataPatch,
   ScanProgressStatus,
 } from '@shared/apiTypes';
 import { PmsMapData } from '@shared/pmsParser';
 import { CustomPrefixRule } from '@shared/prefixUtils';
+import { APP_VERSION } from '@shared/version';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MapBrowserPanel, MapSortField } from './components/MapBrowserPanel';
 import { MapInspectorDrawer } from './components/MapInspectorDrawer';
 import { MapViewport } from './components/MapViewport';
-import { MapWorkshopModal } from './components/MapWorkshopModal';
-import { PackBuilderModal } from './components/PackBuilderModal';
 import {
   ExtraFilterState,
   PrefixSidebar,
   StatusFilterMode,
 } from './components/PrefixSidebar';
-import { PrefixStudioModal } from './components/PrefixStudioModal';
-import { ScreenshotModal } from './components/ScreenshotModal';
-import { SettingsModal } from './components/SettingsModal';
 import { DEFAULT_RENDER_LAYERS, RenderLayerVisibility } from './renderer/types';
 import { clearSoldatAssetCache } from './renderer/assetLoader';
 import {
@@ -37,8 +34,10 @@ import {
   queryMatchingMapIds,
   saveAppConfig,
   saveCustomPrefixRules,
+  updateMapUserData,
 } from './utils/mapCache';
 import {
+  Archive,
   FolderOpen,
   Package,
   PanelLeft,
@@ -49,6 +48,36 @@ import {
   Tags,
   Wrench,
 } from 'lucide-react';
+
+// Modals are code-split: their chunks load on first opening, so the start-up bundle stays small
+const MapWorkshopModal = lazy(() =>
+  import('./components/MapWorkshopModal').then((m) => ({ default: m.MapWorkshopModal }))
+);
+const PackBuilderModal = lazy(() =>
+  import('./components/PackBuilderModal').then((m) => ({ default: m.PackBuilderModal }))
+);
+const PrefixStudioModal = lazy(() =>
+  import('./components/PrefixStudioModal').then((m) => ({ default: m.PrefixStudioModal }))
+);
+const ScreenshotModal = lazy(() =>
+  import('./components/ScreenshotModal').then((m) => ({ default: m.ScreenshotModal }))
+);
+const SettingsModal = lazy(() =>
+  import('./components/SettingsModal').then((m) => ({ default: m.SettingsModal }))
+);
+const LibraryToolsModal = lazy(() =>
+  import('./components/LibraryToolsModal').then((m) => ({ default: m.LibraryToolsModal }))
+);
+
+/**
+ * True from the first time `open` is set: a lazy modal is mounted on first use and then stays mounted,
+ * so its form state survives closing exactly like before code splitting.
+ */
+function useMountedAfterFirstOpen(open: boolean): boolean {
+  const openedRef = useRef(open);
+  if (open) openedRef.current = true;
+  return openedRef.current;
+}
 
 const PAGE_SIZE = 400;
 const UI_STATE_KEY = 'soldat-map-studio.ui.v1';
@@ -153,6 +182,14 @@ export const App: React.FC = () => {
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [loadedMap, setLoadedMap] = useState<{ id: string; data: PmsMapData } | null>(null);
+  // B5: second version of the active map shown right of the viewport divider
+  const [compareTarget, setCompareTarget] = useState<{
+    forMapId: string;
+    key: string;
+    label: string;
+    data: PmsMapData;
+  } | null>(null);
+  const [compareCandidates, setCompareCandidates] = useState<Array<{ id: string; baseName: string }>>([]);
   const [loadingMap, setLoadingMap] = useState(false);
   const [mapLoadError, setMapLoadError] = useState<string | null>(null);
   const [listError, setListError] = useState<string | null>(null);
@@ -254,6 +291,10 @@ export const App: React.FC = () => {
     banner: string;
   } | null>(null);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [libraryToolsState, setLibraryToolsState] = useState<{ open: boolean; tab: 'duplicates' | 'unused' }>({
+    open: false,
+    tab: 'duplicates',
+  });
 
   // Debounce search text
   useEffect(() => {
@@ -682,6 +723,111 @@ export const App: React.FC = () => {
       ? Math.round((liveScanStatus.scannedFiles / liveScanStatus.totalFiles) * 100)
       : 0;
 
+  // Favourite / tags: saved on the server, then patched into every cached copy of that map (no list reload)
+  const userDataQueryRef = useRef({ statusFilter, search: debouncedSearch });
+  userDataQueryRef.current = { statusFilter, search: debouncedSearch };
+  const handleUpdateUserData = useCallback(async (mapId: string, patch: MapUserDataPatch) => {
+    try {
+      const res = await updateMapUserData(mapId, patch);
+      const apply = <T extends MapCompactEntry>(entry: T): T => ({ ...entry, favorite: res.favorite, tags: res.tags });
+      for (const [idx, item] of itemsByIndexRef.current) {
+        if (item.id === mapId) itemsByIndexRef.current.set(idx, apply(item));
+      }
+      const known = compactsByIdRef.current.get(mapId);
+      if (known) compactsByIdRef.current.set(mapId, apply(known));
+      setLoadedDetails((d) => (d && d.id === mapId ? apply(d) : d));
+      setMeta((prev) => (prev ? { ...prev, favoriteMapsCount: res.favoriteMapsCount, userTags: res.userTags } : prev));
+      setCacheTick((t) => t + 1);
+      // A list filtered by favourites / tags must re-run its query to add or drop this map
+      const q = userDataQueryRef.current;
+      if (q.statusFilter === 'favorites' || /(^|\s)-?(tag|tagi|is|jest):/i.test(q.search)) {
+        setMetaRevision((r) => r + 1);
+      }
+    } catch (err) {
+      setScanError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+  const handleToggleFavorite = useCallback(
+    (mapId: string, favorite: boolean) => handleUpdateUserData(mapId, { favorite }),
+    [handleUpdateUserData]
+  );
+  const handleSearchTag = useCallback((tag: string) => {
+    const token = /\s/.test(tag) ? `tag:"${tag}"` : `tag:${tag}`;
+    setSearchQuery((q) => (q.toLowerCase().includes(token.toLowerCase()) ? q : `${q.trim()} ${token}`.trim()));
+  }, []);
+  const knownTags = useMemo(() => (meta?.userTags ?? []).map((t) => t.tag), [meta?.userTags]);
+
+  // Related versions of the active map (X, X_f, X_o, X_f_o) for the compare menu
+  const activeBaseName = activeMapDetails?.baseName ?? null;
+  useEffect(() => {
+    if (!activeBaseName || !activeMapId) {
+      setCompareCandidates([]);
+      return;
+    }
+    const root = activeBaseName.replace(/(_f_o|_f|_o)$/i, '');
+    const family = new Set([root, `${root}_f`, `${root}_o`, `${root}_f_o`].map((n) => n.toLowerCase()));
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      queryMatchingMapCompacts({ searchQuery: `name:${root.toLowerCase()}` })
+        .then((items) => {
+          if (cancelled) return;
+          setCompareCandidates(
+            items
+              .filter((m) => m.id !== activeMapId && family.has(m.baseName.toLowerCase()))
+              .map((m) => ({ id: m.id, baseName: m.baseName }))
+          );
+        })
+        .catch(() => {
+          if (!cancelled) setCompareCandidates([]);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [activeBaseName, activeMapId, metaRevision]);
+
+  // A comparison belongs to the map it was started for
+  useEffect(() => {
+    if (compareTarget && compareTarget.forMapId !== activeMapId) setCompareTarget(null);
+  }, [activeMapId, compareTarget]);
+  useEffect(() => {
+    if (!livePreviewMap && compareTarget?.key.startsWith('original:')) setCompareTarget(null);
+  }, [livePreviewMap, compareTarget]);
+
+  const handleStartCompare = useCallback(
+    (mapId: string) => {
+      const forMapId = activeMapId;
+      if (!forMapId) return;
+      const label = compareCandidates.find((c) => c.id === mapId)?.baseName ?? mapId;
+      fetchAndParseMap(mapId)
+        .then((data) => {
+          if (activeMapIdRef.current === forMapId) setCompareTarget({ forMapId, key: mapId, label, data });
+        })
+        .catch((err) => setScanError(err instanceof Error ? err.message : String(err)));
+    },
+    [activeMapId, compareCandidates]
+  );
+
+  const previewActive = Boolean(livePreviewMap && livePreviewMap.forMapId === activeMapId);
+  const handleCompareWithOriginal =
+    previewActive && activeMapId && activeMapData
+      ? () =>
+          setCompareTarget({
+            forMapId: activeMapId,
+            key: `original:${activeMapId}`,
+            label: `${activeMapDetails?.baseName ?? 'mapa'} (oryginał)`,
+            data: activeMapData,
+          })
+      : null;
+
+  const workshopMounted = useMountedAfterFirstOpen(workshopModalState.open);
+  const prefixStudioMounted = useMountedAfterFirstOpen(prefixStudioState.open);
+  const packModalMounted = useMountedAfterFirstOpen(packModalOpen);
+  const screenshotMounted = useMountedAfterFirstOpen(screenshotModalState.open);
+  const settingsMounted = useMountedAfterFirstOpen(settingsModalOpen);
+  const libraryToolsMounted = useMountedAfterFirstOpen(libraryToolsState.open);
+
   return (
     <div className="h-screen w-screen flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden">
       {/* Top Application Header Bar */}
@@ -696,7 +842,7 @@ export const App: React.FC = () => {
                 SOLDAT MAP STUDIO
               </span>
               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                v2.2<span className="hidden 2xl:inline"> • MPA PRO + 100% VIEW + _f/_o WORKSHOP</span>
+                v{APP_VERSION}<span className="hidden 2xl:inline"> • MPA PRO + 100% VIEW + _f/_o WORKSHOP</span>
               </span>
             </div>
           </div>
@@ -778,6 +924,22 @@ export const App: React.FC = () => {
             {meta && meta.customRules.length > 0 && (
               <span className="font-mono text-[10px] px-1 rounded bg-emerald-500/20 text-emerald-300">
                 {meta.customRules.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setLibraryToolsState({ open: true, tab: 'duplicates' })}
+            disabled={!meta || isBgScanning}
+            title="Porządki: duplikaty map (identyczne CRC32) i nieużywane pliki scenerii — przenoszone do kopii zapasowej"
+            className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs text-zinc-300 flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
+          >
+            <Archive className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden lg:inline">Porządki</span>
+            {meta && meta.duplicateMapsCount > 0 && (
+              <span className="font-mono text-[10px] px-1 rounded bg-orange-500/20 text-orange-300">
+                {meta.duplicateMapsCount}
               </span>
             )}
           </button>
@@ -886,6 +1048,9 @@ export const App: React.FC = () => {
           brokenMapsCount={meta?.brokenMapsCount ?? 0}
           duplicateMapsCount={meta?.duplicateMapsCount ?? 0}
           incompatibleMapsCount={meta?.incompatibleMapsCount ?? 0}
+          favoriteMapsCount={meta?.favoriteMapsCount ?? 0}
+          userTags={meta?.userTags ?? []}
+          onSearchTag={handleSearchTag}
           packCount={packMapIds.size}
           modeGroups={meta?.modeGroups ?? []}
           prefixes={meta?.prefixes ?? []}
@@ -936,6 +1101,7 @@ export const App: React.FC = () => {
           resetScrollToken={resetScrollToken}
           listError={listError}
           onRetryList={() => setMetaRevision((r) => r + 1)}
+          onToggleFavorite={handleToggleFavorite}
         />
 
         <ErrorBoundary fallbackTitle="Błąd renderowania widoku mapy WebGL2">
@@ -964,6 +1130,12 @@ export const App: React.FC = () => {
                 : null
             }
             onClearPreviewMode={() => setLivePreviewMap(null)}
+            compare={compareTarget && compareTarget.forMapId === activeMapId ? compareTarget : null}
+            mainLabel={previewActive ? 'podgląd zmian' : activeMapDetails?.baseName}
+            compareCandidates={compareCandidates}
+            onStartCompare={handleStartCompare}
+            onCompareWithOriginal={handleCompareWithOriginal}
+            onStopCompare={() => setCompareTarget(null)}
           />
         </ErrorBoundary>
 
@@ -976,11 +1148,15 @@ export const App: React.FC = () => {
             onTogglePack={() => activeMapId && handleToggleMapInPack(activeMapId)}
             onSelectMapById={selectMapById}
             onOpenWorkshop={(tab) => setWorkshopModalState({ open: true, tab })}
+            onUpdateUserData={handleUpdateUserData}
+            knownTags={knownTags}
           />
         )}
       </div>
 
       {/* Modals */}
+      <Suspense fallback={null}>
+      {workshopMounted && (
       <MapWorkshopModal
         open={workshopModalState.open}
         initialTab={workshopModalState.tab}
@@ -1003,7 +1179,9 @@ export const App: React.FC = () => {
         onMetaUpdated={applyMetaUpdate}
         onSelectMapById={selectMapById}
       />
+      )}
 
+      {prefixStudioMounted && (
       <PrefixStudioModal
         open={prefixStudioState.open}
         onClose={() => setPrefixStudioState({ open: false, draftPrefix: null })}
@@ -1012,7 +1190,9 @@ export const App: React.FC = () => {
         initialDraftPrefix={prefixStudioState.draftPrefix}
         onSaveRules={handleSaveCustomRules}
       />
+      )}
 
+      {packModalMounted && (
       <PackBuilderModal
         open={packModalOpen}
         onClose={() => setPackModalOpen(false)}
@@ -1022,7 +1202,9 @@ export const App: React.FC = () => {
         onClearPack={() => setPackMapIds(new Set())}
         onMetaUpdated={applyMetaUpdate}
       />
+      )}
 
+      {screenshotMounted && (
       <ScreenshotModal
         open={screenshotModalState.open}
         initialBatchMode={screenshotModalState.batch}
@@ -1034,7 +1216,9 @@ export const App: React.FC = () => {
         batchSourceLabel={packMapIds.size > 0 ? 'z koszyka paczki' : 'z aktualnego filtra'}
         onResolveBatchCandidates={handleResolveBatchCandidates}
       />
+      )}
 
+      {settingsMounted && (
       <SettingsModal
         open={settingsModalOpen}
         onClose={() => setSettingsModalOpen(false)}
@@ -1042,6 +1226,17 @@ export const App: React.FC = () => {
         extraSources={meta?.extraSources ?? []}
         onSaveConfig={handleSaveConfig}
       />
+      )}
+
+      {libraryToolsMounted && (
+      <LibraryToolsModal
+        open={libraryToolsState.open}
+        initialTab={libraryToolsState.tab}
+        onClose={() => setLibraryToolsState((st) => ({ ...st, open: false }))}
+        onMetaUpdated={applyMetaUpdate}
+      />
+      )}
+      </Suspense>
     </div>
   );
 };

@@ -17,6 +17,7 @@ export interface OverlayRenderOptions {
   ruler?: RulerMeasurement | null;
   fixedWorldScale?: boolean; // True when baking 100% tiled screenshots so markers have deterministic world size
   highlightOutline?: number[] | null; // World-space polygon [x0, y0, x1, y1, ...] of the inspected object
+  issueOutlines?: number[][] | null; // World-space quads of props with 1.7.1 size problems (amber)
 }
 
 export function renderMapOverlays(
@@ -463,6 +464,25 @@ export function renderMapOverlays(
   }
 
   // 9. Inspected object outline (prop quad or polygon triangle)
+  const issues = opts.issueOutlines;
+  if (issues && issues.length > 0) {
+    ctx.save();
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 3]);
+    for (const quad of issues) {
+      if (quad.length < 6) continue;
+      ctx.beginPath();
+      ctx.moveTo(toScreenX(quad[0]), toScreenY(quad[1]));
+      for (let i = 2; i < quad.length; i += 2) ctx.lineTo(toScreenX(quad[i]), toScreenY(quad[i + 1]));
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.10)';
+      ctx.fill();
+      ctx.strokeStyle = '#f59e0b';
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   const outline = opts.highlightOutline;
   if (outline && outline.length >= 6) {
     ctx.save();

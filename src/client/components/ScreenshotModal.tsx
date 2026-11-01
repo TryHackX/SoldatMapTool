@@ -5,12 +5,13 @@ import {
   ExportResultInfo,
   generateFullSizeScreenshot,
 } from '../renderer/FullSizeExporter';
-import { DEFAULT_RENDER_LAYERS, RenderLayerVisibility } from '../renderer/types';
+import { DEFAULT_RENDER_LAYERS, FullSizeExportSettings, RenderLayerVisibility } from '../renderer/types';
 import {
   fetchAndParseMap,
   formatBytes,
   openPathInExplorer,
   pickSystemFolder,
+  queryMatchingMapCompacts,
 } from '../utils/mapCache';
 import { useModalDismiss } from '../utils/useModalDismiss';
 import {
@@ -18,10 +19,62 @@ import {
   CheckCircle2,
   Download,
   FolderOpen,
+  History,
   Layers,
   Square,
   X,
 } from 'lucide-react';
+
+type BatchSettings = Omit<FullSizeExportSettings, 'saveToServerExports' | 'triggerBrowserDownload'>;
+
+interface SavedBatchJob {
+  ids: string[];
+  total: number;
+  startedAt: number;
+  settings: BatchSettings;
+}
+
+// An interrupted batch (closed tab, crash, Stop) can be resumed: ids + settings in one key, progress in another
+// (rewriting up to 50k ids after every map would be far too slow)
+const BATCH_JOB_KEY = 'soldat-map-studio.screenshot-batch.v1';
+const BATCH_PROGRESS_KEY = 'soldat-map-studio.screenshot-batch-progress.v1';
+
+function loadSavedBatchJob(): { job: SavedBatchJob; processed: number } | null {
+  try {
+    const job = JSON.parse(localStorage.getItem(BATCH_JOB_KEY) || 'null') as SavedBatchJob | null;
+    if (!job || !Array.isArray(job.ids) || job.ids.length === 0 || !job.settings) return null;
+    const processed = Number(localStorage.getItem(BATCH_PROGRESS_KEY) || 0) || 0;
+    return { job, processed };
+  } catch {
+    return null;
+  }
+}
+
+function storeBatchJob(job: SavedBatchJob): void {
+  try {
+    localStorage.setItem(BATCH_JOB_KEY, JSON.stringify(job));
+    localStorage.setItem(BATCH_PROGRESS_KEY, '0');
+  } catch {
+    // Storage full / unavailable: the batch still runs, it just cannot be resumed
+  }
+}
+
+function storeBatchProgress(processed: number): void {
+  try {
+    localStorage.setItem(BATCH_PROGRESS_KEY, String(processed));
+  } catch {
+    // Ignore
+  }
+}
+
+function clearSavedBatchJob(): void {
+  try {
+    localStorage.removeItem(BATCH_JOB_KEY);
+    localStorage.removeItem(BATCH_PROGRESS_KEY);
+  } catch {
+    // Ignore
+  }
+}
 
 interface ScreenshotModalProps {
   open: boolean;
@@ -74,9 +127,11 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
   } | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
+  const [savedJob, setSavedJob] = useState<{ job: SavedBatchJob; processed: number } | null>(null);
 
   useEffect(() => {
     if (open) {
+      setSavedJob(loadSavedBatchJob());
       setMode(initialBatchMode ? 'batch' : 'single');
       setExportLayers(currentLayers);
       setError(null);
@@ -109,7 +164,20 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
     abortRef.current?.abort();
   };
 
-  const handleGenerate = async () => {
+  const applyBatchSettings = (b: BatchSettings) => {
+    setScale(b.scale);
+    setBoundsMode(b.boundsMode);
+    setPaddingPx(b.paddingPx);
+    setFormat(b.format);
+    setQuality(b.quality);
+    setExportLayers(b.layers);
+    setIncludeWatermark(b.includeWatermark);
+    setSubfolderMode(b.subfolderMode);
+    setSkipExisting(b.skipExisting);
+    setCustomFolder(b.customFolder ?? '');
+  };
+
+  const handleGenerate = async (resume?: SavedBatchJob) => {
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -152,10 +220,33 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
         setLastResult(res);
       } else {
         setStatusText('Pobieranie listy map do wsadowego renderowania...');
-        const candidates = await onResolveBatchCandidates();
+        // A resumed batch uses its own saved settings and always skips screens that already exist
+        const batch: BatchSettings = resume
+          ? { ...resume.settings, skipExisting: true }
+          : {
+              scale,
+              boundsMode,
+              paddingPx,
+              format,
+              quality,
+              layers: exportLayers,
+              includeWatermark,
+              subfolderMode,
+              skipExisting,
+              customFolder: customFolder || undefined,
+            };
+        if (resume) applyBatchSettings(batch);
+        const candidates = resume
+          ? await queryMatchingMapCompacts({ statusFilter: 'in_pack', packMapIds: resume.ids })
+          : await onResolveBatchCandidates();
         if (candidates.length === 0) {
+          if (resume) clearSavedBatchJob();
           throw new Error('Brak map do wsadowego wygenerowania screenów.');
         }
+        if (!resume) {
+          storeBatchJob({ ids: candidates.map((c) => c.id), total: candidates.length, startedAt: Date.now(), settings: batch });
+        }
+        setSavedJob(null);
 
         let completed = 0;
         let skipped = 0;
@@ -170,8 +261,8 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
 
           setStatusText(
             `[${completed + 1} / ${candidates.length}] ${entry.baseName} (${Math.round(
-              entry.polyWidth * scale
-            )}×${Math.round(entry.polyHeight * scale)} px)...`
+              entry.polyWidth * batch.scale
+            )}×${Math.round(entry.polyHeight * batch.scale)} px)...`
           );
           setProgress(completed / candidates.length);
 
@@ -180,20 +271,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
             const res = await generateFullSizeScreenshot(
               parsed,
               entry.baseName,
-              {
-                scale,
-                boundsMode,
-                paddingPx,
-                format,
-                quality,
-                layers: exportLayers,
-                saveToServerExports: true,
-                triggerBrowserDownload: false,
-                includeWatermark,
-                subfolderMode,
-                skipExisting,
-                customFolder: customFolder || undefined,
-              },
+              { ...batch, saveToServerExports: true, triggerBrowserDownload: false },
               undefined,
               {
                 prefix: entry.prefix,
@@ -222,11 +300,15 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
           }
 
           setProgress(completed / candidates.length);
+          storeBatchProgress(completed);
           // Yield event loop so Stop button & progress bar stay responsive across thousands of maps
           await new Promise((r) => setTimeout(r, 8));
         }
 
         setBatchStats({ done: completed, skipped, failed, total: candidates.length, firstError, stoppedEarly });
+        // Finished batches are forgotten; stopped or interrupted ones stay resumable
+        if (!controller.signal.aborted && !stoppedEarly) clearSavedBatchJob();
+        else setSavedJob(loadSavedBatchJob());
         setLastResult(lastOut);
         setStatusText(
           controller.signal.aborted
@@ -296,6 +378,39 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
               Tryb Wsadowy Batch ({batchCount.toLocaleString('pl-PL')} map — {batchSourceLabel})
             </button>
           </div>
+
+          {savedJob && mode === 'batch' && !running && (
+            <div className="bg-sky-950/50 border border-sky-500/40 rounded-lg px-3 py-2 flex items-center justify-between gap-3 text-sky-100">
+              <div className="flex items-center gap-2 min-w-0">
+                <History className="w-4 h-4 text-sky-300 shrink-0" />
+                <span className="truncate">
+                  Przerwana seria: {Math.min(savedJob.processed, savedJob.job.total).toLocaleString('pl-PL')} z{' '}
+                  {savedJob.job.total.toLocaleString('pl-PL')} map (start{' '}
+                  {new Date(savedJob.job.startedAt).toLocaleString('pl-PL', { dateStyle: 'short', timeStyle: 'short' })}
+                  ). Gotowe screeny zostaną pominięte.
+                </span>
+              </div>
+              <div className="flex gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleGenerate(savedJob.job)}
+                  className="px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white font-semibold cursor-pointer"
+                >
+                  Wznów
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearSavedBatchJob();
+                    setSavedJob(null);
+                  }}
+                  className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 cursor-pointer"
+                >
+                  Porzuć
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Scale & Framing */}
           <div className="grid grid-cols-2 gap-4">
@@ -696,7 +811,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
             <button
               type="button"
               disabled={running}
-              onClick={handleGenerate}
+              onClick={() => handleGenerate()}
               className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-emerald-950/50 cursor-pointer"
             >
               <Camera className="w-4 h-4" />

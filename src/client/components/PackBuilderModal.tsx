@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   IndexMetaResponse,
   PackBuildOptions,
+  PackPreset,
   PackPreviewResponse,
 } from '@shared/apiTypes';
 import {
@@ -21,6 +22,7 @@ import {
   FolderOpen,
   Layers,
   Package,
+  Save,
   Search,
   Trash2,
   X,
@@ -66,6 +68,13 @@ export const PackBuilderModal: React.FC<PackBuilderModalProps> = ({
   const [fixLinuxCase, setFixLinuxCase] = useState(true);
   const [generateMapsListTxt, setGenerateMapsListTxt] = useState(true);
   const [generateReadmeManifest, setGenerateReadmeManifest] = useState(true);
+  const [generateCrcManifest, setGenerateCrcManifest] = useState(true);
+
+  // Saved option sets (data/pack-presets.json)
+  const [presets, setPresets] = useState<PackPreset[]>([]);
+  const [selectedPresetName, setSelectedPresetName] = useState('');
+  const [newPresetName, setNewPresetName] = useState('');
+  const [presetError, setPresetError] = useState<string | null>(null);
   const [customOutputFolder, setCustomOutputFolder] = useState('');
 
   const [preview, setPreview] = useState<PackPreviewResponse | null>(null);
@@ -103,6 +112,7 @@ export const PackBuilderModal: React.FC<PackBuilderModalProps> = ({
       fixLinuxCase,
       generateMapsListTxt,
       generateReadmeManifest,
+      generateCrcManifest,
       customOutputFolder: customOutputFolder || undefined,
     }),
     [
@@ -117,9 +127,60 @@ export const PackBuilderModal: React.FC<PackBuilderModalProps> = ({
       fixLinuxCase,
       generateMapsListTxt,
       generateReadmeManifest,
+      generateCrcManifest,
       customOutputFolder,
     ]
   );
+
+  useEffect(() => {
+    if (!open) return;
+    fetch('/api/pack-presets')
+      .then((r) => (r.ok ? r.json() : { presets: [] }))
+      .then((d) => setPresets(Array.isArray(d.presets) ? d.presets : []))
+      .catch(() => setPresets([]));
+  }, [open]);
+
+  const applyPreset = (name: string) => {
+    setSelectedPresetName(name);
+    const preset = presets.find((p) => p.name === name);
+    if (!preset) return;
+    const o = preset.options;
+    setPackName(o.packName);
+    setOutputFormat(o.outputFormat);
+    setSplitBy(o.splitBy === 'prefix' || o.splitBy === 'mode' ? o.splitBy : 'none');
+    setExcludeVanillaAssets(o.excludeVanillaAssets);
+    setExcludeUnusedScenery(o.excludeUnusedScenery);
+    setIncludePngOverrides(o.includePngOverrides);
+    setIncludeEdgeTextures(o.includeEdgeTextures);
+    setFixLinuxCase(o.fixLinuxCase);
+    setGenerateMapsListTxt(o.generateMapsListTxt);
+    setGenerateReadmeManifest(o.generateReadmeManifest);
+    setGenerateCrcManifest(o.generateCrcManifest !== false);
+    setCustomOutputFolder(o.customOutputFolder ?? '');
+    setPresetError(null);
+  };
+
+  const presetRequest = async (method: 'POST' | 'DELETE', name: string) => {
+    setPresetError(null);
+    try {
+      const { mapIds: _mapIds, ...presetOptions } = options;
+      const res = await fetch(
+        method === 'POST' ? '/api/pack-presets' : `/api/pack-presets/${encodeURIComponent(name)}`,
+        {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: method === 'POST' ? JSON.stringify({ name, options: presetOptions }) : undefined,
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setPresets(data.presets ?? []);
+      setSelectedPresetName(method === 'POST' ? name.trim() : '');
+      if (method === 'POST') setNewPresetName('');
+    } catch (err) {
+      setPresetError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   // Debounced live preview of pack contents (safe even for 20,000+ map packs)
   useEffect(() => {
@@ -290,6 +351,59 @@ export const PackBuilderModal: React.FC<PackBuilderModalProps> = ({
           <div className="flex-1 min-h-0 grid grid-cols-12 divide-x divide-zinc-800">
             {/* Left Settings & Selected Maps */}
             <div className="col-span-5 flex flex-col min-h-0 p-4 space-y-3.5 overflow-y-auto">
+              {/* Presets */}
+              <div className="bg-zinc-950/60 border border-zinc-800 rounded-lg p-2.5 space-y-1.5 text-xs">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-zinc-400 shrink-0">Preset:</span>
+                  <select
+                    value={selectedPresetName}
+                    onChange={(e) => applyPreset(e.target.value)}
+                    aria-label="Wybierz zapisany preset opcji paczki"
+                    className="flex-1 min-w-0 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-violet-500"
+                  >
+                    <option value="">{presets.length ? '— wybierz zapisane opcje —' : '— brak zapisanych presetów —'}</option>
+                    {presets.map((p) => (
+                      <option key={p.name} value={p.name}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={!selectedPresetName}
+                    onClick={() => presetRequest('DELETE', selectedPresetName)}
+                    title="Usuń wybrany preset"
+                    aria-label="Usuń wybrany preset"
+                    className="p-1.5 rounded bg-zinc-800 hover:bg-red-500/25 text-zinc-400 hover:text-red-300 disabled:opacity-30 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={newPresetName}
+                    onChange={(e) => setNewPresetName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newPresetName.trim()) presetRequest('POST', newPresetName);
+                    }}
+                    placeholder="Nazwa nowego presetu (np. Serwer CTF)"
+                    aria-label="Nazwa nowego presetu"
+                    className="flex-1 min-w-0 bg-zinc-900 border border-zinc-800 rounded px-2 py-1 text-zinc-200 focus:outline-none focus:border-violet-500"
+                  />
+                  <button
+                    type="button"
+                    disabled={!newPresetName.trim()}
+                    onClick={() => presetRequest('POST', newPresetName)}
+                    title="Zapisz obecne opcje (bez listy map) pod tą nazwą"
+                    className="px-2 py-1 rounded bg-violet-600/80 hover:bg-violet-500 text-white flex items-center gap-1 disabled:opacity-40 cursor-pointer"
+                  >
+                    <Save className="w-3.5 h-3.5" /> Zapisz
+                  </button>
+                </div>
+                {presetError && <div className="text-[11px] text-red-300">{presetError}</div>}
+              </div>
+
               <div className="space-y-3">
                 <div>
                   <label className="block text-xs font-medium text-zinc-300 mb-1">
@@ -416,12 +530,17 @@ export const PackBuilderModal: React.FC<PackBuilderModalProps> = ({
                   <PackOptionCheckbox
                     checked={generateMapsListTxt}
                     onChange={setGenerateMapsListTxt}
-                    label="Wygeneruj gotowy plik mapslist.txt dla serwera"
+                    label="Wygeneruj listę map dla serwera (mapslist_<nazwa>.txt)"
                   />
                   <PackOptionCheckbox
                     checked={generateReadmeManifest}
                     onChange={setGenerateReadmeManifest}
                     label="Dołącz raport README_PACK.txt ze spisem map"
+                  />
+                  <PackOptionCheckbox
+                    checked={generateCrcManifest}
+                    onChange={setGenerateCrcManifest}
+                    label="Dołącz manifest sum CRC32 map (maps_crc32_<nazwa>.txt)"
                   />
                 </div>
               </div>

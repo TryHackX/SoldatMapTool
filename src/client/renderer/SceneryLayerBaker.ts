@@ -7,7 +7,7 @@ import {
   OptimizeSaveResponse,
   OverwritePolicy,
 } from '@shared/apiTypes';
-import { PmsMapData } from '@shared/pmsParser';
+import { cloneMapWithPropFixes, PmsMapData } from '@shared/pmsParser';
 import { clearSoldatAssetCache, clearVirtualAssets, registerVirtualAsset } from './assetLoader';
 import { SoldatWebGLRenderer } from './SoldatWebGLRenderer';
 import { RenderLayerVisibility } from './types';
@@ -234,13 +234,23 @@ export async function checkOptimizeTarget(
  * Rendering matches OpenSoldat (color key, premultiplied blending, atlas edge fade, PMS draw order)
  * and is composited in a float target at `supersample` texels per world unit.
  */
+/** The map as the plan sees it: with the 1.7.1 size fixes applied when the plan was made with `fixFirst` */
+export function applyPlanPropFixes(mapData: PmsMapData, plan: MapOptimizePlanResponse): PmsMapData {
+  if (!plan.appliedPropFixes?.length) return mapData;
+  return cloneMapWithPropFixes(
+    mapData,
+    new Map(plan.appliedPropFixes.map((f) => [f.propIndex, { width: f.width, height: f.height }]))
+  );
+}
+
 export async function bakeSceneryTiles(
-  mapData: PmsMapData,
+  sourceMap: PmsMapData,
   plan: MapOptimizePlanResponse,
   options: OptimizeMapOptions,
   onProgress?: (progress0to1: number, statusText: string) => void,
   signal?: AbortSignal
 ): Promise<Array<BakedSceneryTileUpload & { png: Uint8Array<ArrayBuffer> }>> {
+  const mapData = applyPlanPropFixes(sourceMap, plan);
   const supersample = Math.max(1, Math.min(4, Math.round(options.supersample || 2)));
   const maxTilePx = options.maxTilePx === 4096 ? 4096 : 2048;
   const overlap = TILE_OVERLAP_WORLD;
@@ -388,11 +398,12 @@ export type BakedTile = BakedSceneryTileUpload & { png: Uint8Array<ArrayBuffer> 
  * scenery names produced by `sceneryNameFor` (virtual preview names or the real file names).
  */
 export function composeOptimizedMap(
-  mapData: PmsMapData,
+  sourceMap: PmsMapData,
   plan: MapOptimizePlanResponse,
   tiles: BakedSceneryTileUpload[],
   sceneryNameFor: (tile: BakedSceneryTileUpload) => string
 ): PmsMapData {
+  const mapData = applyPlanPropFixes(sourceMap, plan);
   const scenery = mapData.scenery.map((s) => ({ ...s }));
   const props: PmsMapData['props'] = [];
   const groupsById = new Map(plan.groups.map((g) => [g.groupId, g]));
@@ -576,7 +587,14 @@ export async function buildOptimizePreview(
   const previewMap = composeOptimizedMap(mapData, plan, tiles, (t) => `${prefix}${t.tileFileName}`);
 
   onProgress?.(0.9, 'Porównywanie wyniku z oryginałem (skala ekranu 1080p)...');
-  const fidelity = await measureFidelity(mapData, previewMap, plan, options.preferClassicBmp, signal);
+  // With fixFirst the reference is the repaired map: the size fixes are intended, not a baking error
+  const fidelity = await measureFidelity(
+    applyPlanPropFixes(mapData, plan),
+    previewMap,
+    plan,
+    options.preferClassicBmp,
+    signal
+  );
   onProgress?.(1, 'Podgląd gotowy.');
   return { plan, tiles, previewMap, fidelity, optionsKey: optimizeOptionsKey(mapId, options) };
 }

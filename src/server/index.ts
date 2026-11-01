@@ -23,11 +23,24 @@ import {
   FixMapRequest,
   IndexMetaResponse,
   MapQueryRequest,
+  MapUserDataPatch,
+  MapUserDataResponse,
   OptimizeMapOptions,
   PackBuildOptions,
 } from '../shared/apiTypes';
 import { CustomPrefixRule, sanitizeCustomRules } from '../shared/prefixUtils';
 import { makeDerivedMapName, parsePmsSummary } from '../shared/pmsParser';
+import { APP_VERSION } from '../shared/version';
+import { installFileLogger } from './logger';
+import { UserDataStore } from './userDataStore';
+import { PackPresetStore } from './packPresets';
+import {
+  computeUnusedScenery,
+  LibraryError,
+  listDuplicateGroups,
+  moveDuplicateMaps,
+  moveUnusedScenery,
+} from './libraryTools';
 
 const PORT = Number(process.env.PORT || 4321);
 const WORKSPACE_ROOT = process.cwd();
@@ -38,6 +51,8 @@ const EXPORTS_PACKS_DIR = path.join(WORKSPACE_ROOT, 'exports', 'packs');
 const EXPORTS_SCREENS_DIR = path.join(WORKSPACE_ROOT, 'exports', 'screenshots');
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const DEFAULT_SOLDAT_PATH = 'G:\\Steam\\steamapps\\common\\Soldat';
+
+installFileLogger(path.join(DATA_DIR, 'logs'));
 
 fs.mkdirSync(THUMB_DIR, { recursive: true });
 fs.mkdirSync(EXPORTS_PACKS_DIR, { recursive: true });
@@ -103,6 +118,9 @@ const scanner = new SoldatMapScanner(
   CACHE_DIR,
   THUMB_DIR
 );
+const userData = new UserDataStore(path.join(DATA_DIR, 'user-data.json'));
+const packPresets = new PackPresetStore(path.join(DATA_DIR, 'pack-presets.json'));
+scanner.setUserDataStore(userData);
 const workshop = new SoldatMapWorkshop(
   scanner,
   path.join(WORKSPACE_ROOT, 'exports'),
@@ -146,6 +164,7 @@ app.use(express.json({ limit: '50mb' }));
 
 function sendError(res: express.Response, err: unknown, fallbackStatus = 500): void {
   const status = err instanceof WorkshopError ? err.status : fallbackStatus;
+  if (status >= 500) console.error('[Soldat Map Studio] Błąd API:', err);
   res.status(status).json({ error: err instanceof Error ? err.message : String(err) });
 }
 
@@ -277,12 +296,36 @@ app.post('/api/maps/query-compacts', (req, res) => {
 });
 
 app.get('/api/maps/:mapId/details', (req, res) => {
-  const entry = scanner.getMapEntry(req.params.mapId);
+  const entry = scanner.getMapEntryWithUserData(req.params.mapId);
   if (!entry) {
     res.status(404).json({ error: `Nie znaleziono mapy: ${req.params.mapId}` });
     return;
   }
   res.json(entry);
+});
+
+// Favourite flag and user tags of one map (stored in data/user-data.json, independent of the index)
+app.post('/api/maps/:mapId/user-data', (req, res) => {
+  try {
+    const mapId = req.params.mapId;
+    if (!scanner.getMapEntry(mapId)) {
+      res.status(404).json({ error: `Nie znaleziono mapy: ${mapId}` });
+      return;
+    }
+    const patch: MapUserDataPatch = {};
+    if (typeof req.body?.favorite === 'boolean') patch.favorite = req.body.favorite;
+    if (Array.isArray(req.body?.tags)) patch.tags = req.body.tags;
+    const data = userData.update(mapId, patch);
+    const response: MapUserDataResponse = {
+      mapId,
+      favorite: Boolean(data.favorite),
+      tags: data.tags ?? [],
+      ...scanner.getUserDataSummary(),
+    };
+    res.json(response);
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 app.get('/api/maps/:mapId/raw', (req, res) => {
@@ -444,6 +487,69 @@ app.post(
 );
 
 // 5. Map Pack Preview, Build & Archive Inspector/Extractor (MPA Pro v2)
+// Library tidy-up: duplicates (C2) and unused sceneries (C3). Files are moved into data/backups, never deleted.
+const BACKUPS_DIR = path.join(DATA_DIR, 'backups');
+
+app.get('/api/library/duplicates', (_req, res) => {
+  res.json(listDuplicateGroups(scanner));
+});
+
+app.post('/api/library/duplicates/move', async (req, res) => {
+  try {
+    const mapIds = Array.isArray(req.body?.mapIds) ? req.body.mapIds.map(String) : [];
+    if (mapIds.length === 0) throw new LibraryError('Nie wybrano żadnych plików.');
+    const result = await moveDuplicateMaps(scanner, mapIds, BACKUPS_DIR);
+    console.log(`[Soldat Map Studio] Duplikaty: przeniesiono ${result.moved} plików do ${result.backupDir}`);
+    const meta = await scanner.scanAsync(true);
+    res.json({ ...result, meta });
+  } catch (err) {
+    sendError(res, err, err instanceof LibraryError ? err.status : 500);
+  }
+});
+
+app.get('/api/library/unused-scenery', (_req, res) => {
+  try {
+    const { allUnusedNames: _all, ...report } = computeUnusedScenery(scanner);
+    res.json(report);
+  } catch (err) {
+    sendError(res, err, err instanceof LibraryError ? err.status : 500);
+  }
+});
+
+app.post('/api/library/unused-scenery/move', async (req, res) => {
+  try {
+    const names = Array.isArray(req.body?.names) ? req.body.names.map(String) : [];
+    if (names.length === 0) throw new LibraryError('Nie wybrano żadnych plików.');
+    const result = await moveUnusedScenery(scanner, names, BACKUPS_DIR);
+    console.log(`[Soldat Map Studio] Nieużywane scenerie: przeniesiono ${result.moved} plików do ${result.backupDir}`);
+    const meta = await scanner.scanAsync(true);
+    res.json({ ...result, meta });
+  } catch (err) {
+    sendError(res, err, err instanceof LibraryError ? err.status : 500);
+  }
+});
+
+// Saved pack option sets
+app.get('/api/pack-presets', (_req, res) => {
+  res.json({ presets: packPresets.list() });
+});
+
+app.post('/api/pack-presets', (req, res) => {
+  try {
+    res.json({ presets: packPresets.save(req.body?.name, req.body?.options) });
+  } catch (err) {
+    sendError(res, err, 400);
+  }
+});
+
+app.delete('/api/pack-presets/:name', (req, res) => {
+  try {
+    res.json({ presets: packPresets.remove(req.params.name) });
+  } catch (err) {
+    sendError(res, err, 400);
+  }
+});
+
 app.post('/api/packs/preview', (req, res) => {
   try {
     const options = req.body as PackBuildOptions;
@@ -830,22 +936,22 @@ app.post('/api/workshop/fix-batch-apply', async (req, res) => {
   }
 });
 
-app.post('/api/workshop/optimize-plan', (req, res) => {
+app.post('/api/workshop/optimize-plan', async (req, res) => {
   try {
     const mapId = String(req.body?.mapId || '');
     const options = req.body?.options as OptimizeMapOptions;
-    const plan = workshop.planSceneryOptimization(mapId, options);
+    const plan = await workshop.planSceneryOptimization(mapId, options);
     res.json(plan);
   } catch (err) {
     sendError(res, err, 400);
   }
 });
 
-app.post('/api/workshop/optimize-check', (req, res) => {
+app.post('/api/workshop/optimize-check', async (req, res) => {
   try {
     const mapId = String(req.body?.mapId || '');
     const options = req.body?.options as OptimizeMapOptions;
-    res.json(workshop.checkOptimizeTarget(mapId, options));
+    res.json(await workshop.checkOptimizeTarget(mapId, options));
   } catch (err) {
     sendError(res, err, 400);
   }
@@ -1005,7 +1111,7 @@ if (fs.existsSync(clientDist)) {
 }
 
 const server = app.listen(PORT, '127.0.0.1', () => {
-  console.log(`[Soldat Map Studio v2.2] Server running on http://127.0.0.1:${PORT}`);
+  console.log(`[Soldat Map Studio v${APP_VERSION}] Server running on http://127.0.0.1:${PORT}`);
   cleanupOrphanedTileSessions(CACHE_DIR);
   workshop.cleanupLeftoverSessions();
   initialScanPromise = scanner.scanAsync(true);

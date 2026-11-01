@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { AssetStatus, MapIndexEntry, ResolvedAssetInfo } from '@shared/apiTypes';
+import React, { useEffect, useMemo, useState } from 'react';
+import { AssetStatus, MapIndexEntry, MapUserDataPatch, ResolvedAssetInfo } from '@shared/apiTypes';
 import {
   POLY_TYPES,
   SPAWN_TYPES,
@@ -17,7 +17,10 @@ import {
   Info,
   Layers,
   PackagePlus,
+  Star,
+  Tag,
   Wrench,
+  X,
 } from 'lucide-react';
 
 interface MapInspectorDrawerProps {
@@ -28,6 +31,8 @@ interface MapInspectorDrawerProps {
   onTogglePack: () => void;
   onSelectMapById?: (mapId: string) => void;
   onOpenWorkshop?: (tab: 'fix' | 'optimize') => void;
+  onUpdateUserData: (mapId: string, patch: MapUserDataPatch) => void;
+  knownTags: string[];
 }
 
 export const MapInspectorDrawer: React.FC<MapInspectorDrawerProps> = ({
@@ -38,9 +43,23 @@ export const MapInspectorDrawer: React.FC<MapInspectorDrawerProps> = ({
   onTogglePack,
   onSelectMapById,
   onOpenWorkshop,
+  onUpdateUserData,
+  knownTags,
 }) => {
   const [tab, setTab] = useState<'stats' | 'assets'>('stats');
   const [hideUnusedScenery, setHideUnusedScenery] = useState(true);
+  const [tagInput, setTagInput] = useState('');
+  useEffect(() => setTagInput(''), [map?.id]);
+
+  const mapTags = map?.tags ?? [];
+  const addTag = (raw: string) => {
+    const tag = raw.replace(/[",]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!map || !tag) return;
+    if (!mapTags.some((t) => t.toLowerCase() === tag.toLowerCase())) {
+      onUpdateUserData(map.id, { tags: [...mapTags, tag] });
+    }
+    setTagInput('');
+  };
 
   const uniqueSceneryAssets = useMemo(() => {
     if (!map) return [];
@@ -100,6 +119,18 @@ export const MapInspectorDrawer: React.FC<MapInspectorDrawerProps> = ({
               </h2>
               <button
                 type="button"
+                onClick={() => onUpdateUserData(map.id, { favorite: !map.favorite })}
+                title={map.favorite ? 'Usuń z ulubionych' : 'Dodaj do ulubionych'}
+                aria-label={map.favorite ? 'Usuń z ulubionych' : 'Dodaj do ulubionych'}
+                aria-pressed={Boolean(map.favorite)}
+                className={`p-1 rounded hover:bg-zinc-800 shrink-0 cursor-pointer ${
+                  map.favorite ? 'text-yellow-400' : 'text-zinc-500 hover:text-yellow-300'
+                }`}
+              >
+                <Star className="w-3.5 h-3.5" fill={map.favorite ? 'currentColor' : 'none'} />
+              </button>
+              <button
+                type="button"
                 onClick={() => openPathInExplorer(map.fullPath)}
                 title={`Pokaż w Eksploratorze: ${map.fullPath}`}
                 aria-label="Pokaż plik mapy w Eksploratorze"
@@ -153,6 +184,48 @@ export const MapInspectorDrawer: React.FC<MapInspectorDrawerProps> = ({
             </>
           )}
         </button>
+
+        {/* User tags (stored in data/user-data.json, searchable with tag:name) */}
+        <div className="flex flex-wrap items-center gap-1">
+          <Tag className="w-3 h-3 text-zinc-500 shrink-0" />
+          {mapTags.map((t) => (
+            <span
+              key={t}
+              className="flex items-center gap-0.5 pl-1.5 pr-0.5 py-0.5 rounded bg-zinc-800 border border-zinc-700/70 text-[10px] text-zinc-200"
+            >
+              #{t}
+              <button
+                type="button"
+                onClick={() => onUpdateUserData(map.id, { tags: mapTags.filter((x) => x !== t) })}
+                aria-label={`Usuń tag ${t}`}
+                className="text-zinc-500 hover:text-red-300 cursor-pointer"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          ))}
+          <input
+            type="text"
+            value={tagInput}
+            list="sms-known-tags"
+            onChange={(e) => setTagInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ',') {
+                e.preventDefault();
+                addTag(tagInput);
+              }
+            }}
+            onBlur={() => tagInput.trim() && addTag(tagInput)}
+            placeholder={mapTags.length ? '+ tag' : 'Dodaj tag (Enter)…'}
+            aria-label="Dodaj tag do mapy"
+            className="flex-1 min-w-16 bg-transparent border-b border-zinc-800 focus:border-emerald-500/60 px-1 py-0.5 text-[10px] text-zinc-200 placeholder:text-zinc-600 focus:outline-none"
+          />
+          <datalist id="sms-known-tags">
+            {knownTags.map((t) => (
+              <option key={t} value={t} />
+            ))}
+          </datalist>
+        </div>
 
         {onOpenWorkshop && (
           <div className="grid grid-cols-2 gap-1.5">

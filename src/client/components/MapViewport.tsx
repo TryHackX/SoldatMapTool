@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MapCompactEntry, MapIndexEntry } from '@shared/apiTypes';
+import { MapCompactEntry, MapFixAnalysisResponse, MapIndexEntry, SceneryFixIssueGroup } from '@shared/apiTypes';
 import { computePropCorners, isPropRenderable, PmsMapData } from '@shared/pmsParser';
 import { POLY_TYPES, SPAWN_TYPES } from '@shared/soldatConstants';
 import {
@@ -11,8 +11,10 @@ import { renderMapOverlays, RulerMeasurement } from '../renderer/OverlayRenderer
 import { SoldatWebGLRenderer } from '../renderer/SoldatWebGLRenderer';
 import { RenderLayerVisibility } from '../renderer/types';
 import {
+  AlertTriangle,
   Bot,
   Camera,
+  Columns2,
   CircleDot,
   Eye,
   Flag,
@@ -20,7 +22,9 @@ import {
   Grid,
   History,
   LocateFixed,
+  MapIcon,
   Maximize2,
+  Monitor,
   Ruler,
   ShieldAlert,
   Sparkles,
@@ -43,12 +47,104 @@ interface MapViewportProps {
   onOpenWorkshopModal?: (tab?: 'fix' | 'optimize') => void;
   previewModeBanner?: string | null;
   onClearPreviewMode?: () => void;
+  // B5: second map drawn right of a draggable divider (same camera)
+  compare?: { key: string; label: string; data: PmsMapData } | null;
+  mainLabel?: string;
+  compareCandidates?: Array<{ id: string; baseName: string }>;
+  onStartCompare?: (mapId: string) => void;
+  onCompareWithOriginal?: (() => void) | null;
+  onStopCompare?: () => void;
 }
 
 interface ViewTransform {
   centerX: number;
   centerY: number;
   zoom: number; // CSS pixels per 1.0 Soldat world unit (1.0 = 100% native game scale!)
+}
+
+// Viewport tools remembered between sessions (per browser)
+const VIEWPORT_PREFS_KEY = 'soldat-map-studio.viewport.v1';
+
+interface ViewportPrefs {
+  showFixIssues: boolean;
+  showPlayerView: boolean;
+  playerAspect: number; // width / height of the player's screen
+  showMinimap: boolean;
+}
+
+const DEFAULT_VIEWPORT_PREFS: ViewportPrefs = {
+  showFixIssues: false,
+  showPlayerView: false,
+  playerAspect: 16 / 9,
+  showMinimap: true,
+};
+
+const PLAYER_ASPECTS: Array<[string, number]> = [
+  ['16:9', 16 / 9],
+  ['16:10', 16 / 10],
+  ['4:3', 4 / 3],
+  ['21:9', 21 / 9],
+];
+
+// Soldat shows a fixed 480 world units of height; the width follows the screen aspect (640 at 4:3)
+const PLAYER_VIEW_HEIGHT = 480;
+
+function loadViewportPrefs(): ViewportPrefs {
+  try {
+    const raw = JSON.parse(localStorage.getItem(VIEWPORT_PREFS_KEY) || '{}');
+    return {
+      showFixIssues: typeof raw.showFixIssues === 'boolean' ? raw.showFixIssues : DEFAULT_VIEWPORT_PREFS.showFixIssues,
+      showPlayerView:
+        typeof raw.showPlayerView === 'boolean' ? raw.showPlayerView : DEFAULT_VIEWPORT_PREFS.showPlayerView,
+      playerAspect:
+        typeof raw.playerAspect === 'number' && raw.playerAspect > 1 && raw.playerAspect < 3
+          ? raw.playerAspect
+          : DEFAULT_VIEWPORT_PREFS.playerAspect,
+      showMinimap: typeof raw.showMinimap === 'boolean' ? raw.showMinimap : DEFAULT_VIEWPORT_PREFS.showMinimap,
+    };
+  } catch {
+    return DEFAULT_VIEWPORT_PREFS;
+  }
+}
+
+interface MinimapGeometry {
+  bounds: { left: number; right: number; top: number; bottom: number };
+  w: number; // CSS pixels
+  h: number;
+}
+
+/** Whole map (polygon bounds + margin) fitted into at most 200 × 150 CSS px */
+function computeMinimapGeometry(map: PmsMapData): MinimapGeometry {
+  const pb = map.polyBounds;
+  const pad = Math.max(32, Math.max(pb.width, pb.height) * 0.03);
+  let left = pb.left - pad;
+  let right = pb.right + pad;
+  let top = pb.top - pad;
+  let bottom = pb.bottom + pad;
+  const MAX_W = 200;
+  const MAX_H = 150;
+  const MIN_SIDE = 48;
+  const aspect = (right - left) / Math.max(1, bottom - top);
+  let w = MAX_W;
+  let h = Math.round(MAX_W / aspect);
+  if (h > MAX_H) {
+    h = MAX_H;
+    w = Math.round(MAX_H * aspect);
+  }
+  // Very long or very tall maps: keep a usable minimum size by widening the world window
+  if (h < MIN_SIDE) {
+    const extra = ((right - left) * (MIN_SIDE / w) - (bottom - top)) / 2;
+    top -= extra;
+    bottom += extra;
+    h = MIN_SIDE;
+  }
+  if (w < MIN_SIDE) {
+    const extra = ((bottom - top) * (MIN_SIDE / h) - (right - left)) / 2;
+    left -= extra;
+    right += extra;
+    w = MIN_SIDE;
+  }
+  return { bounds: { left, right, top, bottom }, w, h };
 }
 
 const MAX_CAMERA_COORD = 250000;
@@ -72,6 +168,12 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   onOpenWorkshopModal,
   previewModeBanner,
   onClearPreviewMode,
+  compare = null,
+  mainLabel,
+  compareCandidates = [],
+  onStartCompare,
+  onCompareWithOriginal = null,
+  onStopCompare,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const glCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -92,6 +194,91 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   const [hoverHint, setHoverHint] = useState<string | null>(null);
   const [rulerMode, setRulerMode] = useState(false);
   const [ruler, setRuler] = useState<RulerMeasurement | null>(null);
+  const [prefs, setPrefs] = useState<ViewportPrefs>(loadViewportPrefs);
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEWPORT_PREFS_KEY, JSON.stringify(prefs));
+    } catch {
+      // Ignore (private window / blocked storage)
+    }
+  }, [prefs]);
+
+  // B2: props with 1.7.1 size problems of the current map file
+  const [fixAnalysis, setFixAnalysis] = useState<{ mapKey: string; analysis: MapFixAnalysisResponse | null } | null>(
+    null
+  );
+  useEffect(() => {
+    if (!prefs.showFixIssues || !mapKey || fixAnalysis?.mapKey === mapKey) return;
+    let cancelled = false;
+    fetch(`/api/workshop/fix-analyze/${encodeURIComponent(mapKey)}?maxLen=24`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((analysis: MapFixAnalysisResponse | null) => {
+        if (!cancelled) setFixAnalysis({ mapKey, analysis });
+      })
+      .catch(() => {
+        if (!cancelled) setFixAnalysis({ mapKey, analysis: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefs.showFixIssues, mapKey]);
+
+  // B4: minimap snapshot of the whole map, taken from the main renderer when the map or layers change
+  const minimapCanvasRef = useRef<HTMLCanvasElement>(null);
+  const minimapImageRef = useRef<HTMLCanvasElement | null>(null);
+  const minimapSourceRef = useRef<{ data: PmsMapData | null; key: string; geo: MinimapGeometry | null }>({
+    data: null,
+    key: '',
+    geo: null,
+  });
+  const [minimapVersion, setMinimapVersion] = useState(0);
+  const minimapDragRef = useRef(false);
+
+  // B5: compare renderer (own WebGL context on its own canvas, remounted per compared map)
+  const compareCanvasRef = useRef<HTMLCanvasElement>(null);
+  const compareRendererRef = useRef<SoldatWebGLRenderer | null>(null);
+  const [compareReady, setCompareReady] = useState(false);
+  const [splitPct, setSplitPct] = useState(50);
+  const splitDragRef = useRef(false);
+  // Fixed position (from the button's rect): the viewport clips overflow, and a wrapped toolbar can put the
+  // button at either edge of the map area
+  const [compareMenuPos, setCompareMenuPos] = useState<{ left: number; top: number } | null>(null);
+  const compareMenuOpen = compareMenuPos !== null;
+  const setCompareMenuOpen = (open: boolean) => {
+    if (!open) setCompareMenuPos(null);
+  };
+  useEffect(() => {
+    if (!compareMenuOpen) return;
+    const close = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement | null)?.closest?.('[data-compare-menu]')) setCompareMenuOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [compareMenuOpen]);
+
+  useEffect(() => {
+    const canvas = compareCanvasRef.current;
+    if (!compare || !canvas) return;
+    const renderer = new SoldatWebGLRenderer(canvas);
+    compareRendererRef.current = renderer;
+    setCompareReady(false);
+    let cancelled = false;
+    renderer
+      .loadMap(compare.data, { preferClassicBmp: layers.preferClassicBmp })
+      .then((applied) => {
+        if (!cancelled && applied) setCompareReady(true);
+      })
+      .catch((err) => console.warn('[MapViewport] Błąd ładowania mapy do porównania:', err));
+    return () => {
+      cancelled = true;
+      renderer.destroy(true);
+      if (compareRendererRef.current === renderer) compareRendererRef.current = null;
+      setCompareReady(false);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compare?.key, compare?.data, layers.preferClassicBmp]);
+
   const [inspection, setInspection] = useState<{
     worldX: number;
     worldY: number;
@@ -325,6 +512,23 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     };
   }, [viewportSize.width, viewportSize.height, transform]);
 
+  // Outlines are only meaningful while mapData has the file's prop order (not for an `_o` preview)
+  const issueOverlay = useMemo(() => {
+    if (!prefs.showFixIssues || previewModeBanner || !mapData || !fixAnalysis?.analysis) return null;
+    if (fixAnalysis.mapKey !== mapKey) return null;
+    const outlines: number[][] = [];
+    const byProp = new Map<number, SceneryFixIssueGroup>();
+    for (const issue of fixAnalysis.analysis.issues) {
+      for (const idx of issue.propIndices) {
+        const p = mapData.props[idx];
+        if (!p || byProp.has(idx)) continue;
+        byProp.set(idx, issue);
+        outlines.push(Array.from(computePropCorners(p.x, p.y, p.width, p.height, p.scaleX, p.scaleY, p.rotation)));
+      }
+    }
+    return { outlines, byProp };
+  }, [prefs.showFixIssues, previewModeBanner, mapData, fixAnalysis, mapKey]);
+
   // Render WebGL2 + 2D Tactical Overlay whenever camera, layers, or map changes
   useEffect(() => {
     const glCanvas = glCanvasRef.current;
@@ -349,6 +553,31 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     }
 
     if (mapData && mapReadyOnGpu) {
+      if (prefs.showMinimap) {
+        const key = [
+          layers.showBackground,
+          layers.showPolygons,
+          layers.showSmoothEdges,
+          layers.showSceneryBack,
+          layers.showSceneryMid,
+          layers.showSceneryFront,
+          layers.preferClassicBmp,
+          glRestoreTick,
+        ].join('|');
+        const src = minimapSourceRef.current;
+        if (src.data !== mapData || src.key !== key) {
+          // One extra frame of the whole map, copied before the real view is drawn in the same task
+          const geo = computeMinimapGeometry(mapData);
+          renderer.render(geo.bounds, { ...layers, frontSceneryOpacity: 1 });
+          const img = minimapImageRef.current ?? document.createElement('canvas');
+          minimapImageRef.current = img;
+          img.width = geo.w * 2;
+          img.height = geo.h * 2;
+          img.getContext('2d')?.drawImage(glCanvas, 0, 0, img.width, img.height);
+          minimapSourceRef.current = { data: mapData, key, geo };
+          setMinimapVersion((v) => v + 1);
+        }
+      }
       renderer.render(currentWorldBounds, layers);
       const ctx = ovCanvas.getContext('2d');
       if (ctx) {
@@ -360,14 +589,90 @@ export const MapViewport: React.FC<MapViewportProps> = ({
           sprites,
           ruler,
           highlightOutline: inspection ? inspection.hits[inspection.selected]?.outline ?? null : null,
+          issueOutlines: issueOverlay?.outlines ?? null,
         });
+      }
+      const cmpRenderer = compareRendererRef.current;
+      const cmpCanvas = compareCanvasRef.current;
+      if (compare && compareReady && cmpRenderer && cmpCanvas) {
+        if (cmpCanvas.width !== pixelW || cmpCanvas.height !== pixelH) {
+          cmpCanvas.width = pixelW;
+          cmpCanvas.height = pixelH;
+        }
+        cmpRenderer.render(currentWorldBounds, layers);
       }
     } else {
       const ctx = ovCanvas.getContext('2d');
       ctx?.setTransform(1, 0, 0, 1, 0, 0);
       ctx?.clearRect(0, 0, pixelW, pixelH);
     }
-  }, [viewportSize, currentWorldBounds, layers, mapData, mapReadyOnGpu, sprites, ruler, inspection]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewportSize, currentWorldBounds, layers, mapData, mapReadyOnGpu, sprites, ruler, inspection, issueOverlay, prefs.showMinimap, compare, compareReady]);
+
+  // Minimap: snapshot + rectangle of the current camera view
+  useEffect(() => {
+    const canvas = minimapCanvasRef.current;
+    const src = minimapSourceRef.current;
+    const img = minimapImageRef.current;
+    if (!prefs.showMinimap || !canvas || !img || !src.geo || src.data !== mapData) return;
+    const { bounds: b, w, h } = src.geo;
+    const dpr = window.devicePixelRatio || 1;
+    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+    }
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+    const sx = w / (b.right - b.left);
+    const sy = h / (b.bottom - b.top);
+    const x = (currentWorldBounds.left - b.left) * sx;
+    const y = (currentWorldBounds.top - b.top) * sy;
+    const rw = (currentWorldBounds.right - currentWorldBounds.left) * sx;
+    const rh = (currentWorldBounds.bottom - currentWorldBounds.top) * sy;
+    ctx.fillStyle = 'rgba(16, 185, 129, 0.14)';
+    ctx.fillRect(x, y, rw, rh);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#34d399';
+    ctx.strokeRect(x, y, rw, rh);
+  }, [prefs.showMinimap, minimapVersion, currentWorldBounds, mapData]);
+
+  const moveCameraFromMinimap = (clientX: number, clientY: number) => {
+    const canvas = minimapCanvasRef.current;
+    const geo = minimapSourceRef.current.geo;
+    if (!canvas || !geo) return;
+    const rect = canvas.getBoundingClientRect();
+    const fx = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    const fy = Math.min(1, Math.max(0, (clientY - rect.top) / rect.height));
+    const b = geo.bounds;
+    setTransform((t) => ({
+      ...t,
+      centerX: clampCoord(b.left + fx * (b.right - b.left)),
+      centerY: clampCoord(b.top + fy * (b.bottom - b.top)),
+    }));
+  };
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (minimapDragRef.current) moveCameraFromMinimap(e.clientX, e.clientY);
+      if (splitDragRef.current && containerRef.current) {
+        const rect = containerRef.current.getBoundingClientRect();
+        setSplitPct(Math.min(98, Math.max(2, ((e.clientX - rect.left) / Math.max(1, rect.width)) * 100)));
+      }
+    };
+    const onUp = () => {
+      minimapDragRef.current = false;
+      splitDragRef.current = false;
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
 
   // Convert client mouse event to Soldat world (X, Y)
   const clientToWorld = useCallback(
@@ -520,6 +825,17 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     if (Math.hypot(e.clientX - drag.startClientX, e.clientY - drag.startClientY) > 4) return;
     const w = clientToWorld(e.clientX, e.clientY);
     const hits = collectInspectHits(mapData, w.x, w.y, layers, polyHitGrid);
+    if (issueOverlay) {
+      for (const hit of hits) {
+        const issue = hit.kind === 'prop' ? issueOverlay.byProp.get(hit.index) : undefined;
+        if (issue) {
+          hit.details.push([
+            'Problem 1.7.1',
+            `${issue.reasonLabelPl}: ${issue.pmsWidth}×${issue.pmsHeight} → ${issue.expectedWidth}×${issue.expectedHeight}`,
+          ]);
+        }
+      }
+    }
     setInspection(hits.length > 0 ? { worldX: w.x, worldY: w.y, hits, selected: 0 } : null);
   };
 
@@ -742,6 +1058,19 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             icon={<Grid className="w-3.5 h-3.5 text-zinc-400" />}
             label="Sektory"
           />
+          <LayerChip
+            active={prefs.showFixIssues}
+            onClick={() => setPrefs((p) => ({ ...p, showFixIssues: !p.showFixIssues }))}
+            icon={<AlertTriangle className="w-3.5 h-3.5 text-amber-400" />}
+            label="Problemy 1.7.1"
+            title={
+              previewModeBanner
+                ? 'Obrysy problemów 1.7.1 są niedostępne w trybie podglądu'
+                : 'Obrysuj scenerie z błędnymi wymiarami po przejściu na Soldat 1.7.1 (to, co naprawia _f)'
+            }
+            badge={issueOverlay?.byProp.size}
+            accent="amber"
+          />
 
           <button
             type="button"
@@ -755,6 +1084,77 @@ export const MapViewport: React.FC<MapViewportProps> = ({
 
         {/* Primary Actions: Workshop (_f / _o) + 100% Full Size Screenshot */}
         <div className="flex items-center gap-1.5 shrink-0">
+          {compare ? (
+            <button
+              type="button"
+              onClick={() => onStopCompare?.()}
+              title="Zakończ porównanie dwóch wersji mapy"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold cursor-pointer shrink-0"
+            >
+              <Columns2 className="w-3.5 h-3.5" />
+              <span className="hidden xl:inline">Zakończ porównanie</span>
+            </button>
+          ) : (
+            (compareCandidates.length > 0 || onCompareWithOriginal) &&
+            onStartCompare && (
+              <div className="relative" data-compare-menu>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    if (compareMenuOpen) {
+                      setCompareMenuPos(null);
+                      return;
+                    }
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const menuWidth = 256;
+                    setCompareMenuPos({
+                      left: Math.max(8, Math.min(window.innerWidth - menuWidth - 8, rect.right - menuWidth)),
+                      top: rect.bottom + 4,
+                    });
+                  }}
+                  aria-expanded={compareMenuOpen}
+                  title="Porównaj z inną wersją tej mapy (suwak)"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 border border-sky-500/40 text-sky-100 text-xs font-semibold cursor-pointer shrink-0"
+                >
+                  <Columns2 className="w-3.5 h-3.5 text-sky-300" />
+                  <span className="hidden xl:inline">Porównaj</span>
+                </button>
+                {compareMenuPos && (
+                  <div
+                    className="fixed z-50 w-64 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl py-1 text-xs"
+                    style={{ left: compareMenuPos.left, top: compareMenuPos.top }}
+                  >
+                    <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-zinc-500">Porównaj z (po prawej)</div>
+                    {onCompareWithOriginal && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCompareMenuOpen(false);
+                          onCompareWithOriginal();
+                        }}
+                        className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 text-zinc-100 cursor-pointer"
+                      >
+                        Oryginałem tej mapy (przed zmianami)
+                      </button>
+                    )}
+                    {compareCandidates.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => {
+                          setCompareMenuOpen(false);
+                          onStartCompare(c.id);
+                        }}
+                        className="w-full text-left px-3 py-1.5 hover:bg-zinc-800 font-mono text-zinc-100 truncate cursor-pointer"
+                      >
+                        {c.baseName}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          )}
           {onOpenWorkshopModal && (
             <button
               type="button"
@@ -823,6 +1223,14 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         }`}
       >
         <canvas ref={glCanvasRef} className="absolute inset-0 w-full h-full block" />
+        {compare && (
+          <canvas
+            key={`${compare.key}|${layers.preferClassicBmp}`}
+            ref={compareCanvasRef}
+            className="absolute inset-0 w-full h-full block pointer-events-none"
+            style={{ clipPath: `inset(0 0 0 ${splitPct}%)` }}
+          />
+        )}
         <canvas
           ref={overlayCanvasRef}
           className="absolute inset-0 w-full h-full block pointer-events-none"
@@ -898,6 +1306,71 @@ export const MapViewport: React.FC<MapViewportProps> = ({
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Compare divider: left = current map, right = compared version */}
+        {compare && (
+          <div className="absolute top-0 bottom-0 z-10 w-0" style={{ left: `${splitPct}%` }}>
+            <div className="absolute inset-y-0 -left-px w-0.5 bg-white/85 shadow-[0_0_6px_rgba(0,0,0,0.8)] pointer-events-none" />
+            <button
+              type="button"
+              data-map-ui
+              onMouseDown={(e) => {
+                e.preventDefault();
+                splitDragRef.current = true;
+              }}
+              aria-label="Przeciągnij, aby przesunąć granicę porównania"
+              title="Przeciągnij, aby przesunąć granicę porównania"
+              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-5 h-10 rounded bg-zinc-100 text-zinc-900 text-xs font-bold shadow-lg cursor-ew-resize flex items-center justify-center"
+            >
+              ⇔
+            </button>
+            <span className="absolute top-14 right-3 whitespace-nowrap text-[11px] font-mono bg-zinc-950/85 text-zinc-100 px-1.5 py-0.5 rounded pointer-events-none">
+              ◀ {mainLabel ?? mapEntry?.baseName ?? 'bieżąca mapa'}
+            </span>
+            <span className="absolute top-14 left-3 whitespace-nowrap text-[11px] font-mono bg-sky-950/90 text-sky-100 px-1.5 py-0.5 rounded pointer-events-none">
+              {compare.label} ▶{!compareReady && ' (wczytywanie...)'}
+            </span>
+          </div>
+        )}
+
+        {/* Player view: what a player standing at the cursor sees (480 units high, width from aspect) */}
+        {prefs.showPlayerView && cursorWorld && mapData && (() => {
+          const zoom = Math.max(0.02, transform.zoom || 0.5);
+          const vwPx = PLAYER_VIEW_HEIGHT * prefs.playerAspect * zoom;
+          const vhPx = PLAYER_VIEW_HEIGHT * zoom;
+          const cx = (cursorWorld.x - currentWorldBounds.left) * zoom;
+          const cy = (cursorWorld.y - currentWorldBounds.top) * zoom;
+          return (
+            <div
+              className="absolute z-10 pointer-events-none border-2 border-dashed border-sky-300/80 rounded-sm shadow-[0_0_0_9999px_rgba(0,0,0,0.18)]"
+              style={{ left: cx - vwPx / 2, top: cy - vhPx / 2, width: vwPx, height: vhPx }}
+            >
+              <span className="absolute -top-5 left-0 whitespace-nowrap text-[10px] font-mono bg-zinc-950/85 text-sky-200 px-1 rounded">
+                Widok gracza {Math.round(PLAYER_VIEW_HEIGHT * prefs.playerAspect)}×{PLAYER_VIEW_HEIGHT}
+              </span>
+            </div>
+          );
+        })()}
+
+        {/* Minimap with the camera rectangle (click or drag to move the view) */}
+        {prefs.showMinimap && mapData && mapReadyOnGpu && minimapSourceRef.current.geo && minimapSourceRef.current.data === mapData && (
+          <div
+            data-map-ui
+            className="absolute left-3 bottom-14 z-10 bg-zinc-950/85 border border-zinc-700/80 rounded-md p-1 shadow-lg"
+          >
+            <canvas
+              ref={minimapCanvasRef}
+              style={{ width: minimapSourceRef.current.geo.w, height: minimapSourceRef.current.geo.h }}
+              className="block cursor-crosshair rounded-sm"
+              aria-label="Minimapa — kliknij, aby przesunąć widok"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                minimapDragRef.current = true;
+                moveCameraFromMinimap(e.clientX, e.clientY);
+              }}
+            />
           </div>
         )}
 
@@ -1001,6 +1474,47 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             >
               <Ruler className="w-3.5 h-3.5" />
               Miarka
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setPrefs((p) => ({ ...p, showPlayerView: !p.showPlayerView }))}
+              title="Ramka widoku gracza przy kursorze (Soldat pokazuje 480 jednostek wysokości)"
+              aria-pressed={prefs.showPlayerView}
+              className={`px-2 py-1 rounded text-xs flex items-center gap-1 transition-colors cursor-pointer ${
+                prefs.showPlayerView
+                  ? 'bg-sky-500/25 text-sky-200 border border-sky-500/40'
+                  : 'text-zinc-300 hover:bg-zinc-800'
+              }`}
+            >
+              <Monitor className="w-3.5 h-3.5" />
+              Widok gracza
+            </button>
+            {prefs.showPlayerView && (
+              <select
+                value={String(prefs.playerAspect)}
+                onChange={(e) => setPrefs((p) => ({ ...p, playerAspect: Number(e.target.value) }))}
+                aria-label="Proporcje ekranu gracza"
+                className="bg-zinc-900 border border-zinc-700 rounded px-1 py-0.5 text-[11px] text-zinc-200"
+              >
+                {PLAYER_ASPECTS.map(([label, value]) => (
+                  <option key={label} value={String(value)}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button
+              type="button"
+              onClick={() => setPrefs((p) => ({ ...p, showMinimap: !p.showMinimap }))}
+              title="Minimapa z prostokątem widoku"
+              aria-label="Minimapa"
+              aria-pressed={prefs.showMinimap}
+              className={`p-1 rounded transition-colors cursor-pointer ${
+                prefs.showMinimap ? 'bg-emerald-500/20 text-emerald-200' : 'text-zinc-300 hover:bg-zinc-800'
+              }`}
+            >
+              <MapIcon className="w-3.5 h-3.5" />
             </button>
 
             <div className="w-px h-4 bg-zinc-800 mx-0.5" />

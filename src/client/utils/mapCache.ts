@@ -5,6 +5,8 @@ import {
   MapIndexEntry,
   MapQueryRequest,
   MapQueryResponse,
+  MapUserDataPatch,
+  MapUserDataResponse,
   ScanProgressStatus,
 } from '@shared/apiTypes';
 import { parsePmsFull, PmsMapData } from '@shared/pmsParser';
@@ -78,6 +80,20 @@ export async function fetchMapDetails(mapId: string, force = false): Promise<Map
   }
   mapDetailsLru.set(mapId, entry);
   return entry;
+}
+
+/** Sets the favourite flag and/or tags of one map; the cached details of that map are updated too */
+export async function updateMapUserData(mapId: string, patch: MapUserDataPatch): Promise<MapUserDataResponse> {
+  const res = await fetch(`/api/maps/${encodeURIComponent(mapId)}/user-data`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Nie udało się zapisać ulubionych / tagów (HTTP ${res.status})`);
+  const cached = mapDetailsLru.get(mapId);
+  if (cached) mapDetailsLru.set(mapId, { ...cached, favorite: data.favorite, tags: data.tags });
+  return data as MapUserDataResponse;
 }
 
 export async function fetchIndexMeta(forceRefresh = false): Promise<IndexMetaResponse> {

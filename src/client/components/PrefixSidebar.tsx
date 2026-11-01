@@ -5,6 +5,7 @@ import {
   SourceCountItem,
   StatusFilterMode,
   SubprefixCountItem,
+  UserTagCount,
 } from '@shared/apiTypes';
 import {
   AlertTriangle,
@@ -23,6 +24,8 @@ import {
   Plus,
   Search,
   Sparkles,
+  Star,
+  Tag,
   Tags,
 } from 'lucide-react';
 
@@ -56,6 +59,9 @@ interface PrefixSidebarProps {
   brokenMapsCount: number;
   duplicateMapsCount: number;
   incompatibleMapsCount: number;
+  favoriteMapsCount: number;
+  userTags: UserTagCount[];
+  onSearchTag: (tag: string) => void;
   packCount: number;
 
   modeGroups: ModeGroupCountItem[];
@@ -92,6 +98,9 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
   brokenMapsCount,
   duplicateMapsCount,
   incompatibleMapsCount,
+  favoriteMapsCount,
+  userTags,
+  onSearchTag,
   packCount,
   modeGroups,
   prefixes,
@@ -203,6 +212,13 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
       accent: incompatibleMapsCount > 0 ? 'text-red-300' : undefined,
     },
     {
+      mode: 'favorites',
+      label: 'Ulubione',
+      count: favoriteMapsCount,
+      icon: <Star className="w-3.5 h-3.5 text-yellow-400" />,
+      accent: favoriteMapsCount > 0 ? 'text-yellow-200' : undefined,
+    },
+    {
       mode: 'in_pack',
       label: 'Wybrane do paczki',
       count: packCount,
@@ -251,6 +267,28 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
             );
           })}
         </div>
+
+        {/* User tags: a click adds `tag:<name>` to the map search */}
+        {userTags.length > 0 && (
+          <div className="mt-2 pt-2 border-t border-zinc-800/70">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1 px-1 flex items-center gap-1">
+              <Tag className="w-3 h-3" /> Twoje tagi ({userTags.length})
+            </div>
+            <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+              {userTags.map((t) => (
+                <button
+                  key={t.tag}
+                  type="button"
+                  onClick={() => onSearchTag(t.tag)}
+                  title={`Pokaż mapy z tagiem „${t.tag}” (dodaje tag:${t.tag} do wyszukiwania)`}
+                  className="px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 border border-zinc-700/60 text-[10px] text-zinc-200 cursor-pointer"
+                >
+                  #{t.tag} <span className="font-mono text-zinc-500">{t.count}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Multi-folder source filter when user attached extra directories */}
         {sources.length > 1 && (

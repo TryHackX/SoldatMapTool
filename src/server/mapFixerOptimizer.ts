@@ -12,6 +12,7 @@ import {
   MapOptimizePlanResponse,
   OptimizeLayerGroupPlan,
   OptimizeMapOptions,
+  OptimizePropFix,
   OptimizePreservedPropInfo,
   OptimizeSaveResponse,
   OverwritePolicy,
@@ -24,6 +25,7 @@ import {
   currentDosTimestamp,
   isPropRenderable,
   makeDerivedMapName,
+  makeOptimizeOutputName,
   parsePmsFull,
   patchPmsPropsAndScenery,
   PmsBounds,
@@ -763,10 +765,10 @@ export class SoldatMapWorkshop {
    * Plans Z-order safe Scenery Layer Optimization (`Optimize Sceneries` -> `_o.pms`).
    * Preserves animated `.gif` props and optional giant skybox/fog props in exact draw order!
    */
-  public planSceneryOptimization(
+  public async planSceneryOptimization(
     mapId: string,
     options: OptimizeMapOptions
-  ): MapOptimizePlanResponse {
+  ): Promise<MapOptimizePlanResponse> {
     const entry = this.scanner.getMapEntry(mapId);
     const fullPath = this.scanner.getMapFilePath(mapId);
     if (!entry || !fullPath || !fs.existsSync(fullPath)) {
@@ -774,21 +776,51 @@ export class SoldatMapWorkshop {
     }
 
     const pms = parsePmsFull(fs.readFileSync(fullPath));
-    return this.buildOptimizationPlanFromPms(mapId, entry.baseName, pms, options).planResponse;
+    const { fixedPms, fixes } = await this.applyFixFirst(mapId, entry.baseName, pms, options);
+    return this.buildOptimizationPlanFromPms(mapId, entry.baseName, fixedPms, options, fixes).planResponse;
+  }
+
+  /**
+   * `fixFirst`: applies the recommended 1.7.1 size fixes (exactly what a default `_f` repair changes) to a
+   * copy of the map, so the merged layers are baked from corrected sceneries.
+   */
+  private async applyFixFirst(
+    mapId: string,
+    baseName: string,
+    pms: PmsMapData,
+    options: OptimizeMapOptions
+  ): Promise<{ fixedPms: PmsMapData; fixes: OptimizePropFix[] }> {
+    if (!options.fixFirst) return { fixedPms: pms, fixes: [] };
+    const analysis = await this.analyzeParsedMap(mapId, baseName, pms, options.maxBaseLength || 24);
+    const byIndex = new Map<number, OptimizePropFix>();
+    for (const issue of analysis.issues) {
+      if (!issue.recommended) continue;
+      for (const propIndex of issue.propIndices) {
+        byIndex.set(propIndex, { propIndex, width: issue.expectedWidth, height: issue.expectedHeight });
+      }
+    }
+    if (byIndex.size === 0) return { fixedPms: pms, fixes: [] };
+    const fixes = Array.from(byIndex.values()).sort((a, b) => a.propIndex - b.propIndex);
+    const props = pms.props.map((p, idx) => {
+      const fix = byIndex.get(idx);
+      return fix ? { ...p, width: fix.width, height: fix.height } : p;
+    });
+    return { fixedPms: { ...pms, props }, fixes };
   }
 
   private buildOptimizationPlanFromPms(
     mapId: string,
     baseName: string,
     pms: PmsMapData,
-    options: OptimizeMapOptions
+    options: OptimizeMapOptions,
+    appliedPropFixes: OptimizePropFix[] = []
   ): {
     planResponse: MapOptimizePlanResponse;
     preservedOrdered: Array<{ level: 0 | 1 | 2; orderKey: number; prop: PmsProp }>;
   } {
-    const derivedBaseName = makeDerivedMapName(
+    const derivedBaseName = makeOptimizeOutputName(
       baseName,
-      '_o',
+      appliedPropFixes.length > 0,
       options.maxBaseLength || 24
     );
 
@@ -983,15 +1015,24 @@ export class SoldatMapWorkshop {
           (v) => Math.round(v * 100) / 100
         ) as [number, number, number, number],
         layout,
+        appliedPropFixes,
       },
       preservedOrdered,
     };
   }
 
-  public checkOptimizeTarget(mapId: string, options: OptimizeMapOptions): DerivedTargetCheck {
+  public async checkOptimizeTarget(mapId: string, options: OptimizeMapOptions): Promise<DerivedTargetCheck> {
     const entry = this.scanner.getMapEntry(mapId);
     if (!entry) throw new WorkshopError(`Nie znaleziono mapy: ${mapId}`, 404);
-    const derivedBaseName = makeDerivedMapName(entry.baseName, '_o', options.maxBaseLength || 24);
+    let fixesApplied = false;
+    if (options.fixFirst) {
+      const srcPath = this.scanner.getMapFilePath(mapId);
+      if (srcPath && fs.existsSync(srcPath)) {
+        const pms = parsePmsFull(fs.readFileSync(srcPath));
+        fixesApplied = (await this.applyFixFirst(mapId, entry.baseName, pms, options)).fixes.length > 0;
+      }
+    }
+    const derivedBaseName = makeOptimizeOutputName(entry.baseName, fixesApplied, options.maxBaseLength || 24);
     const { mapsDir, sceneryDir } = this.resolveTargetOptimizeDirs(
       options.destination,
       options.customOutputFolder
@@ -1097,12 +1138,15 @@ export class SoldatMapWorkshop {
       }
 
       const origBytes = fs.readFileSync(srcPath);
-      const pms = parsePmsFull(origBytes);
+      const sourcePms = parsePmsFull(origBytes);
+      // Same fixes as the plan the client baked from (props keep their corrected sizes in the result)
+      const { fixedPms: pms, fixes } = await this.applyFixFirst(mapId, entry.baseName, sourcePms, options);
       const { planResponse: plan, preservedOrdered } = this.buildOptimizationPlanFromPms(
         mapId,
         entry.baseName,
         pms,
-        options
+        options,
+        fixes
       );
 
       const { mapsDir, sceneryDir } = this.resolveTargetOptimizeDirs(

@@ -1418,6 +1418,15 @@ export function serializePms(map: PmsMapData): Uint8Array {
 /**
  * Clones a `PmsMapData` with updated prop dimensions (for instant 0ms Live Before/After _f repair preview in WebGL2!).
  */
+/**
+ * Name of an Optimize Sceneries result: `<map>_o`, or `<map>_f_o` when 1.7.1 size fixes were applied first
+ * (the same name the two-step `_f` then `_o` workflow produces).
+ */
+export function makeOptimizeOutputName(baseName: string, fixesApplied: boolean, maxBaseLength: number): string {
+  const source = fixesApplied ? makeDerivedMapName(baseName, '_f', maxBaseLength) : baseName;
+  return makeDerivedMapName(source, '_o', maxBaseLength);
+}
+
 export function cloneMapWithPropFixes(
   map: PmsMapData,
   fixesByPropIndex: Map<number, { width: number; height: number }>

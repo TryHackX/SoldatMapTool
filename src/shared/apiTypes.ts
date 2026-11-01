@@ -81,6 +81,33 @@ export interface MapCompactEntry {
   polyBounds: PmsBounds;
   fullBounds: PmsBounds;
   crc32: number;
+
+  // User data (attached when the map is returned; not part of the scanned index)
+  favorite?: boolean;
+  tags?: string[];
+}
+
+export interface MapUserData {
+  favorite?: boolean;
+  tags?: string[];
+}
+
+export interface MapUserDataPatch {
+  favorite?: boolean;
+  tags?: string[];
+}
+
+export interface UserTagCount {
+  tag: string;
+  count: number;
+}
+
+export interface MapUserDataResponse {
+  mapId: string;
+  favorite: boolean;
+  tags: string[];
+  favoriteMapsCount: number;
+  userTags: UserTagCount[];
 }
 
 /**
@@ -101,6 +128,57 @@ export interface MapIndexEntry extends MapCompactEntry {
   duplicateMapIds: string[];
   limitViolations: MapLimitViolation[];
   parseWarnings: string[];
+}
+
+// Library tidy-up: duplicate maps (C2) and unused scenery files (C3)
+export interface DuplicateMapFile {
+  id: string;
+  baseName: string;
+  fileName: string;
+  fullPath: string;
+  sourceId: string;
+  sourceLabel: string;
+  fileSize: number;
+  mtimeMs: number;
+  title: string;
+}
+
+export interface DuplicateGroup {
+  crc32: number;
+  crcHex: string;
+  files: DuplicateMapFile[];
+  sameName: boolean; // all copies share one name (safe to tidy); different names may be referenced by servers
+  suggestedKeepId: string;
+}
+
+export interface DuplicatesResponse {
+  groups: DuplicateGroup[];
+  totalGroups: number;
+  totalRemovable: number;
+}
+
+export interface UnusedSceneryItem {
+  name: string;
+  size: number;
+  mtimeMs: number;
+}
+
+export interface UnusedSceneryReport {
+  folder: string;
+  totalFiles: number;
+  usedFiles: number;
+  vanillaSkipped: number;
+  unusedCount: number;
+  unusedBytes: number;
+  items: UnusedSceneryItem[]; // largest first, capped at 5000
+  truncated: boolean;
+}
+
+export interface LibraryMoveResult {
+  moved: number;
+  failed: Array<{ name: string; error: string }>;
+  backupDir: string | null;
+  meta?: IndexMetaResponse;
 }
 
 export interface PrefixCountItem {
@@ -163,6 +241,8 @@ export interface IndexMetaResponse {
   caseMismatchMapsCount: number;
   duplicateMapsCount: number;
   incompatibleMapsCount: number;
+  favoriteMapsCount: number;
+  userTags: UserTagCount[];
   modeGroups: ModeGroupCountItem[];
   prefixes: PrefixCountItem[];
   discoveredSubprefixes: SubprefixCountItem[];
@@ -177,6 +257,7 @@ export type StatusFilterMode =
   | 'broken'
   | 'duplicates'
   | 'incompatible'
+  | 'favorites'
   | 'in_pack';
 
 export type MapSortField =
@@ -226,7 +307,15 @@ export interface PackBuildOptions {
   fixLinuxCase: boolean;                // Default: true (rename archive entry to match exact PMS string!)
   generateMapsListTxt: boolean;         // Default: true (creates mapslist.txt)
   generateReadmeManifest: boolean;      // Default: true (creates README_PACK.txt with full report)
+  generateCrcManifest?: boolean;        // Default: true (maps_crc32_<pack>.txt: map name, OpenSoldat CRC32, size)
   customOutputFolder?: string;          // Optional target directory when saving on server disk
+}
+
+/** Saved set of pack options (everything except the map list), stored in data/pack-presets.json */
+export interface PackPreset {
+  name: string;
+  options: Omit<PackBuildOptions, 'mapIds'>;
+  updatedAt: number;
 }
 
 export interface PackPreviewFile {
@@ -358,6 +447,14 @@ export interface OptimizeMapOptions {
   maxBaseLength: number;
   destination: 'soldat_maps' | 'exports_optimized' | 'custom';
   customOutputFolder?: string;
+  // Apply the recommended 1.7.1 scenery size fixes (`_f`) before merging; the result is then named `<map>_f_o`
+  fixFirst?: boolean;
+}
+
+export interface OptimizePropFix {
+  propIndex: number;
+  width: number;
+  height: number;
 }
 
 export interface OptimizeLayerGroupPlan {
@@ -391,6 +488,8 @@ export interface MapOptimizePlanResponse {
   estimatedMegapixelsBySupersample: [number, number, number, number];
   // Exact draw order of the resulting `_o` map: preserved original props and baked groups, per level
   layout: Array<{ level: 0 | 1 | 2; propIndex?: number; groupId?: string }>;
+  // 1.7.1 size fixes applied before planning (`fixFirst`); the client bakes from the same corrected props
+  appliedPropFixes: OptimizePropFix[];
 }
 
 export interface BakedSceneryTileUpload {

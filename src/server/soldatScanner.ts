@@ -12,6 +12,7 @@ import {
   ScanProgressStatus,
   SourceCountItem,
   SubprefixCountItem,
+  UserTagCount,
 } from '../shared/apiTypes';
 import { checkSoldatMapLimits, parsePmsSummary, PmsSummaryData, soldatCrc32 } from '../shared/pmsParser';
 import {
@@ -19,13 +20,20 @@ import {
   createMapClassifier,
   CustomPrefixRule,
 } from '../shared/prefixUtils';
+import { compareNumber, parseSearchQuery, SearchNumericField, SearchTerm } from '../shared/searchQuery';
 import { SoldatAssetResolver } from './assetResolver';
 import { MapSqliteCache } from './mapDatabase';
+import { UserDataStore } from './userDataStore';
 
 interface InternalIndexedMap {
   compact: MapCompactEntry;
   full: MapIndexEntry;
   searchHaystack: string; // Pre-lowercased baseName + title + texture + active sceneries for ~3ms search on 50k maps
+  // Pre-lowercased fields for the `key:value` search syntax
+  nameLower: string;
+  titleLower: string;
+  textureLower: string;
+  sceneryLower: string; // active scenery names joined with newlines
 }
 
 interface DiscoveredPmsFile {
@@ -149,6 +157,7 @@ export class SoldatMapScanner {
   private itemsByCrcHex = new Map<string, InternalIndexedMap[]>();
   private defaultSortedList: InternalIndexedMap[] = [];
   private cachedMeta: IndexMetaResponse | null = null;
+  private userData: UserDataStore | null = null;
   private activeScanPromise: Promise<IndexMetaResponse> | null = null;
   private followUpScanPromise: Promise<IndexMetaResponse> | null = null;
   private pendingForceReload = false;
@@ -288,10 +297,61 @@ export class SoldatMapScanner {
     return this.indexedById.get(mapId)?.full ?? null;
   }
 
+  /** Every indexed map (scan order) */
+  public getAllEntries(): MapIndexEntry[] {
+    return this.defaultSortedList.map((x) => x.full);
+  }
+
+  /** Groups of maps sharing one OpenSoldat CRC32 (identical content), two or more files each */
+  public getDuplicateEntryGroups(): MapIndexEntry[][] {
+    const groups: MapIndexEntry[][] = [];
+    for (const items of this.itemsByCrcHex.values()) {
+      if (items.length > 1) groups.push(items.map((x) => x.full));
+    }
+    return groups;
+  }
+
+  /** Map details for the client: the scanned entry plus favourite / tags */
+  public getMapEntryWithUserData(mapId: string): MapIndexEntry | null {
+    const entry = this.getMapEntry(mapId);
+    return entry ? this.withUserData(entry) : null;
+  }
+
+  public setUserDataStore(store: UserDataStore): void {
+    this.userData = store;
+  }
+
+  /** Favourite count and tag cloud of maps that are currently indexed */
+  public getUserDataSummary(): { favoriteMapsCount: number; userTags: UserTagCount[] } {
+    let favoriteMapsCount = 0;
+    const tagCounts = new Map<string, UserTagCount>();
+    for (const [mapId, data] of this.userData?.entriesList() ?? []) {
+      if (!this.indexedById.has(mapId)) continue;
+      if (data.favorite) favoriteMapsCount++;
+      for (const tag of data.tags ?? []) {
+        const key = tag.toLowerCase();
+        const hit = tagCounts.get(key);
+        if (hit) hit.count++;
+        else tagCounts.set(key, { tag, count: 1 });
+      }
+    }
+    const userTags = Array.from(tagCounts.values()).sort(
+      (a, b) => b.count - a.count || NAME_COLLATOR.compare(a.tag, b.tag)
+    );
+    return { favoriteMapsCount, userTags };
+  }
+
+  private withUserData<T extends MapCompactEntry>(entry: T): T {
+    const data = this.userData?.get(entry.id);
+    if (!data) return entry;
+    return { ...entry, favorite: Boolean(data.favorite), tags: data.tags ?? [] };
+  }
+
   public getMeta(): IndexMetaResponse {
     if (this.cachedMeta) {
       return {
         ...this.cachedMeta,
+        ...this.getUserDataSummary(),
         scanStatus: { ...this.scanStatus },
       };
     }
@@ -747,6 +807,10 @@ export class SoldatMapScanner {
       compact: toCompact(full),
       full,
       searchHaystack,
+      nameLower: d.baseName.toLowerCase(),
+      titleLower: summary.mapName.toLowerCase(),
+      textureLower: summary.texture.toLowerCase(),
+      sceneryLower: activeSceneryNames.join('\n'),
     };
   }
 
@@ -890,6 +954,7 @@ export class SoldatMapScanner {
       caseMismatchMapsCount,
       duplicateMapsCount,
       incompatibleMapsCount,
+      ...this.getUserDataSummary(),
       modeGroups,
       prefixes,
       discoveredSubprefixes,
@@ -912,11 +977,7 @@ export class SoldatMapScanner {
     const packSet =
       statusFilter === 'in_pack' && req.packMapIds ? new Set(req.packMapIds) : null;
 
-    const searchTokens = (req.searchQuery || '')
-      .trim()
-      .toLowerCase()
-      .split(/\s+/)
-      .filter(Boolean);
+    const searchTerms = parseSearchQuery(req.searchQuery || '').terms;
 
     const weather = req.weather !== undefined && req.weather !== 'any' ? Number(req.weather) : null;
     const reqCol = Boolean(req.requireColliders);
@@ -937,6 +998,7 @@ export class SoldatMapScanner {
         continue;
       }
       if (statusFilter === 'in_pack' && (!packSet || !packSet.has(m.id))) continue;
+      if (statusFilter === 'favorites' && !this.userData?.get(m.id)?.favorite) continue;
 
       if (modeSet && !modeSet.has(m.modeGroupId)) continue;
       if (prefixSet && !prefixSet.has(m.prefix)) continue;
@@ -948,10 +1010,10 @@ export class SoldatMapScanner {
       if (reqWp && m.activeWaypointCount === 0) continue;
       if (reqCase && m.caseMismatchCount === 0) continue;
 
-      if (searchTokens.length > 0) {
+      if (searchTerms.length > 0) {
         let allHit = true;
-        for (let t = 0; t < searchTokens.length; t++) {
-          if (!item.searchHaystack.includes(searchTokens[t])) {
+        for (let t = 0; t < searchTerms.length; t++) {
+          if (!this.matchesSearchTerm(item, searchTerms[t])) {
             allHit = false;
             break;
           }
@@ -996,13 +1058,117 @@ export class SoldatMapScanner {
     return matched;
   }
 
+  private numericFieldValue(m: MapCompactEntry, field: SearchNumericField): number {
+    switch (field) {
+      case 'props':
+        return m.activePropCount;
+      case 'polys':
+        return m.polygonCount;
+      case 'colliders':
+        return m.activeColliderCount;
+      case 'spawns':
+        return m.activeSpawnCount;
+      case 'waypoints':
+        return m.activeWaypointCount;
+      case 'width':
+        return m.polyWidth;
+      case 'height':
+        return m.polyHeight;
+      case 'sizeKb':
+        return m.fileSize / 1024;
+      case 'missing':
+        return m.missingAssetsCount;
+      case 'medikits':
+        return m.medikits;
+      case 'grenades':
+        return m.grenadePacks;
+      default:
+        return m.startJet;
+    }
+  }
+
+  private matchesSearchTerm(item: InternalIndexedMap, term: SearchTerm): boolean {
+    const m = item.compact;
+    let hit: boolean;
+    switch (term.kind) {
+      case 'text':
+        hit = item.searchHaystack.includes(term.value);
+        break;
+      case 'weather':
+        hit = m.weather === term.value;
+        break;
+      case 'num':
+        hit = compareNumber(this.numericFieldValue(m, term.field), term.op, term.value);
+        break;
+      case 'flag':
+        switch (term.flag) {
+          case 'fav':
+            hit = Boolean(this.userData?.get(m.id)?.favorite);
+            break;
+          case 'vanilla':
+            hit = m.isVanillaMap;
+            break;
+          case 'custom':
+            hit = !m.isVanillaMap;
+            break;
+          case 'broken':
+            hit = m.missingAssetsCount > 0;
+            break;
+          case 'dup':
+            hit = m.duplicateCount > 1;
+            break;
+          case 'incompatible':
+            hit = m.limitViolationCount > 0 || m.parseWarningCount > 0;
+            break;
+          default:
+            hit = m.caseMismatchCount > 0;
+        }
+        break;
+      case 'field': {
+        const v = term.value;
+        switch (term.field) {
+          case 'name':
+            hit = item.nameLower.includes(v);
+            break;
+          case 'title':
+            hit = item.titleLower.includes(v);
+            break;
+          case 'tex':
+            hit = item.textureLower.includes(v);
+            break;
+          case 'scenery':
+            hit = item.sceneryLower.includes(v);
+            break;
+          case 'prefix':
+            hit = item.nameLower.startsWith(v);
+            break;
+          case 'mode':
+            hit = m.modeGroupName.toLowerCase().includes(v) || m.modeGroupId.toLowerCase() === v;
+            break;
+          case 'source':
+            hit = m.sourceLabel.toLowerCase().includes(v) || m.sourceId.toLowerCase() === v;
+            break;
+          case 'crc':
+            hit = (m.crc32 >>> 0).toString(16).padStart(8, '0').startsWith(v.replace(/^0x/, ''));
+            break;
+          default: {
+            const tags = this.userData?.get(m.id)?.tags;
+            hit = Boolean(tags?.some((t) => t.toLowerCase() === v));
+          }
+        }
+        break;
+      }
+    }
+    return term.negate ? !hit : hit;
+  }
+
   public queryMaps(req: MapQueryRequest): MapQueryResponse {
     const t0 = performance.now();
     const matched = this.filterAndSortInternal(req);
     const offset = Math.max(0, Math.floor(req.offset ?? 0));
     const limit = Math.max(1, Math.min(2000, Math.floor(req.limit ?? 300)));
 
-    const items = matched.slice(offset, offset + limit).map((x) => x.compact);
+    const items = matched.slice(offset, offset + limit).map((x) => this.withUserData(x.compact));
     const queryDurationMs = Math.round((performance.now() - t0) * 100) / 100;
 
     return {
@@ -1019,6 +1185,6 @@ export class SoldatMapScanner {
   }
 
   public queryMatchingCompacts(req: MapQueryRequest): MapCompactEntry[] {
-    return this.filterAndSortInternal(req).map((x) => x.compact);
+    return this.filterAndSortInternal(req).map((x) => this.withUserData(x.compact));
   }
 }
