@@ -1,5 +1,41 @@
 # Changelog
 
+## 2.6.0 — 2026-11-02
+
+### Archiwum map (`_a`)
+- Nowa opcja w Optimize Sceneries: „Archiwizuj mapę (`_a`)”. Warstwy są sklejane jak w `_o`, razem z domyślnymi
+  sceneriami. Każda sceneria, która zostaje osobnym propem, oraz tekstura poligonów (z krawędziami z
+  `textures/edges`) dostają kopię nazwaną od mapy, np. `<mapa>_a_s1.png` i `<mapa>_a.bmp`. Inna paczka ani
+  aktualizacja gry nie podmieni już plików, z których korzysta mapa.
+- Kopie są bajt w bajt, więc format, kolor przezroczystości i wybór HD / klasyczny zostają bez zmian.
+- Nieużywane wpisy scenerii są zawsze usuwane, a brakujące pliki zgłaszane w wyniku.
+- Po wyłączeniu wszystkich trzech warstw powstaje archiwum bez wypalania: tylko kopie plików.
+- Działa też wsadowo dla paczki lub bieżącego filtra, np. `tw_`: wybierasz jakość (np. 4×) i kafelki (2048 px) i
+  dostajesz mapy `*_a.pms`.
+- Osobny katalog `exports/archived_maps/` (maps/, scenery-gfx/, textures/). Z map `*_a` można potem zbudować
+  paczkę w Kreatorze Paczek Map.
+- Wyniki `_o` i `_a` nie są ponownie optymalizowane, bo kolejne wypalanie tylko je rozmywa.
+
+### Jakość warstw
+- Tryb Auto wybiera 4×, gdy warstwy mieszczą się w limicie pamięci (wcześniej najwyżej 3×). Opisy jakości mówią,
+  że 4× zachowuje najwięcej detali scenerii HD.
+
+### Widok mapy
+- **Przypinanie widoku gracza:** przy włączonym narzędziu kliknięcie zostawia ramkę na mapie.
+  - Każda ramka ma przycisk usuwania, a przycisk z koszem usuwa wszystkie.
+  - Przypięte ramki i żołnierze są zapamiętywani osobno dla każdej mapy.
+- **Narzędzie „Żołnierz”:** sylwetka w prawdziwej skali, ok. 14 × 24 jednostki, ze szkieletem z animacji stania
+  OpenSoldat.
+  - Pokazuje też prostokąt, którym żołnierz koliduje z poligonami: 7 × 14.
+  - Staje na pierwszym podłożu pod kursorem; z Shiftem zostaje w powietrzu. Kliknięcie zostawia go na mapie.
+  - Z włączonym widokiem gracza ramka jest wyśrodkowana na żołnierzu, tak jak kamera w grze.
+- **Zaznaczanie kliknięciem:**
+  - Scenerie przezroczyste w klikniętym punkcie trafiają na koniec listy: puste fragmenty dużych obrazów oraz
+    ledwo widoczne mgły i chmury (poniżej ok. 16% krycia). Dzięki temu zaznacza się to, co faktycznie widać.
+  - Ponowne kliknięcie w to samo miejsce albo ↑/↓ wybiera obiekt pod spodem.
+  - Filtr Wszystko / Scenerie / Poligony decyduje, co zaznacza kliknięcie.
+  - Poligony nie wypadają już z listy, gdy w punkcie leży bardzo dużo scenerii.
+
 ## 2.5.2 — 2026-11-02
 
 ### Podgląd `_o`

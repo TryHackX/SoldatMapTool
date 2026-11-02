@@ -138,14 +138,47 @@ export const WORKSHOP_PL: PlDictionary = {
   ],
   'This map needs no fixes — the result will be saved as a plain _o.':
     'Ta mapa nie wymaga poprawek — wynik zostanie zapisany jako zwykłe _o.',
+  // Archive mode (_a)
+  'Archive the map ({a}): its own copy of every file it uses': 'Archiwizuj mapę ({a}): własna kopia każdego pliku, którego używa',
+  'Merges the layers like Optimize, default sceneries included, then gives every scenery that stays a single prop and the polygon texture a copy named after the map. Another pack or a game update can no longer replace them. Unused entries are removed.':
+    'Skleja warstwy jak Optimize (razem z domyślnymi sceneriami), a każda sceneria, która zostaje osobnym propem, oraz tekstura poligonów dostają kopię nazwaną od mapy. Inna paczka ani aktualizacja gry nie mogą ich już podmienić. Nieużywane wpisy są usuwane.',
+  'Result: {name}. Turn off all three layers to only copy the files, without baking.':
+    'Wynik: {name}. Wyłącz wszystkie trzy warstwy, aby tylko skopiować pliki, bez wypalania.',
+  'Separate folder: exports/archived_maps/ (maps/ + scenery-gfx/ + textures/)':
+    'Osobny katalog: exports/archived_maps/ (maps/ + scenery-gfx/ + textures/)',
+  'Archive: own copies of {files} ({size}) • texture: {texture}': 'Archiwum: własne kopie {files} ({size}) • tekstura: {texture}',
+  '{n} scenery file|{n} scenery files': ['{n} plik scenerii', '{n} pliki scenerii', '{n} plików scenerii'],
+  '(with smooth edges)': '(z krawędziami)',
+  'not found': 'nie znaleziono',
+  'Not found, so still shared: {files}': 'Nie znaleziono, więc nadal wspólne: {files}',
+  'Skipped: maps that already are an {o} or {a} result and maps whose output file already exists. Saving to: {dest}.':
+    'Pomijane są mapy będące już wynikiem {o} lub {a} oraz mapy, których plik wynikowy już istnieje. Zapis: {dest}.',
+  'Archive: every map gets its own copies of its sceneries and texture. Then build a pack from the *_a maps in the Map Pack Builder.':
+    'Archiwum: każda mapa dostaje własne kopie swoich scenerii i tekstury. Potem zbuduj paczkę z map *_a w Kreatorze Paczek Map.',
+  '{status}: archived {done} of {n} map|{status}: archived {done} of {n} maps': [
+    '{status}: zarchiwizowano {done} z {n} mapy',
+    '{status}: zarchiwizowano {done} z {n} map',
+    '{status}: zarchiwizowano {done} z {n} map',
+  ],
+  'Own copies: {files} • not found: {missing}': 'Własne kopie: {files} • nie znaleziono: {missing}',
+  'Archiving maps on the GPU...': 'Archiwizowanie map na GPU...',
+  'Archive and save {name}.pms': 'Zarchiwizuj i zapisz {name}.pms',
+  'Done! Archive saved: sceneries {before} → {after} ({files} • {size})':
+    'Gotowe! Archiwum zapisane: scenerie {before} → {after} ({files} • {size})',
+  'Archive {n} map → *_a.pms|Archive {n} maps → *_a.pms': [
+    'Zarchiwizuj {n} mapę → *_a.pms',
+    'Zarchiwizuj {n} mapy → *_a.pms',
+    'Zarchiwizuj {n} map → *_a.pms',
+  ],
   'PNG layer quality': 'Jakość rasteryzacji warstw PNG',
-  'Auto — 3×, less for very large layers (now: {ss}×)': 'Auto — 3×, przy bardzo dużych warstwach mniej (teraz: {ss}×)',
+  'Auto — the sharpest that fits the memory limit (now: {ss}×)': 'Auto — najostrzejsza w limicie pamięci (teraz: {ss}×)',
   '1× Economy — blurry in game (thin details fade)': '1× Ekonomiczna — w grze rozmyta (cienkie detale bledną)',
   '2× Medium — slightly soft at 1080p (scale 0.5)': '2× Średnia — na 1080p nieco miększa (scale 0.5)',
-  '3× Sharp — best for 1080p (scale 0.333)': '3× Ostra — najlepsza dla 1080p (scale 0.333)',
-  '4× Maximum — 1440p and 4K (large files, scale 0.25)': '4× Maksymalna — 1440p i 4K (duże pliki, scale 0.25)',
-  'Layer size: up to {mp} MPx (~{mb} MB VRAM, empty areas are cropped). At 1080p the game shows about 2.25 px per world unit: 3× comes out sharpest, 2× a little soft, 1× clearly blurry; 4× pays off from 1440p up.':
-    'Rozmiar warstw: do {mp} MPx (~{mb} MB VRAM, puste obszary są przycinane). Na 1080p gra pokazuje ok. 2.25 px na jednostkę świata: 3× wychodzi najostrzej, 2× nieco miękko, 1× wyraźnie rozmyte; 4× przydaje się od 1440p.',
+  '3× Sharp — good for 1080p (scale 0.333)': '3× Ostra — dobra dla 1080p (scale 0.333)',
+  '4× Maximum — sharpest: HD sceneries, 1440p and 4K (large files, scale 0.25)':
+    '4× Maksymalna — najostrzejsza: scenerie HD, 1440p i 4K (duże pliki, scale 0.25)',
+  'Layer size: up to {mp} MPx (~{mb} MB VRAM, empty areas are cropped). At 1080p the game shows about 2.25 px per world unit: 1× is clearly blurry, 2× a little soft, 3× sharp; 4× keeps the most detail of HD sceneries and pays off from 1440p up.':
+    'Rozmiar warstw: do {mp} MPx (~{mb} MB VRAM, puste obszary są przycinane). Na 1080p gra pokazuje ok. 2.25 px na jednostkę świata: 1× jest wyraźnie rozmyte, 2× nieco miękkie, 3× ostre; 4× zachowuje najwięcej detali scenerii HD i przydaje się od 1440p.',
   'Maximum PNG tile size': 'Maksymalny rozmiar kafelka PNG',
   '2048 × 2048 px (100% GPU compatibility)': '2048 × 2048 px (100% kompatybilności GPU)',
   '4096 × 4096 px (fewer files, more texture memory)': '4096 × 4096 px (mniej plików, więcej pamięci tekstur)',

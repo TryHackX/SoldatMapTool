@@ -29,6 +29,7 @@ import {
   makeOptimizeOutputName,
   parsePmsFull,
   patchPmsPropsAndScenery,
+  patchPmsTexture,
   PmsBounds,
   PmsMapData,
   PmsProp,
@@ -73,7 +74,7 @@ export class WorkshopError extends Error {
 
 interface GeneratedOutputRecord {
   crc32: number;
-  kind: '_f' | '_o';
+  kind: '_f' | '_o' | '_a';
   sourceMapId: string;
   createdAt: number;
 }
@@ -836,7 +837,8 @@ export class SoldatMapWorkshop {
     const derivedBaseName = makeOptimizeOutputName(
       baseName,
       appliedPropFixes.length > 0,
-      options.maxBaseLength || 24
+      options.maxBaseLength || 24,
+      Boolean(options.archive)
     );
 
     const mergeEnabled: [boolean, boolean, boolean] = [
@@ -1068,10 +1070,16 @@ export class SoldatMapWorkshop {
         fixesApplied = (await this.applyFixFirst(mapId, entry.baseName, pms, options)).fixes.length > 0;
       }
     }
-    const derivedBaseName = makeOptimizeOutputName(entry.baseName, fixesApplied, options.maxBaseLength || 24);
+    const derivedBaseName = makeOptimizeOutputName(
+      entry.baseName,
+      fixesApplied,
+      options.maxBaseLength || 24,
+      Boolean(options.archive)
+    );
     const { mapsDir, sceneryDir } = this.resolveTargetOptimizeDirs(
       options.destination,
-      options.customOutputFolder
+      options.customOutputFolder,
+      Boolean(options.archive)
     );
     return this.describeTarget(path.join(mapsDir, `${derivedBaseName}.pms`), derivedBaseName, sceneryDir);
   }
@@ -1203,9 +1211,10 @@ export class SoldatMapWorkshop {
         );
       }
 
-      const { mapsDir, sceneryDir } = this.resolveTargetOptimizeDirs(
+      const { mapsDir, sceneryDir, texturesDir } = this.resolveTargetOptimizeDirs(
         options.destination,
-        options.customOutputFolder
+        options.customOutputFolder,
+        Boolean(options.archive)
       );
       const outputMapPath = path.join(mapsDir, `${plan.derivedBaseName}.pms`);
       this.assertWritableTarget(srcPath, outputMapPath, overwrite, mapId);
@@ -1296,13 +1305,36 @@ export class SoldatMapWorkshop {
         index: i,
       }));
 
-      if (options.removeUnusedScenery) {
+      // The game loads every listed scenery, so an archive must not keep entries it no longer uses
+      if (options.removeUnusedScenery || options.archive) {
         const cleaned = compactUnusedScenery(nextProps, nextScenery);
         nextProps = cleaned.props;
         nextScenery = cleaned.scenery;
       }
 
-      const patchedBytes = patchPmsPropsAndScenery(origBytes, nextProps, nextScenery);
+      const archive = options.archive
+        ? await this.prepareArchiveCopies(
+            pms,
+            nextScenery,
+            generatedPngFiles,
+            plan.derivedBaseName,
+            Boolean(options.preferClassicBmp)
+          )
+        : null;
+      if (archive) {
+        for (const copy of archive.sceneryCopies) {
+          if (sourceSceneryLower.has(copy.fileName.toLowerCase())) {
+            throw new WorkshopError(
+              t('Tile name {name} collides with the sceneries of the source map.', { name: copy.fileName }),
+              400
+            );
+          }
+        }
+        nextScenery = archive.scenery;
+      }
+
+      let patchedBytes = patchPmsPropsAndScenery(origBytes, nextProps, nextScenery);
+      if (archive?.texture) patchedBytes = patchPmsTexture(patchedBytes, archive.texture.name);
       parsePmsFull(patchedBytes);
 
       // Refuse a result the game would reject when the source map itself was loadable for that limit
@@ -1337,14 +1369,26 @@ export class SoldatMapWorkshop {
         );
       }
 
-      // Phase 2 — stage tiles next to their final location (same volume, so the final rename is atomic)
+      // Every file written next to the map: the baked tiles, then the archive's own copies
+      const outputFiles: Array<{ dir: string; fileName: string; bytes: Uint8Array }> = generatedPngFiles.map(
+        (fileName, i) => ({ dir: sceneryDir, fileName, bytes: preparedPngs[i] })
+      );
+      if (archive) {
+        for (const copy of archive.sceneryCopies) outputFiles.push({ dir: sceneryDir, ...copy });
+        if (archive.texture) {
+          outputFiles.push({ dir: texturesDir, fileName: archive.texture.name, bytes: archive.texture.bytes });
+          if (archive.texture.edge) outputFiles.push({ dir: path.join(texturesDir, 'edges'), ...archive.texture.edge });
+        }
+      }
+
+      // Phase 2 — stage the files next to their final location (same volume, so the final rename is atomic)
       fs.mkdirSync(mapsDir, { recursive: true });
-      fs.mkdirSync(sceneryDir, { recursive: true });
       const stagedPaths: string[] = [];
       try {
-        for (let i = 0; i < preparedPngs.length; i++) {
-          const staged = path.join(sceneryDir, `${generatedPngFiles[i]}.${session.id}.staged`);
-          fs.writeFileSync(staged, preparedPngs[i]);
+        for (const file of outputFiles) {
+          fs.mkdirSync(file.dir, { recursive: true });
+          const staged = path.join(file.dir, `${file.fileName}.${session.id}.staged`);
+          fs.writeFileSync(staged, file.bytes);
           stagedPaths.push(staged);
         }
       } catch (err) {
@@ -1358,18 +1402,23 @@ export class SoldatMapWorkshop {
         throw err;
       }
 
-      // Phase 3 — back up what gets replaced, then swap tiles and finally the map itself
+      // Phase 3 — back up what gets replaced, then swap the files and finally the map itself
       const backup = new BackupSession(this.backupsRoot);
       for (let i = 0; i < stagedPaths.length; i++) {
-        const finalPath = path.join(sceneryDir, generatedPngFiles[i]);
+        const finalPath = path.join(outputFiles[i].dir, outputFiles[i].fileName);
         backup.preserve(finalPath);
         fs.renameSync(stagedPaths[i], finalPath);
       }
       backup.preserve(outputMapPath);
       writeFileAtomic(outputMapPath, patchedBytes);
-      this.recordGeneratedOutput(outputMapPath, patchedBytes, { kind: '_o', sourceMapId: mapId });
+      this.recordGeneratedOutput(outputMapPath, patchedBytes, {
+        kind: options.archive ? '_a' : '_o',
+        sourceMapId: mapId,
+      });
 
-      const regenerated = new Set(generatedPngFiles.map((f) => f.toLowerCase()));
+      const regenerated = new Set(
+        outputFiles.filter((f) => f.dir === sceneryDir).map((f) => f.fileName.toLowerCase())
+      );
       let removedOrphanPngs = 0;
       for (const oldTile of previousOwnTiles) {
         if (regenerated.has(oldTile.toLowerCase())) continue;
@@ -1403,10 +1452,95 @@ export class SoldatMapWorkshop {
         floatPrecision: session.tiles.length > 0 && session.tiles.every((t) => t.floatPrecision),
         limitWarnings: limitViolations.map((v) => `${t(v.label)}: ${v.value} > ${v.limit}`),
         backupDir: backup.directory,
+        archive: archive
+          ? {
+              copiedFiles: archive.sceneryCopies.length,
+              copiedBytes: archive.sceneryCopies.reduce((acc, c) => acc + c.bytes.byteLength, 0),
+              texture: archive.texture?.name ?? null,
+              textureEdge: Boolean(archive.texture?.edge),
+              missing: archive.missing,
+            }
+          : null,
       };
     } finally {
       this.cancelOptimizeSession(sessionId);
     }
+  }
+
+  /**
+   * Archive mode: every scenery the result still references (all but the baked tiles) and the polygon texture get
+   * a copy named after the derived map, so another pack or a game update replacing a shared file can never change
+   * this map. The file the game would load is copied byte for byte (same format, so the colour key and the HD /
+   * classic choice of the bake stay the same).
+   */
+  private async prepareArchiveCopies(
+    pms: PmsMapData,
+    scenery: PmsSceneryDef[],
+    tileFiles: string[],
+    derivedBaseName: string,
+    preferClassicBmp: boolean
+  ): Promise<{
+    scenery: PmsSceneryDef[];
+    sceneryCopies: Array<{ fileName: string; bytes: Buffer }>;
+    texture: { name: string; bytes: Buffer; edge: { fileName: string; bytes: Buffer } | null } | null;
+    missing: string[];
+  }> {
+    const resolver = this.scanner.getResolver();
+    const tiles = new Set(tileFiles.map((f) => f.toLowerCase()));
+    const stem = derivedBaseName.slice(0, 38).replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+    const sceneryCopies: Array<{ fileName: string; bytes: Buffer }> = [];
+    const copyBySource = new Map<string, string>();
+    const missing: string[] = [];
+
+    const nextScenery = scenery.map((entry) => {
+      const key = entry.filename.trim().toLowerCase();
+      if (tiles.has(key)) return entry;
+      let fileName = copyBySource.get(key);
+      if (!fileName) {
+        const src = key ? resolver.findBestRenderFile('scenery-gfx', entry.filename, preferClassicBmp) : null;
+        if (!src) {
+          missing.push(entry.filename);
+          return entry;
+        }
+        // "<stem>_s12.png" stays inside the PMS ShortString[50] (stem <= 38 characters)
+        fileName = `${stem}_s${sceneryCopies.length + 1}${(path.extname(src.diskName) || '.png').toLowerCase()}`;
+        sceneryCopies.push({ fileName, bytes: fs.readFileSync(src.fullPath) });
+        copyBySource.set(key, fileName);
+      }
+      return { ...entry, filename: fileName };
+    });
+
+    let texture: { name: string; bytes: Buffer; edge: { fileName: string; bytes: Buffer } | null } | null = null;
+    const texRef = pms.texture.trim();
+    const texInfo = texRef ? resolver.resolveMapAsset('textures', texRef, 1) : null;
+    // The file must exist under the map's own name: findBestRenderFile alone would fall back to default.bmp
+    const texSrc = texInfo?.diskFullPath ? resolver.findBestRenderFile('textures', texRef, preferClassicBmp) : null;
+    if (texInfo && texSrc) {
+      const ext = (path.extname(texSrc.diskName) || '.png').toLowerCase();
+      const texStem = archiveTextureStem(stem, 24 - ext.length);
+      let edge: { fileName: string; bytes: Buffer } | null = null;
+      if (texInfo.edgeFullPath && texInfo.edgeDiskName) {
+        // The game looks for textures/edges/<texture> or its .png variant: a .bmp edge of a .png texture is converted
+        const edgeExt = (path.extname(texInfo.edgeDiskName) || ext).toLowerCase();
+        const edgeBytes = fs.readFileSync(texInfo.edgeFullPath);
+        if (edgeExt === '.bmp' && ext !== '.bmp') {
+          const decoded = decodeBmpToRgba(edgeBytes);
+          edge = {
+            fileName: `${texStem}.png`,
+            bytes: await sharp(decoded.rgba, { raw: { width: decoded.width, height: decoded.height, channels: 4 } })
+              .png({ compressionLevel: 9 })
+              .toBuffer(),
+          };
+        } else {
+          edge = { fileName: `${texStem}${edgeExt}`, bytes: edgeBytes };
+        }
+      }
+      texture = { name: `${texStem}${ext}`, bytes: fs.readFileSync(texSrc.fullPath), edge };
+    } else if (texRef) {
+      missing.push(`textures/${texRef}`);
+    }
+
+    return { scenery: nextScenery, sceneryCopies, texture, missing };
   }
 
   private resolveTargetMapsDir(
@@ -1428,13 +1562,15 @@ export class SoldatMapWorkshop {
 
   private resolveTargetOptimizeDirs(
     destination: 'soldat_maps' | 'exports_optimized' | 'custom',
-    customFolder: string | undefined
-  ): { mapsDir: string; sceneryDir: string } {
+    customFolder: string | undefined,
+    archive = false
+  ): { mapsDir: string; sceneryDir: string; texturesDir: string } {
     if (destination === 'soldat_maps') {
       const root = this.scanner.getResolver().getRoot();
       return {
         mapsDir: path.join(root, 'maps'),
         sceneryDir: path.join(root, 'scenery-gfx'),
+        texturesDir: path.join(root, 'textures'),
       };
     }
     if (destination === 'custom' && !customFolder?.trim()) {
@@ -1443,12 +1579,20 @@ export class SoldatMapWorkshop {
     const base =
       destination === 'custom'
         ? path.resolve(customFolder!.trim())
-        : path.join(this.exportsRoot, 'optimized_maps');
+        : path.join(this.exportsRoot, archive ? 'archived_maps' : 'optimized_maps');
     return {
       mapsDir: path.join(base, 'maps'),
       sceneryDir: path.join(base, 'scenery-gfx'),
+      texturesDir: path.join(base, 'textures'),
     };
   }
+}
+
+/** Stem of an archive's own texture copy: the map's name, shortened with a hash to fit the PMS texture field */
+function archiveTextureStem(stem: string, maxLen: number): string {
+  if (stem.length <= maxLen) return stem;
+  const hash = (soldatCrc32(Buffer.from(stem.toLowerCase(), 'utf-8')) >>> 0).toString(36).slice(0, 5);
+  return `${stem.slice(0, maxLen - hash.length - 1).replace(/_+$/, '')}_${hash}`;
 }
 
 function clampSupersample(raw: unknown): number {
@@ -1467,12 +1611,12 @@ function classicDimsFallback(
 }
 
 /**
- * Scenery entries of a previously generated `_o` map that follow this tool's tile naming
- * (`<derived>_b1.png`, `<derived>_m3.png`, ...). Only those files are ever considered for cleanup.
+ * Scenery entries of a previously generated `_o` / `_a` map that follow this tool's naming (`<derived>_b1.png`,
+ * `<derived>_m3.png`, archive copies `<derived>_s2.bmp`, ...). Only those files are ever considered for cleanup.
  */
 function listOwnTileFiles(map: PmsMapData, derivedBaseName: string): string[] {
   const stem = derivedBaseName.slice(0, 38).toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pattern = new RegExp(`^${stem}_[bmf]\\d+(_\\d+)?\\.png$`, 'i');
+  const pattern = new RegExp(`^${stem}_([bmf]\\d+(_\\d+)?\\.png|s\\d+\\.[a-z0-9]{2,4})$`, 'i');
   return map.scenery.map((s) => s.filename).filter((f) => pattern.test(f));
 }
 

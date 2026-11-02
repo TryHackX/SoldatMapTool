@@ -3,6 +3,14 @@ import type { PlDictionary } from './types';
 // Map view: toolbar, overlays, object inspector, map details drawer, full-size screenshot export, renderer errors.
 // 'Polygons', 'Colliders' and 'Spawn points' are used here too; their entries live in SHARED_PL.
 export const VIEWPORT_PL: PlDictionary = {
+  // Object inspector: what a click selects, see-through sceneries
+  'What a click selects': 'Co zaznacza kliknięcie',
+  All: 'Wszystko',
+  Sceneries: 'Scenerie',
+  'Nothing of this kind under the cursor.': 'Pod kursorem nie ma obiektów tego rodzaju.',
+  '(transparent here)': '(tu przezroczysta)',
+  'Click the same spot again or press ↑/↓ to select the object below. Sceneries transparent at this point are listed last.':
+    'Kliknij to samo miejsce jeszcze raz albo użyj ↑/↓, aby zaznaczyć obiekt pod spodem. Scenerie przezroczyste w tym punkcie są na końcu listy.',
   'At {zoom}% the {q}× layers are enlarged beyond their resolution and look softer than HD sceneries. In game (about {game}% here) they look as the report says.':
     'Przy {zoom}% warstwy {q}× są powiększone ponad swoją rozdzielczość i wyglądają miękcej niż scenerie HD. W grze (tu ok. {game}%) wyglądają tak, jak mówi raport.',
   'Zoom to the in-game scale at 1080p': 'Ustaw powiększenie jak w grze przy 1080p',
@@ -68,6 +76,8 @@ export const VIEWPORT_PL: PlDictionary = {
   'current map': 'bieżąca mapa',
   'loading...': 'wczytywanie...',
   'Player view {w}×{h}': 'Widok gracza {w}×{h}',
+  'Remove from the map': 'Usuń z mapy',
+  'Soldier {w}×{h} units • collides as {cw}×{ch}': 'Żołnierz {w}×{h} jednostek • koliduje jak {cw}×{ch}',
   'Minimap — click to move the view': 'Minimapa — kliknij, aby przesunąć widok',
 
   // Object inspector (click on the map) and hover hints
@@ -107,9 +117,13 @@ export const VIEWPORT_PL: PlDictionary = {
   // Camera, ruler, player view and zoom controls
   'Distance ruler (click and drag on the map)': 'Miarka odległości (kliknij i przeciągnij na mapie)',
   Ruler: 'Miarka',
-  "Player's view frame at the cursor (Soldat shows 480 units of height)":
-    'Ramka widoku gracza przy kursorze (Soldat pokazuje 480 jednostek wysokości)',
+  "Player's view frame at the cursor (Soldat shows 480 units of height) — click the map to leave one there":
+    'Ramka widoku gracza przy kursorze (Soldat pokazuje 480 jednostek wysokości) — kliknij mapę, aby ją tam zostawić',
   'Player view': 'Widok gracza',
+  Soldier: 'Żołnierz',
+  'Soldier at real size at the cursor — click the map to leave one (it stands on the floor below the cursor; hold Shift to place it in the air)':
+    'Żołnierz w prawdziwej skali przy kursorze — kliknij mapę, aby go zostawić (staje na podłożu pod kursorem; z Shiftem zostaje w powietrzu)',
+  'Remove all frames and soldiers left on this map': 'Usuń wszystkie ramki i żołnierzy zostawionych na tej mapie',
   "Player's screen aspect ratio": 'Proporcje ekranu gracza',
   'Minimap with the view rectangle': 'Minimapa z prostokątem widoku',
   Minimap: 'Minimapa',

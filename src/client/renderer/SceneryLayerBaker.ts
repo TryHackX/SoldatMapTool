@@ -257,7 +257,8 @@ async function postJson<T>(url: string, body: unknown, signal?: AbortSignal): Pr
 export type SupersampleChoice = 'auto' | 1 | 2 | 3 | 4;
 
 // "Auto" picks the sharpest supersampling whose baked layers stay under this texture budget (~190 MB RGBA).
-// 3x is the sharpest in-game at 1080p (~2.25 px per world unit); 4x only pays off at 1440p and above.
+// 3x is sharp in-game at 1080p (~2.25 px per world unit); 4x keeps more of the HD sceneries' detail and pays off
+// at 1440p and above, so small maps get it for free.
 export const AUTO_SUPERSAMPLE_BUDGET_MP = 48;
 
 export function resolveSupersample(
@@ -267,6 +268,7 @@ export function resolveSupersample(
   if (choice !== 'auto') return choice;
   const mp = plan?.estimatedMegapixelsBySupersample;
   if (!mp) return 2;
+  if (mp[3] <= AUTO_SUPERSAMPLE_BUDGET_MP) return 4;
   if (mp[2] <= AUTO_SUPERSAMPLE_BUDGET_MP) return 3;
   if (mp[1] <= AUTO_SUPERSAMPLE_BUDGET_MP) return 2;
   return 1;

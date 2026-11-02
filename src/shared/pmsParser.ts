@@ -1128,7 +1128,8 @@ export function encodePascalShortString(str: string, maxSize: number): Uint8Arra
 }
 
 /**
- * Generates a derived map baseName with `_f` (fixed 1.7.1 sceneries) or `_o` (optimized merged sceneries).
+ * Generates a derived map baseName with `_f` (fixed 1.7.1 sceneries), `_o` (optimized merged sceneries) or `_a`
+ * (archive: merged sceneries plus the map's own copies of every file it uses).
  * If appending the suffix exceeds `maxBaseLength` (default 24 chars), trailing characters of the base name
  * are truncated before appending the suffix.
  * The result is guaranteed to differ (case-insensitively) from the source name, so a derived map can
@@ -1136,7 +1137,7 @@ export function encodePascalShortString(str: string, maxSize: number): Uint8Arra
  */
 export function makeDerivedMapName(
   baseName: string,
-  suffix: '_f' | '_o' | '_f_o',
+  suffix: '_f' | '_o' | '_f_o' | '_a' | '_f_a',
   maxBaseLength = 24
 ): string {
   const safeMax = Math.max(6, Math.min(44, Math.floor(maxBaseLength || 24)));
@@ -1460,12 +1461,31 @@ export function serializePms(map: PmsMapData): Uint8Array {
  * Clones a `PmsMapData` with updated prop dimensions (for instant 0ms Live Before/After _f repair preview in WebGL2!).
  */
 /**
- * Name of an Optimize Sceneries result: `<map>_o`, or `<map>_f_o` when 1.7.1 size fixes were applied first.
- * Built in one step, so a long name is shortened once and the result can never fall back onto the source name
- * (two separate `_f` + `_o` truncations could drop the `_f` or reproduce the source).
+ * Name of an Optimize Sceneries result: `<map>_o`, or `<map>_f_o` when 1.7.1 size fixes were applied first
+ * (`_a` / `_f_a` in archive mode). Built in one step, so a long name is shortened once and the result can never
+ * fall back onto the source name (two separate `_f` + `_o` truncations could drop the `_f` or reproduce the source).
  */
-export function makeOptimizeOutputName(baseName: string, fixesApplied: boolean, maxBaseLength: number): string {
-  return makeDerivedMapName(baseName, fixesApplied ? '_f_o' : '_o', maxBaseLength);
+export function makeOptimizeOutputName(
+  baseName: string,
+  fixesApplied: boolean,
+  maxBaseLength: number,
+  archive = false
+): string {
+  const suffix = archive ? (fixesApplied ? '_f_a' : '_a') : fixesApplied ? '_f_o' : '_o';
+  return makeDerivedMapName(baseName, suffix, maxBaseLength);
+}
+
+// The texture name follows the 4-byte version and the 39-byte map title ShortString in the PMS header
+const PMS_TEXTURE_OFFSET = 4 + 39;
+
+/**
+ * Copy of a PMS file with another polygon texture name (ShortString[24] in the header); nothing else changes.
+ */
+export function patchPmsTexture(input: Uint8Array, texture: string): Uint8Array {
+  if (texture.length > 24) throw new Error(`Texture name longer than 24 characters: ${texture}`);
+  const out = new Uint8Array(input);
+  out.set(encodePascalShortString(texture, 24), PMS_TEXTURE_OFFSET);
+  return out;
 }
 
 export function cloneMapWithPropFixes(

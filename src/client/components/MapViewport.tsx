@@ -7,11 +7,13 @@ import {
   loadSoldatAssetImage,
   loadSoldatObjectSprites,
   ObjectSpritesBundle,
+  ProcessedImageAsset,
 } from '../renderer/assetLoader';
 import { renderMapOverlays, RulerMeasurement, spawnTypeName } from '../renderer/OverlayRenderer';
 import { SoldatWebGLRenderer } from '../renderer/SoldatWebGLRenderer';
 import { RenderLayerVisibility } from '../renderer/types';
 import { polyTypeName, t, tText } from '../i18n';
+import { findFloorBelow, pointInTriangle } from '../utils/mapGeometry';
 import {
   AlertTriangle,
   Bot,
@@ -27,11 +29,14 @@ import {
   MapIcon,
   Maximize2,
   Monitor,
+  PersonStanding,
   Ruler,
   ShieldAlert,
   Sparkles,
+  Trash2,
   Users,
   Wrench,
+  X,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -69,19 +74,72 @@ interface ViewTransform {
 // Viewport tools remembered between sessions (per browser)
 const VIEWPORT_PREFS_KEY = 'soldat-map-studio.viewport.v1';
 
+// What a click on the map selects in the object inspector
+type PickFilter = 'all' | 'sceneries' | 'polygons';
+const PICK_FILTERS: PickFilter[] = ['all', 'sceneries', 'polygons'];
+
 interface ViewportPrefs {
   showFixIssues: boolean;
   showPlayerView: boolean;
   playerAspect: number; // width / height of the player's screen
+  showSoldier: boolean; // real-size soldier at the cursor
   showMinimap: boolean;
+  pickFilter: PickFilter;
 }
 
 const DEFAULT_VIEWPORT_PREFS: ViewportPrefs = {
   showFixIssues: false,
   showPlayerView: false,
   playerAspect: 16 / 9,
+  showSoldier: false,
   showMinimap: true,
+  pickFilter: 'all',
 };
+
+// Player view frames and soldiers left on a map (per map, remembered between sessions)
+const VIEWPORT_PINS_KEY = 'soldat-map-studio.viewport.pins.v1';
+const MAX_PINNED_MAPS = 40;
+const MAX_PINS_PER_MAP = 60;
+
+interface MapPin {
+  id: string;
+  kind: 'view' | 'soldier';
+  x: number; // world units: centre of a view frame, point between a soldier's feet
+  y: number;
+  aspect?: number; // view: the player's screen aspect when it was pinned
+}
+
+function readPinStore(): Record<string, MapPin[]> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(VIEWPORT_PINS_KEY) || '{}');
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+function loadMapPins(mapKey: string | null): MapPin[] {
+  if (!mapKey) return [];
+  const list = readPinStore()[mapKey];
+  return Array.isArray(list)
+    ? list.filter(
+        (p) => p && (p.kind === 'view' || p.kind === 'soldier') && Number.isFinite(p.x) && Number.isFinite(p.y)
+      )
+    : [];
+}
+
+function saveMapPins(mapKey: string, pins: MapPin[]): void {
+  try {
+    const store = readPinStore();
+    delete store[mapKey]; // written again as the newest entry: the maps unused the longest are dropped first
+    if (pins.length > 0) store[mapKey] = pins;
+    const keys = Object.keys(store);
+    for (const k of keys.slice(0, Math.max(0, keys.length - MAX_PINNED_MAPS))) delete store[k];
+    localStorage.setItem(VIEWPORT_PINS_KEY, JSON.stringify(store));
+  } catch {
+    // Ignore (private window / blocked storage)
+  }
+}
 
 const PLAYER_ASPECTS: Array<[string, number]> = [
   ['16:9', 16 / 9],
@@ -107,7 +165,9 @@ function loadViewportPrefs(): ViewportPrefs {
         typeof raw.playerAspect === 'number' && raw.playerAspect > 1 && raw.playerAspect < 3
           ? raw.playerAspect
           : DEFAULT_VIEWPORT_PREFS.playerAspect,
+      showSoldier: typeof raw.showSoldier === 'boolean' ? raw.showSoldier : DEFAULT_VIEWPORT_PREFS.showSoldier,
       showMinimap: typeof raw.showMinimap === 'boolean' ? raw.showMinimap : DEFAULT_VIEWPORT_PREFS.showMinimap,
+      pickFilter: PICK_FILTERS.includes(raw.pickFilter) ? raw.pickFilter : DEFAULT_VIEWPORT_PREFS.pickFilter,
     };
   } catch {
     return DEFAULT_VIEWPORT_PREFS;
@@ -296,7 +356,30 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     worldY: number;
     hits: InspectHit[];
     selected: number;
+    pickedByUser?: boolean; // the selection was changed by hand (kept when the list is reordered)
   } | null>(null);
+  // Screen position of the last inspector click (clicking the same spot again selects the next object)
+  const lastPickRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const pickTokenRef = useRef(0);
+
+  // Frames and soldiers left on the current map; Shift places a soldier where the cursor is instead of on the floor
+  const [pinState, setPinState] = useState<{ key: string | null; pins: MapPin[] }>(() => ({
+    key: mapKey,
+    pins: loadMapPins(mapKey),
+  }));
+  useEffect(() => {
+    setPinState((prev) => (prev.key === mapKey ? prev : { key: mapKey, pins: loadMapPins(mapKey) }));
+  }, [mapKey]);
+  const pins = pinState.key === mapKey ? pinState.pins : [];
+  const updatePins = (change: (prev: MapPin[]) => MapPin[]) => {
+    if (!mapKey) return;
+    setPinState((prev) => {
+      const next = change(prev.key === mapKey ? prev.pins : loadMapPins(mapKey)).slice(-MAX_PINS_PER_MAP);
+      saveMapPins(mapKey, next);
+      return { key: mapKey, pins: next };
+    });
+  };
+  const [freePlace, setFreePlace] = useState(false);
 
   const dragRef = useRef<{
     mode: 'pan' | 'ruler';
@@ -356,6 +439,21 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   // Escape closes the object inspector, then cancels Ruler mode or Live Repair Preview (when no modal is open)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      // Up / Down walk through the objects under the cursor (not while typing or using another panel)
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && inspection && inspection.hits.length > 1) {
+        const target = e.target as HTMLElement | null;
+        if (target && target !== document.body && !containerRef.current?.contains(target)) return;
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA')) return;
+        if (document.querySelector('[role="dialog"]')) return;
+        e.preventDefault();
+        const step = e.key === 'ArrowDown' ? 1 : -1;
+        setInspection((prev) =>
+          prev
+            ? { ...prev, selected: (prev.selected + step + prev.hits.length) % prev.hits.length, pickedByUser: true }
+            : prev
+        );
+        return;
+      }
       if (e.key !== 'Escape') return;
       if (document.querySelector('[role="dialog"]')) return;
       if (inspection) {
@@ -735,7 +833,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   transformRef.current = transform;
   const clientToWorldRef = useRef(clientToWorld);
   clientToWorldRef.current = clientToWorld;
-  const pendingMoveRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const pendingMoveRef = useRef<{ clientX: number; clientY: number; shiftKey: boolean } | null>(null);
   const moveFrameRef = useRef(0);
 
   // Coarse spatial grid so polygon hover tests only look at nearby triangles instead of all 5000
@@ -749,6 +847,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
 
     const w = clientToWorldRef.current(ev.clientX, ev.clientY);
     setCursorWorld(w);
+    setFreePlace(ev.shiftKey);
 
     const activeDrag = dragRef.current;
     if (activeDrag) {
@@ -820,7 +919,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
 
   // Mouse moves are coalesced to one state update per animation frame (pan + hover + cursor HUD)
   const handleMouseMove = (e: React.MouseEvent) => {
-    pendingMoveRef.current = { clientX: e.clientX, clientY: e.clientY };
+    pendingMoveRef.current = { clientX: e.clientX, clientY: e.clientY, shiftKey: e.shiftKey };
     if (!moveFrameRef.current) {
       moveFrameRef.current = requestAnimationFrame(() => processPendingMouseMoveRef.current());
     }
@@ -832,14 +931,31 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     };
   }, []);
 
-  // A left click without dragging opens the object inspector for everything under the cursor
-  const handleMouseUp = (e?: React.MouseEvent) => {
-    const drag = dragRef.current;
-    dragRef.current = null;
-    if (!e || !drag || drag.mode !== 'pan' || e.button !== 0 || !mapData) return;
-    if (Math.hypot(e.clientX - drag.startClientX, e.clientY - drag.startClientY) > 4) return;
-    const w = clientToWorld(e.clientX, e.clientY);
-    const hits = collectInspectHits(mapData, w.x, w.y, layers, polyHitGrid);
+  /**
+   * Where the tools go for a cursor point: the soldier stands on the first floor below it (or exactly there with
+   * Shift / without a floor in reach) and the player's view is centred on the soldier, or on the cursor alone.
+   */
+  const placeTools = (x: number, y: number, free: boolean) => {
+    let soldier: { x: number; y: number } | null = null;
+    if (prefs.showSoldier) {
+      const floor = !free && mapData ? findFloorBelow(mapData, x, y, SOLDIER_MAX_DROP) : null;
+      soldier = { x, y: floor ?? y };
+    }
+    const view = prefs.showPlayerView
+      ? soldier
+        ? { x: soldier.x, y: soldier.y - SOLDIER_CAMERA_HEIGHT }
+        : { x, y }
+      : null;
+    return { soldier, view };
+  };
+
+  /**
+   * Fills the object inspector for a world point. Sceneries that are transparent at that point (the empty parts
+   * of a large image) are moved below the objects actually visible there once their pixels are checked.
+   */
+  const runPick = (wx: number, wy: number, filter: PickFilter, keepOpen = false) => {
+    if (!mapData) return;
+    const hits = collectInspectHits(mapData, wx, wy, layers, polyHitGrid, filter);
     if (issueOverlay) {
       for (const hit of hits) {
         const issue = hit.kind === 'prop' ? issueOverlay.byProp.get(hit.index) : undefined;
@@ -851,7 +967,48 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         }
       }
     }
-    setInspection(hits.length > 0 ? { worldX: w.x, worldY: w.y, hits, selected: 0 } : null);
+    const token = ++pickTokenRef.current;
+    setInspection(hits.length > 0 || keepOpen ? { worldX: wx, worldY: wy, hits, selected: 0 } : null);
+    if (hits.length === 0) return;
+    void orderBySeeThrough(mapData, hits, wx, wy, transform.zoom, layers.preferClassicBmp).then((ordered) => {
+      if (!ordered || pickTokenRef.current !== token) return;
+      setInspection((prev) => {
+        if (!prev || prev.hits !== hits) return prev;
+        const keep = prev.pickedByUser ? prev.hits[prev.selected] : null;
+        const idx = keep ? ordered.findIndex((h) => h.kind === keep.kind && h.index === keep.index) : 0;
+        return { ...prev, hits: ordered, selected: Math.max(0, idx) };
+      });
+    });
+  };
+
+  // A left click without dragging opens the object inspector for everything under the cursor
+  const handleMouseUp = (e?: React.MouseEvent) => {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    if (!e || !drag || drag.mode !== 'pan' || e.button !== 0 || !mapData) return;
+    if (Math.hypot(e.clientX - drag.startClientX, e.clientY - drag.startClientY) > 4) return;
+    // Player view / soldier tools: a click leaves them on the map instead of opening the inspector
+    if (prefs.showPlayerView || prefs.showSoldier) {
+      const w = clientToWorld(e.clientX, e.clientY);
+      const placed = placeTools(w.x, w.y, e.shiftKey);
+      const id = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`;
+      const added: MapPin[] = [];
+      if (placed.view) added.push({ id: `${id}v`, kind: 'view', x: placed.view.x, y: placed.view.y, aspect: prefs.playerAspect });
+      if (placed.soldier) added.push({ id: `${id}s`, kind: 'soldier', x: placed.soldier.x, y: placed.soldier.y });
+      updatePins((prev) => [...prev, ...added]);
+      return;
+    }
+    // Clicking the same spot again walks down through everything under the cursor
+    const last = lastPickRef.current;
+    lastPickRef.current = { clientX: e.clientX, clientY: e.clientY };
+    if (inspection && inspection.hits.length > 1 && last && Math.hypot(e.clientX - last.clientX, e.clientY - last.clientY) <= 5) {
+      setInspection((prev) =>
+        prev ? { ...prev, selected: (prev.selected + 1) % prev.hits.length, pickedByUser: true } : prev
+      );
+      return;
+    }
+    const w = clientToWorld(e.clientX, e.clientY);
+    runPick(w.x, w.y, prefs.pickFilter);
   };
 
   // Compute entity summary & special poly legend directly from parsed PMS mapData
@@ -1388,13 +1545,110 @@ export const MapViewport: React.FC<MapViewportProps> = ({
           </div>
         )}
 
-        {/* Player view: what a player standing at the cursor sees (480 units high, width from aspect) */}
+        {/* Frames left on the map with the player view tool */}
+        {mapData &&
+          pins.map((pin) => {
+            if (pin.kind !== 'view') return null;
+            const zoom = Math.max(0.02, transform.zoom || 0.5);
+            const aspect = pin.aspect ?? prefs.playerAspect;
+            const vwPx = PLAYER_VIEW_HEIGHT * aspect * zoom;
+            const vhPx = PLAYER_VIEW_HEIGHT * zoom;
+            const cx = (pin.x - currentWorldBounds.left) * zoom;
+            const cy = (pin.y - currentWorldBounds.top) * zoom;
+            if (cx + vwPx / 2 < -40 || cy + vhPx / 2 < -40 || cx - vwPx / 2 > viewportSize.width + 40 || cy - vhPx / 2 > viewportSize.height + 40) {
+              return null;
+            }
+            return (
+              <div
+                key={pin.id}
+                className="absolute z-10 pointer-events-none border-2 border-sky-300/70 rounded-sm"
+                style={{ left: cx - vwPx / 2, top: cy - vhPx / 2, width: vwPx, height: vhPx }}
+              >
+                <span
+                  data-map-ui
+                  className="absolute -top-5 left-0 flex items-center gap-1 whitespace-nowrap text-[10px] font-mono bg-zinc-950/85 text-sky-200 px-1 rounded pointer-events-auto cursor-default"
+                >
+                  {t('Player view {w}×{h}', { w: Math.round(PLAYER_VIEW_HEIGHT * aspect), h: PLAYER_VIEW_HEIGHT })}
+                  <button
+                    type="button"
+                    onClick={() => updatePins((prev) => prev.filter((p) => p.id !== pin.id))}
+                    title={t('Remove from the map')}
+                    aria-label={t('Remove from the map')}
+                    className="text-zinc-400 hover:text-red-300 cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              </div>
+            );
+          })}
+
+        {/* Soldiers at real size: the ones left on the map and the one at the cursor */}
+        {mapData && (() => {
+          const zoom = Math.max(0.02, transform.zoom || 0.5);
+          const placedSoldiers = pins.filter((p) => p.kind === 'soldier');
+          const cursorSoldier = prefs.showSoldier && cursorWorld ? placeTools(cursorWorld.x, cursorWorld.y, freePlace).soldier : null;
+          if (placedSoldiers.length === 0 && !cursorSoldier) return null;
+          const toScreen = (p: { x: number; y: number }) => ({
+            x: (p.x - currentWorldBounds.left) * zoom,
+            y: (p.y - currentWorldBounds.top) * zoom,
+          });
+          return (
+            <>
+              <svg
+                className="absolute inset-0 z-10 pointer-events-none"
+                width={viewportSize.width}
+                height={viewportSize.height}
+                aria-hidden="true"
+              >
+                {placedSoldiers.map((pin) => {
+                  const s = toScreen(pin);
+                  return <SoldierFigure key={pin.id} x={s.x} y={s.y} zoom={zoom} />;
+                })}
+                {cursorSoldier && <SoldierFigure x={toScreen(cursorSoldier).x} y={toScreen(cursorSoldier).y} zoom={zoom} ghost />}
+              </svg>
+              {placedSoldiers.map((pin) => {
+                const s = toScreen(pin);
+                return (
+                  <button
+                    key={`${pin.id}-x`}
+                    type="button"
+                    data-map-ui
+                    onClick={() => updatePins((prev) => prev.filter((p) => p.id !== pin.id))}
+                    title={t('Remove from the map')}
+                    aria-label={t('Remove from the map')}
+                    className="absolute z-10 w-4 h-4 -translate-x-1/2 rounded-full bg-zinc-950/80 text-zinc-300 opacity-60 hover:opacity-100 hover:text-red-300 flex items-center justify-center cursor-pointer"
+                    style={{ left: s.x, top: s.y - SOLDIER_HEIGHT * zoom - 20 }}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                );
+              })}
+              {cursorSoldier && (
+                <span
+                  className="absolute z-10 pointer-events-none whitespace-nowrap text-[10px] font-mono bg-zinc-950/85 text-emerald-200 px-1 rounded"
+                  style={{ left: toScreen(cursorSoldier).x + SOLDIER_RIGHT * zoom + 6, top: toScreen(cursorSoldier).y - SOLDIER_HEIGHT * zoom }}
+                >
+                  {t('Soldier {w}×{h} units • collides as {cw}×{ch}', {
+                    w: 14,
+                    h: 24,
+                    cw: SOLDIER_COLLISION.halfWidth * 2,
+                    ch: SOLDIER_COLLISION.height,
+                  })}
+                </span>
+              )}
+            </>
+          );
+        })()}
+
+        {/* Player view: what a player at the cursor (or at the soldier) sees — 480 units high, width from aspect */}
         {prefs.showPlayerView && cursorWorld && mapData && (() => {
           const zoom = Math.max(0.02, transform.zoom || 0.5);
+          const centre = placeTools(cursorWorld.x, cursorWorld.y, freePlace).view ?? cursorWorld;
           const vwPx = PLAYER_VIEW_HEIGHT * prefs.playerAspect * zoom;
           const vhPx = PLAYER_VIEW_HEIGHT * zoom;
-          const cx = (cursorWorld.x - currentWorldBounds.left) * zoom;
-          const cy = (cursorWorld.y - currentWorldBounds.top) * zoom;
+          const cx = (centre.x - currentWorldBounds.left) * zoom;
+          const cy = (centre.y - currentWorldBounds.top) * zoom;
           return (
             <div
               className="absolute z-10 pointer-events-none border-2 border-dashed border-sky-300/80 rounded-sm shadow-[0_0_0_9999px_rgba(0,0,0,0.18)]"
@@ -1453,18 +1707,48 @@ export const MapViewport: React.FC<MapViewportProps> = ({
                 ✕
               </button>
             </div>
+            <div className="px-3 py-1.5 border-b border-zinc-800 flex items-center gap-1" title={t('What a click selects')}>
+              {PICK_FILTERS.map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  aria-pressed={prefs.pickFilter === f}
+                  onClick={() => {
+                    setPrefs((p) => ({ ...p, pickFilter: f }));
+                    runPick(inspection.worldX, inspection.worldY, f, true);
+                  }}
+                  className={`px-2 py-0.5 rounded text-[11px] border cursor-pointer ${
+                    prefs.pickFilter === f
+                      ? 'bg-fuchsia-500/20 text-fuchsia-100 border-fuchsia-500/40'
+                      : 'text-zinc-400 border-zinc-800 hover:text-zinc-200'
+                  }`}
+                >
+                  {f === 'all' ? t('All') : f === 'sceneries' ? t('Sceneries') : t('Polygons')}
+                </button>
+              ))}
+            </div>
             <div className="overflow-y-auto divide-y divide-zinc-800/70">
+              {inspection.hits.length === 0 && (
+                <div className="px-3 py-3 text-zinc-500">{t('Nothing of this kind under the cursor.')}</div>
+              )}
               {inspection.hits.map((hit, idx) => {
                 const selected = idx === inspection.selected;
                 return (
                   <div key={`${hit.kind}-${hit.index}`} className={selected ? 'bg-fuchsia-500/10' : ''}>
                     <button
                       type="button"
-                      onClick={() => setInspection((prev) => (prev ? { ...prev, selected: idx } : prev))}
-                      className="w-full text-left px-3 py-1.5 hover:bg-zinc-900 cursor-pointer"
+                      onClick={() =>
+                        setInspection((prev) => (prev ? { ...prev, selected: idx, pickedByUser: true } : prev))
+                      }
+                      className={`w-full text-left px-3 py-1.5 hover:bg-zinc-900 cursor-pointer ${
+                        hit.seeThrough && !selected ? 'opacity-60' : ''
+                      }`}
                     >
                       <span className="text-[10px] text-zinc-500 mr-1.5">{idx === 0 ? t('on top') : `#${idx + 1}`}</span>
                       <span className={`font-mono ${selected ? 'text-fuchsia-200' : 'text-zinc-200'}`}>{hit.title}</span>
+                      {hit.seeThrough && (
+                        <span className="ml-1.5 text-[10px] text-zinc-500">{t('(transparent here)')}</span>
+                      )}
                     </button>
                     {selected && (
                       <div className="px-3 pb-2 space-y-0.5">
@@ -1494,6 +1778,9 @@ export const MapViewport: React.FC<MapViewportProps> = ({
                   </div>
                 );
               })}
+            </div>
+            <div className="px-3 py-1.5 border-t border-zinc-800 text-[10px] text-zinc-500 leading-snug">
+              {t('Click the same spot again or press ↑/↓ to select the object below. Sceneries transparent at this point are listed last.')}
             </div>
           </div>
         )}
@@ -1540,7 +1827,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             <button
               type="button"
               onClick={() => setPrefs((p) => ({ ...p, showPlayerView: !p.showPlayerView }))}
-              title={t("Player's view frame at the cursor (Soldat shows 480 units of height)")}
+              title={t("Player's view frame at the cursor (Soldat shows 480 units of height) — click the map to leave one there")}
               aria-pressed={prefs.showPlayerView}
               className={`px-2 py-1 rounded text-xs flex items-center gap-1 transition-colors cursor-pointer ${
                 prefs.showPlayerView
@@ -1551,6 +1838,31 @@ export const MapViewport: React.FC<MapViewportProps> = ({
               <Monitor className="w-3.5 h-3.5" />
               {t('Player view')}
             </button>
+            <button
+              type="button"
+              onClick={() => setPrefs((p) => ({ ...p, showSoldier: !p.showSoldier }))}
+              title={t('Soldier at real size at the cursor — click the map to leave one (it stands on the floor below the cursor; hold Shift to place it in the air)')}
+              aria-pressed={prefs.showSoldier}
+              className={`px-2 py-1 rounded text-xs flex items-center gap-1 transition-colors cursor-pointer ${
+                prefs.showSoldier
+                  ? 'bg-emerald-500/25 text-emerald-200 border border-emerald-500/40'
+                  : 'text-zinc-300 hover:bg-zinc-800'
+              }`}
+            >
+              <PersonStanding className="w-3.5 h-3.5" />
+              {t('Soldier')}
+            </button>
+            {pins.length > 0 && (
+              <button
+                type="button"
+                onClick={() => updatePins(() => [])}
+                title={t('Remove all frames and soldiers left on this map')}
+                className="px-1.5 py-1 rounded text-xs text-zinc-300 hover:bg-zinc-800 hover:text-red-300 flex items-center gap-1 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {pins.length}
+              </button>
+            )}
             {prefs.showPlayerView && (
               <select
                 value={String(prefs.playerAspect)}
@@ -1683,6 +1995,97 @@ const LayerChip: React.FC<{
   );
 };
 
+/**
+ * A standing soldier at real size, as OpenSoldat poses it: the first frame of anims/stoi.poa (file X scaled by
+ * -3/1.1, file Z by -3), aimed horizontally to the right, with the +1 unit the game adds when drawing the parts.
+ * World units relative to the floor point the soldier stands on (the sprite position is 2 units above it, where
+ * its foot probes rest); y grows downwards. The silhouette spans about 14 x 24 units.
+ */
+const SOLDIER_JOINTS = {
+  shoulderR: { x: -2.63, y: -15.66 },
+  shoulderL: { x: 2.8, y: -15.06 },
+  elbowR: { x: -4.32, y: -14.12 },
+  elbowL: { x: 2.38, y: -13.1 },
+  handR: { x: -1.69, y: -12.42 },
+  handL: { x: 5.31, y: -12.42 },
+  hipR: { x: -2.3, y: -9.81 },
+  hipL: { x: 1.49, y: -9.39 },
+  kneeR: { x: -1.82, y: -4.66 },
+  kneeL: { x: 3.95, y: -4.97 },
+  ankleR: { x: -4.13, y: -0.94 },
+  ankleL: { x: 2.18, y: -0.91 },
+  // The foot sprites reach 1.5 units below the floor line, as in the game
+  heelR: { x: -4.13, y: 0.26 },
+  toeR: { x: -1.4, y: 0.25 },
+  heelL: { x: 2.18, y: 0.29 },
+  toeL: { x: 4.91, y: 0.22 },
+};
+const SOLDIER_BONES: Array<[keyof typeof SOLDIER_JOINTS, keyof typeof SOLDIER_JOINTS, number]> = [
+  ['hipL', 'kneeL', 3.6],
+  ['kneeL', 'ankleL', 3],
+  ['heelL', 'toeL', 2.6],
+  ['hipR', 'kneeR', 3.6],
+  ['kneeR', 'ankleR', 3],
+  ['heelR', 'toeR', 2.6],
+  ['shoulderL', 'elbowL', 2.6],
+  ['elbowL', 'handL', 2.4],
+  ['shoulderR', 'elbowR', 2.6],
+  ['elbowR', 'handR', 2.4],
+];
+// Chest (klata) and hip (biodro) sprites as one outline, head (morda) as a circle
+const SOLDIER_TORSO = '-3.3,-16.6 3.4,-16 2.4,-8.6 -3,-8.9';
+const SOLDIER_HEAD = { x: 0.4, y: -19.6, r: 2.6 };
+const SOLDIER_HEIGHT = 22.2; // floor to the top of the head
+const SOLDIER_RIGHT = 7.7; // farthest point of the aimed arm
+// Polygons stop the soldier with probes 3.5 units left and right of its centre, from the floor up to 14 units
+const SOLDIER_COLLISION = { halfWidth: 3.5, height: 14 };
+// The camera follows the sprite position (with the cursor in the middle of the screen)
+const SOLDIER_CAMERA_HEIGHT = 2;
+// A soldier dropped from the cursor lands on a floor at most this far below
+const SOLDIER_MAX_DROP = 960;
+
+const SoldierFigure: React.FC<{ x: number; y: number; zoom: number; ghost?: boolean }> = ({ x, y, zoom, ghost }) => {
+  const outline = ghost ? 'rgba(6,78,59,0.85)' : 'rgba(9,9,11,0.9)';
+  const fill = ghost ? 'rgba(167,243,208,0.9)' : 'rgba(244,244,245,0.95)';
+  // Outline about 1.5 screen pixels wide, whatever the zoom
+  const rim = 3 / Math.max(0.02, zoom);
+  const body = (color: string, extra: number) => (
+    <>
+      {SOLDIER_BONES.map(([a, b, width]) => (
+        <line
+          key={`${a}-${b}`}
+          x1={SOLDIER_JOINTS[a].x}
+          y1={SOLDIER_JOINTS[a].y}
+          x2={SOLDIER_JOINTS[b].x}
+          y2={SOLDIER_JOINTS[b].y}
+          stroke={color}
+          strokeWidth={width + extra}
+          strokeLinecap="round"
+        />
+      ))}
+      <polygon points={SOLDIER_TORSO} fill={color} stroke={color} strokeWidth={1.6 + extra} strokeLinejoin="round" />
+      <circle cx={SOLDIER_HEAD.x} cy={SOLDIER_HEAD.y} r={SOLDIER_HEAD.r + extra / 2} fill={color} />
+    </>
+  );
+  return (
+    <g transform={`translate(${x} ${y}) scale(${zoom})`}>
+      {body(outline, rim)}
+      {body(fill, 0)}
+      <rect
+        x={-SOLDIER_COLLISION.halfWidth}
+        y={-SOLDIER_COLLISION.height}
+        width={SOLDIER_COLLISION.halfWidth * 2}
+        height={SOLDIER_COLLISION.height}
+        fill="none"
+        stroke={ghost ? 'rgba(251,191,36,0.9)' : 'rgba(251,191,36,0.5)'}
+        strokeWidth={1}
+        strokeDasharray="3 2"
+        vectorEffect="non-scaling-stroke"
+      />
+    </g>
+  );
+};
+
 interface InspectHit {
   kind: 'prop' | 'polygon';
   index: number;
@@ -1691,6 +2094,7 @@ interface InspectHit {
   outline: number[];
   sceneryName?: string;
   pmsSize?: [number, number];
+  seeThrough?: boolean; // a scenery whose image is transparent at the clicked point
 }
 
 const LEVEL_NAMES = [t('Back (0)'), t('Middle (1)'), t('Front (2)')];
@@ -1714,13 +2118,14 @@ function collectInspectHits(
   x: number,
   y: number,
   layers: RenderLayerVisibility,
-  grid: { lookup: (x: number, y: number) => number[] } | null
+  grid: { lookup: (x: number, y: number) => number[] } | null,
+  filter: PickFilter = 'all'
 ): InspectHit[] {
   const levelVisible = [
     layers.showSceneryBack,
     layers.showSceneryMid,
     layers.showSceneryFront && layers.frontSceneryOpacity > 0.01,
-  ];
+  ].map((visible) => visible && filter !== 'polygons');
   const propHits: InspectHit[][] = [[], [], []];
   for (let i = map.props.length - 1; i >= 0; i--) {
     const p = map.props[i];
@@ -1766,7 +2171,7 @@ function collectInspectHits(
 
   const polyFront: InspectHit[] = [];
   const polyBack: InspectHit[] = [];
-  if (layers.showPolygons) {
+  if (layers.showPolygons && filter !== 'sceneries') {
     const candidates = grid?.lookup(x, y) ?? [];
     for (let k = candidates.length - 1; k >= 0; k--) {
       const i = candidates[k];
@@ -1795,7 +2200,80 @@ function collectInspectHits(
     }
   }
 
-  return [...propHits[2], ...polyFront, ...propHits[1], ...propHits[0], ...polyBack].slice(0, 40);
+  // Polygons under the point are few: never let a pile of sceneries push them out of the list
+  const props = [...propHits[2], ...propHits[1], ...propHits[0]];
+  const keptProps = new Set(props.slice(0, Math.max(0, 40 - polyFront.length - polyBack.length)));
+  return [...propHits[2], ...polyFront, ...propHits[1], ...propHits[0], ...polyBack].filter(
+    (h) => h.kind === 'polygon' || keptProps.has(h)
+  );
+}
+
+// A scenery counts as visible at a point when its pixel there (times the prop's alpha) reaches this opacity:
+// below ~16% a fog or cloud is barely visible and should not hide what is behind it from a click
+const SEE_THROUGH_ALPHA = 40;
+
+/**
+ * Opacity (0-255) of a prop's image at a world point: the point is mapped into the image through the prop's quad
+ * (corner 0 = image top-left, 1 = top-right, 3 = bottom-left) and the most opaque pixel within ~3 screen pixels
+ * counts, so thin lines stay clickable.
+ */
+function propImageAlphaAt(outline: number[], x: number, y: number, img: ProcessedImageAsset, zoom: number): number {
+  const ex = outline[2] - outline[0];
+  const ey = outline[3] - outline[1];
+  const fx = outline[6] - outline[0];
+  const fy = outline[7] - outline[1];
+  const det = ex * fy - ey * fx;
+  if (Math.abs(det) < 1e-9) return 255;
+  const dx = x - outline[0];
+  const dy = y - outline[1];
+  const u = (dx * fy - dy * fx) / det;
+  const v = (ex * dy - ey * dx) / det;
+  const reach = 3 / Math.max(0.02, zoom);
+  const du = reach / Math.max(1e-6, Math.hypot(ex, ey));
+  const dv = reach / Math.max(1e-6, Math.hypot(fx, fy));
+  let best = 0;
+  for (const ou of [-du, 0, du]) {
+    for (const ov of [-dv, 0, dv]) {
+      const su = Math.min(1, Math.max(0, u + ou));
+      const sv = Math.min(1, Math.max(0, v + ov));
+      const px = Math.min(img.width - 1, Math.floor(su * img.width));
+      const py = Math.min(img.height - 1, Math.floor(sv * img.height));
+      const a = img.premultipliedData[(py * img.width + px) * 4 + 3];
+      if (a > best) best = a;
+    }
+  }
+  return best;
+}
+
+/**
+ * The hits with sceneries that are transparent at the point flagged and moved below the visible objects
+ * (null when nothing changes). Images come from the renderer's cache, so this normally resolves at once.
+ */
+async function orderBySeeThrough(
+  map: PmsMapData,
+  hits: InspectHit[],
+  x: number,
+  y: number,
+  zoom: number,
+  preferClassicBmp: boolean
+): Promise<InspectHit[] | null> {
+  const propHits = hits.filter((h) => h.kind === 'prop' && h.sceneryName);
+  if (propHits.length === 0) return null;
+  const images = await Promise.all(
+    propHits.map((h) => loadSoldatAssetImage('scenery-gfx', h.sceneryName!, true, preferClassicBmp).catch(() => null))
+  );
+  const seeThrough = new Set<InspectHit>();
+  propHits.forEach((h, i) => {
+    const img = images[i];
+    if (!img) return; // unknown image: keep it where the draw order puts it
+    const alpha = (propImageAlphaAt(h.outline, x, y, img, zoom) * map.props[h.index].alpha) / 255;
+    if (alpha < SEE_THROUGH_ALPHA) seeThrough.add(h);
+  });
+  if (seeThrough.size === 0) return null;
+  return [
+    ...hits.filter((h) => !seeThrough.has(h)),
+    ...hits.filter((h) => seeThrough.has(h)).map((h) => ({ ...h, seeThrough: true })),
+  ];
 }
 
 const HIT_GRID_CELL = 128;
@@ -1831,19 +2309,4 @@ function buildPolygonHitGrid(
     lookup: (x, y) =>
       cells.get(`${Math.floor(x / HIT_GRID_CELL)},${Math.floor(y / HIT_GRID_CELL)}`) ?? [],
   };
-}
-
-function pointInTriangle(
-  px: number,
-  py: number,
-  v1: { x: number; y: number },
-  v2: { x: number; y: number },
-  v3: { x: number; y: number }
-): boolean {
-  const d1 = (px - v2.x) * (v1.y - v2.y) - (v1.x - v2.x) * (py - v2.y);
-  const d2 = (px - v3.x) * (v2.y - v3.y) - (v2.x - v3.x) * (py - v3.y);
-  const d3 = (px - v1.x) * (v3.y - v1.y) - (v3.x - v1.x) * (py - v1.y);
-  const hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
-  const hasPos = d1 > 0 || d2 > 0 || d3 > 0;
-  return !(hasNeg && hasPos);
 }

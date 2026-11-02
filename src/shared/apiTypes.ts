@@ -477,6 +477,17 @@ export interface OptimizeMapOptions {
   customOutputFolder?: string;
   // Apply the recommended 1.7.1 scenery size fixes (`_f`) before merging; the result is then named `<map>_f_o`
   fixFirst?: boolean;
+  // Archive (`<map>_a`): besides merging, every scenery the result still uses and the polygon texture get copies
+  // named after the map, so no other pack or game update can replace them. Unused scenery entries are always removed.
+  archive?: boolean;
+}
+
+export interface OptimizeArchiveSummary {
+  copiedFiles: number;     // sceneries kept as single props (not baked) that got the map's own copy
+  copiedBytes: number;
+  texture: string | null;  // the map's own copy of the polygon texture (textures/)
+  textureEdge: boolean;    // its smooth-edge companion was copied to textures/edges/ too
+  missing: string[];       // referenced files that were not found, so their references stay shared
 }
 
 export interface OptimizePropFix {
@@ -551,4 +562,5 @@ export interface OptimizeSaveResponse {
   floatPrecision: boolean;    // all tiles were composited in a float (RGBA16F) target
   limitWarnings: string[];    // Soldat engine limits the result still exceeds (e.g. > 500 props)
   backupDir?: string | null;  // copies of every overwritten / removed file (data/backups/<timestamp>)
+  archive?: OptimizeArchiveSummary | null;
 }

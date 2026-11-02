@@ -1,5 +1,5 @@
 /**
- * Batch Optimize Sceneries (`_o`) for the pack / current filter.
+ * Batch Optimize Sceneries (`_o`, or `_a` archives) for the pack / current filter.
  *
  * Maps are processed one at a time on the GPU (one WebGL context per bake, released afterwards).
  * Existing outputs are skipped unless they are unchanged previous Studio outputs of the same map and the
@@ -56,6 +56,8 @@ export interface OptimizeBatchSummary {
   propsBefore: number;
   propsAfter: number;
   pngBytes: number;
+  archiveFiles: number;   // own copies written by archive runs (sceneries, textures, edges)
+  archiveMissing: number; // referenced files that were not found, so those references stay shared
   cancelled: boolean;
   stoppedEarly: boolean; // too many failures in a row (lost GPU, unwritable folder...)
   outputDir: string | null;
@@ -92,6 +94,8 @@ export async function runOptimizeBatch(
     propsBefore: 0,
     propsAfter: 0,
     pngBytes: 0,
+    archiveFiles: 0,
+    archiveMissing: 0,
     cancelled: false,
     stoppedEarly: false,
     outputDir: null,
@@ -116,7 +120,8 @@ export async function runOptimizeBatch(
 
     report(0, t('Preparing the merging plan...'));
     try {
-      if (/_o$/i.test(c.baseName)) {
+      // Baking already baked layers again only blurs them (archives included)
+      if (/_(o|a)$/i.test(c.baseName)) {
         summary.skippedDerived++;
         record({ status: 'skipped_derived', detail: t('Already an optimization result') });
         continue;
@@ -124,7 +129,8 @@ export async function runOptimizeBatch(
 
       const probeSupersample = supersampleChoice === 'auto' ? 2 : supersampleChoice;
       const plan = await fetchOptimizePlan(c.id, { ...baseOptions, supersample: probeSupersample }, signal);
-      if (plan.groups.length === 0) {
+      // An archive still copies the files of a map without anything to merge
+      if (plan.groups.length === 0 && !baseOptions.archive) {
         summary.skippedNothingToMerge++;
         record({ status: 'skipped_nothing', detail: t('No scenery groups to merge') });
         continue;
@@ -170,6 +176,11 @@ export async function runOptimizeBatch(
       summary.propsBefore += result.propsBefore;
       summary.propsAfter += result.propsAfter;
       summary.pngBytes += result.totalPngBytes;
+      if (result.archive) {
+        const tex = result.archive.texture ? (result.archive.textureEdge ? 2 : 1) : 0;
+        summary.archiveFiles += result.archive.copiedFiles + tex;
+        summary.archiveMissing += result.archive.missing.length;
+      }
       summary.outputDir = parentDir(result.outputMapPath);
       record({
         status: 'done',

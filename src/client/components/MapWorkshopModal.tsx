@@ -126,6 +126,8 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
   const [skipIsolatedSingleProps, setSkipIsolatedSingleProps] = useState(true);
   const [optRemoveUnused, setOptRemoveUnused] = useState(true);
   const [fixFirst, setFixFirst] = useState(false);
+  // Archive (`_a`): merged layers plus the map's own copies of every file it still uses
+  const [archiveMode, setArchiveMode] = useState(false);
   const [optClassicBmp, setOptClassicBmp] = useState(preferClassicBmp);
   const [optDestination, setOptDestination] = useState<
     'soldat_maps' | 'exports_optimized' | 'custom'
@@ -232,9 +234,11 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
       destination: optDestination,
       customOutputFolder: optCustomFolder || undefined,
       fixFirst,
+      archive: archiveMode,
     }),
     [
       fixFirst,
+      archiveMode,
       mergeBack,
       mergeMid,
       mergeFront,
@@ -294,13 +298,15 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
     : t('map_f');
   // A map that already is an Optimize result holds baked layers: baking them again only blurs them (the batch skips
   // such maps too); the original map should be optimized instead
-  const isOptimizeResult = currentMapEntry ? /_o$/i.test(currentMapEntry.baseName) : false;
+  const isOptimizeResult = currentMapEntry ? /_(o|a)$/i.test(currentMapEntry.baseName) : false;
   // The server decides the final name (`_f_o` only when fixFirst really repaired something)
   const derivedOptName =
     optPlan && currentMapEntry && optPlan.mapId === currentMapEntry.id
       ? optPlan.derivedBaseName
       : currentMapEntry
-      ? makeDerivedMapName(currentMapEntry.baseName, '_o', maxBaseLength)
+      ? makeDerivedMapName(currentMapEntry.baseName, archiveMode ? '_a' : '_o', maxBaseLength)
+      : archiveMode
+      ? t('map_a')
       : t('map_o');
   const batchMapsLabel = tp(batchCount, '{n} map', '{n} maps', { n: batchCount.toLocaleString(locale) });
   const planFixCount =
@@ -597,7 +603,9 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
     optDestination === 'soldat_maps'
       ? t('Soldat/maps (visible in the game right away)')
       : optDestination === 'exports_optimized'
-      ? 'exports/optimized_maps'
+      ? archiveMode
+        ? 'exports/archived_maps'
+        : 'exports/optimized_maps'
       : optCustomFolder.trim() || t('custom folder (none chosen)');
 
   const reductionPct =
@@ -1289,6 +1297,32 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                 </span>
               </label>
 
+              {/* Archive (_a): the map keeps working when shared files are replaced by other packs or a game update */}
+              <label className="flex items-start gap-2.5 bg-zinc-950/80 border border-sky-500/30 rounded-lg p-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={archiveMode}
+                  onChange={(e) => setArchiveMode(e.target.checked)}
+                  className="mt-0.5 rounded border-zinc-700 bg-zinc-900 text-sky-500"
+                />
+                <span className="space-y-0.5">
+                  <span className="block font-semibold text-zinc-200">
+                    {tr('Archive the map ({a}): its own copy of every file it uses', { a: <code>_a</code> })}
+                  </span>
+                  <span className="block text-[11px] text-zinc-400 leading-relaxed">
+                    {t('Merges the layers like Optimize, default sceneries included, then gives every scenery that stays a single prop and the polygon texture a copy named after the map. Another pack or a game update can no longer replace them. Unused entries are removed.')}
+                    {archiveMode && (
+                      <span className="text-sky-300">
+                        {' '}
+                        {tr('Result: {name}. Turn off all three layers to only copy the files, without baking.', {
+                          name: <code>{derivedOptName}.pms</code>,
+                        })}
+                      </span>
+                    )}
+                  </span>
+                </span>
+              </label>
+
               {/* Quality & Tile Size */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1307,17 +1341,17 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                     className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 focus:outline-none focus:border-emerald-500"
                   >
                     <option value="auto">
-                      {t('Auto — 3×, less for very large layers (now: {ss}×)', { ss: supersample })}
+                      {t('Auto — the sharpest that fits the memory limit (now: {ss}×)', { ss: supersample })}
                     </option>
                     <option value={1}>{t('1× Economy — blurry in game (thin details fade)')}</option>
                     <option value={2}>{t('2× Medium — slightly soft at 1080p (scale 0.5)')}</option>
-                    <option value={3}>{t('3× Sharp — best for 1080p (scale 0.333)')}</option>
-                    <option value={4}>{t('4× Maximum — 1440p and 4K (large files, scale 0.25)')}</option>
+                    <option value={3}>{t('3× Sharp — good for 1080p (scale 0.333)')}</option>
+                    <option value={4}>{t('4× Maximum — sharpest: HD sceneries, 1440p and 4K (large files, scale 0.25)')}</option>
                   </select>
                   {optPlan && (
                     <div className="text-[10px] text-zinc-500 mt-1">
                       {t(
-                        'Layer size: up to {mp} MPx (~{mb} MB VRAM, empty areas are cropped). At 1080p the game shows about 2.25 px per world unit: 3× comes out sharpest, 2× a little soft, 1× clearly blurry; 4× pays off from 1440p up.',
+                        'Layer size: up to {mp} MPx (~{mb} MB VRAM, empty areas are cropped). At 1080p the game shows about 2.25 px per world unit: 1× is clearly blurry, 2× a little soft, 3× sharp; 4× keeps the most detail of HD sceneries and pays off from 1440p up.',
                         {
                           mp: optPlan.estimatedMegapixelsBySupersample[supersample - 1].toFixed(1),
                           mb: Math.round(optPlan.estimatedMegapixelsBySupersample[supersample - 1] * 4),
@@ -1430,7 +1464,8 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                 <label className="flex items-start gap-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={optRemoveUnused}
+                    checked={optRemoveUnused || archiveMode}
+                    disabled={archiveMode}
                     onChange={(e) => setOptRemoveUnused(e.target.checked)}
                     className="mt-0.5 rounded border-zinc-700 bg-zinc-900 text-emerald-500"
                   />
@@ -1460,7 +1495,9 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                     {t('Straight into Soldat (maps/ + scenery-gfx/ — ready for preview and an MPA pack!)')}
                   </option>
                   <option value="exports_optimized">
-                    {t('Separate folder: exports/optimized_maps/ (maps/ + scenery-gfx/)')}
+                    {archiveMode
+                      ? t('Separate folder: exports/archived_maps/ (maps/ + scenery-gfx/ + textures/)')
+                      : t('Separate folder: exports/optimized_maps/ (maps/ + scenery-gfx/)')}
                   </option>
                   <option value="custom">{t('Custom folder on disk...')}</option>
                 </select>
@@ -1524,6 +1561,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                   batchCount={batchCount}
                   batchSourceLabel={batchSourceLabel}
                   supersampleChoice={supersampleChoice}
+                  archive={archiveMode}
                   destinationLabel={optDestinationLabel}
                   canStart={batchCount > 0 && (optDestination !== 'custom' || optCustomFolder.trim().length > 0)}
                   overwriteOwn={optBatchOverwriteOwn}
@@ -1716,38 +1754,68 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                     <div className="flex items-center gap-2 min-w-0">
                       <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
                       <div className="font-semibold text-emerald-200 truncate">
-                        {t('Done! Sceneries reduced: {before} → {after} ({files} • {size})', {
-                          before: optResult.propsBefore,
-                          after: optResult.propsAfter,
-                          files: tp(optResult.generatedPngFiles.length, '{n} PNG file', '{n} PNG files'),
-                          size: formatBytes(optResult.totalPngBytes),
-                        })}
+                        {t(
+                          optResult.archive
+                            ? 'Done! Archive saved: sceneries {before} → {after} ({files} • {size})'
+                            : 'Done! Sceneries reduced: {before} → {after} ({files} • {size})',
+                          {
+                            before: optResult.propsBefore,
+                            after: optResult.propsAfter,
+                            files: tp(optResult.generatedPngFiles.length, '{n} PNG file', '{n} PNG files'),
+                            size: formatBytes(optResult.totalPngBytes),
+                          }
+                        )}
                       </div>
                     </div>
                   </div>
                   <div className="text-[11px] font-mono text-zinc-400 truncate">
                     {optResult.outputMapPath}
                   </div>
-                  <div className="text-[11px] text-zinc-400">
-                    {t('Quality: {ss}× • compositing: {mode}', {
-                      ss: supersample,
-                      mode: optResult.floatPrecision
-                        ? t('floating point (full alpha precision)')
-                        : t('8-bit (GPU without float)'),
-                    })}
-                    {optResult.removedOrphanPngs > 0 &&
-                      ` • ${tp(
-                        optResult.removedOrphanPngs,
-                        'removed {n} unused PNG left from the previous version',
-                        'removed {n} unused PNGs left from the previous version'
-                      )}`}
-                  </div>
+                  {/* Quality only means something when layers were baked (an archive may only copy files) */}
+                  {(optResult.generatedPngFiles.length > 0 || optResult.removedOrphanPngs > 0) && (
+                    <div className="text-[11px] text-zinc-400">
+                      {optResult.generatedPngFiles.length > 0 &&
+                        t('Quality: {ss}× • compositing: {mode}', {
+                          ss: supersample,
+                          mode: optResult.floatPrecision
+                            ? t('floating point (full alpha precision)')
+                            : t('8-bit (GPU without float)'),
+                        })}
+                      {optResult.removedOrphanPngs > 0 &&
+                        `${optResult.generatedPngFiles.length > 0 ? ' • ' : ''}${tp(
+                          optResult.removedOrphanPngs,
+                          'removed {n} unused PNG left from the previous version',
+                          'removed {n} unused PNGs left from the previous version'
+                        )}`}
+                    </div>
+                  )}
                   {optResult.limitWarnings.length > 0 && (
                     <div className="text-[11px] text-amber-300 flex items-center gap-1.5">
                       <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                       {t('The map still exceeds Soldat limits: {list}', {
                         list: optResult.limitWarnings.map(limitWarningText).join(', '),
                       })}
+                    </div>
+                  )}
+                  {optResult.archive && (
+                    <div className="text-[11px] text-sky-200 space-y-0.5">
+                      <div>
+                        {t('Archive: own copies of {files} ({size}) • texture: {texture}', {
+                          files: tp(optResult.archive.copiedFiles, '{n} scenery file', '{n} scenery files'),
+                          size: formatBytes(optResult.archive.copiedBytes),
+                          texture: optResult.archive.texture
+                            ? `${optResult.archive.texture}${optResult.archive.textureEdge ? ` ${t('(with smooth edges)')}` : ''}`
+                            : t('not found'),
+                        })}
+                      </div>
+                      {optResult.archive.missing.length > 0 && (
+                        <div className="text-amber-300 flex items-start gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                          <span>
+                            {t('Not found, so still shared: {files}', { files: optResult.archive.missing.join(', ') })}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
                   {optResult.backupDir && (
@@ -1816,7 +1884,8 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                     isOptimizeResult ||
                     !currentMapData ||
                     !optPlan ||
-                    optPlan.groups.length === 0
+                    // An archive is useful without merging too: it still copies the files
+                    (optPlan.groups.length === 0 && !archiveMode)
                   }
                   onClick={() => handleRunOptimization(false)}
                   className="px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white font-bold flex items-center gap-2 shadow-lg shadow-emerald-950/50 cursor-pointer"
@@ -1826,6 +1895,8 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                     ? t('Merging layers on the GPU...')
                     : previewIsCurrent
                     ? t('Save this result as {name}.pms', { name: derivedOptName })
+                    : archiveMode
+                    ? t('Archive and save {name}.pms', { name: derivedOptName })
                     : t('Optimize sceneries and save {name}.pms', { name: derivedOptName })}
                 </button>
               </div>
@@ -1843,6 +1914,7 @@ const OptimizeBatchPanel: React.FC<{
   batchCount: number;
   batchSourceLabel: string;
   supersampleChoice: SupersampleChoice;
+  archive: boolean;
   destinationLabel: string;
   canStart: boolean;
   overwriteOwn: boolean;
@@ -1857,6 +1929,7 @@ const OptimizeBatchPanel: React.FC<{
   batchCount,
   batchSourceLabel,
   supersampleChoice,
+  archive,
   destinationLabel,
   canStart,
   overwriteOwn,
@@ -1899,11 +1972,21 @@ const OptimizeBatchPanel: React.FC<{
             : t('Fixed {ss}× quality for all maps.', { ss: supersampleChoice })}
         </p>
         <p>
-          {tr(
-            'Skipped: maps with no sceneries to merge, maps that already are an {o} result and maps whose output file already exists. Saving to: {dest}.',
-            { o: <code>_o</code>, dest: <span className="text-zinc-300">{destinationLabel}</span> }
-          )}
+          {archive
+            ? tr(
+                'Skipped: maps that already are an {o} or {a} result and maps whose output file already exists. Saving to: {dest}.',
+                { o: <code>_o</code>, a: <code>_a</code>, dest: <span className="text-zinc-300">{destinationLabel}</span> }
+              )
+            : tr(
+                'Skipped: maps with no sceneries to merge, maps that already are an {o} result and maps whose output file already exists. Saving to: {dest}.',
+                { o: <code>_o</code>, dest: <span className="text-zinc-300">{destinationLabel}</span> }
+              )}
         </p>
+        {archive && (
+          <p className="text-sky-300">
+            {t('Archive: every map gets its own copies of its sceneries and texture. Then build a pack from the *_a maps in the Map Pack Builder.')}
+          </p>
+        )}
         <p>{t('The fidelity report is not computed for every map — check the preview on one map before a large batch.')}</p>
       </div>
 
@@ -1950,10 +2033,15 @@ const OptimizeBatchPanel: React.FC<{
         <div className="bg-emerald-950/50 border border-emerald-500/40 rounded-lg p-3 space-y-1.5">
           <div className="font-semibold text-emerald-200 flex items-center gap-2">
             <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-            {tp(summary.total, '{status}: optimized {done} of {n} map', '{status}: optimized {done} of {n} maps', {
-              status: headline,
-              done: summary.done,
-            })}
+            {archive
+              ? tp(summary.total, '{status}: archived {done} of {n} map', '{status}: archived {done} of {n} maps', {
+                  status: headline,
+                  done: summary.done,
+                })
+              : tp(summary.total, '{status}: optimized {done} of {n} map', '{status}: optimized {done} of {n} maps', {
+                  status: headline,
+                  done: summary.done,
+                })}
           </div>
           {summary.done > 0 && (
             <div className="text-[11px] text-zinc-300">
@@ -1964,11 +2052,19 @@ const OptimizeBatchPanel: React.FC<{
               })}
             </div>
           )}
+          {summary.archiveFiles > 0 && (
+            <div className="text-[11px] text-sky-200">
+              {t('Own copies: {files} • not found: {missing}', {
+                files: summary.archiveFiles.toLocaleString(locale),
+                missing: summary.archiveMissing.toLocaleString(locale),
+              })}
+            </div>
+          )}
           <div className="text-[11px] text-zinc-400">
             {tr('Skipped: existing {existing} • nothing to merge {nothing} • {o} results {derived} • errors {failed}', {
               existing: summary.skippedExisting,
               nothing: summary.skippedNothingToMerge,
-              o: <code>_o</code>,
+              o: <code>_o / _a</code>,
               derived: summary.skippedDerived,
               failed: summary.failed,
             })}
@@ -2030,7 +2126,11 @@ const OptimizeBatchPanel: React.FC<{
         >
           <Layers className="w-4 h-4" />
           {running
-            ? t('Optimizing maps on the GPU...')
+            ? archive
+              ? t('Archiving maps on the GPU...')
+              : t('Optimizing maps on the GPU...')
+            : archive
+            ? tp(batchCount, 'Archive {n} map → *_a.pms', 'Archive {n} maps → *_a.pms', { n: formattedCount })
             : tp(batchCount, 'Optimize {n} map → *_o.pms', 'Optimize {n} maps → *_o.pms', { n: formattedCount })}
         </button>
       </div>
