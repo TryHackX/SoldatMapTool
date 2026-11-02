@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import { MapCompactEntry, MapFixAnalysisResponse, MapIndexEntry, SceneryFixIssueGroup } from '@shared/apiTypes';
 import { computePropCorners, isPropRenderable, PmsMapData } from '@shared/pmsParser';
-import { POLY_TYPES, SPAWN_TYPES } from '@shared/soldatConstants';
+import { POLY_TYPES, SOLDIER_COLLISION, SPAWN_TYPES } from '@shared/soldatConstants';
+import type { ViewportEditorBridge } from '../editor/useEditorController';
 import {
   loadSoldatAssetImage,
   loadSoldatObjectSprites,
@@ -29,6 +30,7 @@ import {
   MapIcon,
   Maximize2,
   Monitor,
+  Pencil,
   PersonStanding,
   Ruler,
   ShieldAlert,
@@ -63,6 +65,8 @@ interface MapViewportProps {
   onStartCompare?: (mapId: string) => void;
   onCompareWithOriginal?: (() => void) | null;
   onStopCompare?: () => void;
+  editorBridge?: ViewportEditorBridge | null;
+  onEditCurrentMap?: () => void;
 }
 
 interface ViewTransform {
@@ -242,7 +246,13 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   onStartCompare,
   onCompareWithOriginal = null,
   onStopCompare,
+  editorBridge = null,
+  onEditCurrentMap,
 }) => {
+  const editorBridgeRef = useRef(editorBridge);
+  editorBridgeRef.current = editorBridge;
+  // True between an editor pointer-down the bridge handled and its pointer-up (sent exactly once)
+  const editorPointerPendingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const glCanvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -296,13 +306,28 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   // B4: minimap snapshot of the whole map, taken from the main renderer when the map or layers change
   const minimapCanvasRef = useRef<HTMLCanvasElement>(null);
   const minimapImageRef = useRef<HTMLCanvasElement | null>(null);
-  const minimapSourceRef = useRef<{ data: PmsMapData | null; key: string; geo: MinimapGeometry | null }>({
+  const minimapSourceRef = useRef<{
+    data: PmsMapData | null;
+    key: string;
+    geo: MinimapGeometry | null;
+    capturedAt: number;
+  }>({
     data: null,
     key: '',
     geo: null,
+    capturedAt: 0,
   });
   const [minimapVersion, setMinimapVersion] = useState(0);
+  const [minimapRefreshTick, setMinimapRefreshTick] = useState(0);
+  const minimapTrailingTimerRef = useRef<number | null>(null);
   const minimapDragRef = useRef(false);
+  useEffect(() => {
+    return () => {
+      if (minimapTrailingTimerRef.current !== null) {
+        window.clearTimeout(minimapTrailingTimerRef.current);
+      }
+    };
+  }, []);
   // What the main renderer really holds: loadMap() is async and keeps the previous map until it is applied,
   // so the minimap must never be captured from a frame that still shows the old map or old textures
   const gpuMapRef = useRef<PmsMapData | null>(null);
@@ -427,6 +452,22 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   useEffect(() => {
     const clearDrag = () => {
       dragRef.current = null;
+      // Only a release outside the viewport (or a lost focus) still owes the editor its pointer-up
+      if (editorBridgeRef.current?.active && editorPointerPendingRef.current) {
+        editorPointerPendingRef.current = false;
+        editorBridgeRef.current.onPointerUp({
+          worldX: 0,
+          worldY: 0,
+          clientX: 0,
+          clientY: 0,
+          button: 0,
+          shiftKey: false,
+          altKey: false,
+          ctrlKey: false,
+          metaKey: false,
+          zoom: Math.max(0.02, transformRef.current.zoom || 0.5),
+        });
+      }
     };
     window.addEventListener('mouseup', clearDrag);
     window.addEventListener('blur', clearDrag);
@@ -435,6 +476,31 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       window.removeEventListener('blur', clearDrag);
     };
   }, []);
+
+  const focusBounds = useCallback((b: { left: number; right: number; top: number; bottom: number }) => {
+    const vw = Math.max(1, viewportSizeRef.current.width);
+    const vh = Math.max(1, viewportSizeRef.current.height);
+    const bw = Math.max(32, b.right - b.left);
+    const bh = Math.max(32, b.bottom - b.top);
+    const padX = Math.max(64, bw * 0.25);
+    const padY = Math.max(64, bh * 0.25);
+    const fitZoom = Math.min(vw / (bw + padX * 2), vh / (bh + padY * 2));
+    setTransform({
+      centerX: clampCoord((b.left + b.right) * 0.5),
+      centerY: clampCoord((b.top + b.bottom) * 0.5),
+      zoom: Math.max(0.05, Math.min(4.0, fitZoom)),
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!editorBridge?.active) return;
+    editorBridge.onViewportStatus({
+      cursorWorld,
+      zoom: transform.zoom,
+      viewCenter: { x: transform.centerX, y: transform.centerY },
+      focusBounds,
+    });
+  }, [editorBridge, cursorWorld, transform.zoom, transform.centerX, transform.centerY, focusBounds]);
 
   // Escape closes the object inspector, then cancels Ruler mode or Live Repair Preview (when no modal is open)
   useEffect(() => {
@@ -521,6 +587,11 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       // Floating panels (object inspector) scroll normally instead of zooming the map
       if ((e.target as HTMLElement | null)?.closest?.('[data-map-ui]')) return;
       e.preventDefault();
+      // Editor: Alt+wheel scales (Shift: rotates) sceneries instead of zooming
+      const bridge = editorBridgeRef.current;
+      if (bridge?.active && bridge.onWheel?.({ deltaY: e.deltaY || e.deltaX, altKey: e.altKey, shiftKey: e.shiftKey })) {
+        return;
+      }
       const rect = el.getBoundingClientRect();
       if (!rect || rect.width <= 0 || rect.height <= 0) return;
 
@@ -584,6 +655,12 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       setMapReadyOnGpu(false);
       setRuler(null);
       fitMapToViewport(mapData);
+    } else if (
+      rendererRef.current.updateMapFast(mapData, { preferClassicBmp: layers.preferClassicBmp })
+    ) {
+      gpuMapRef.current = mapData;
+      setMapReadyOnGpu(true);
+      return;
     }
 
     gpuMapRef.current = null;
@@ -678,16 +755,36 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         ].join('|');
         const src = minimapSourceRef.current;
         if (src.data !== mapData || src.key !== key) {
-          // One extra frame of the whole map, copied before the real view is drawn in the same task
-          const geo = computeMinimapGeometry(mapData);
-          renderer.render(geo.bounds, { ...layers, frontSceneryOpacity: 1 });
-          const img = minimapImageRef.current ?? document.createElement('canvas');
-          minimapImageRef.current = img;
-          img.width = geo.w * 2;
-          img.height = geo.h * 2;
-          img.getContext('2d')?.drawImage(glCanvas, 0, 0, img.width, img.height);
-          minimapSourceRef.current = { data: mapData, key, geo };
-          setMinimapVersion((v) => v + 1);
+          const now = performance.now();
+          const shouldThrottle =
+            Boolean(editorBridge?.active) &&
+            src.geo !== null &&
+            src.key === key &&
+            now - src.capturedAt < 250;
+
+          if (shouldThrottle) {
+            if (minimapTrailingTimerRef.current === null) {
+              minimapTrailingTimerRef.current = window.setTimeout(() => {
+                minimapTrailingTimerRef.current = null;
+                setMinimapRefreshTick((t) => t + 1);
+              }, 260);
+            }
+          } else {
+            if (minimapTrailingTimerRef.current !== null) {
+              window.clearTimeout(minimapTrailingTimerRef.current);
+              minimapTrailingTimerRef.current = null;
+            }
+            // One extra frame of the whole map, copied before the real view is drawn in the same task
+            const geo = computeMinimapGeometry(mapData);
+            renderer.render(geo.bounds, { ...layers, frontSceneryOpacity: 1 });
+            const img = minimapImageRef.current ?? document.createElement('canvas');
+            minimapImageRef.current = img;
+            img.width = geo.w * 2;
+            img.height = geo.h * 2;
+            img.getContext('2d')?.drawImage(glCanvas, 0, 0, img.width, img.height);
+            minimapSourceRef.current = { data: mapData, key, geo, capturedAt: now };
+            setMinimapVersion((v) => v + 1);
+          }
         }
       }
       renderer.render(currentWorldBounds, layers);
@@ -700,9 +797,13 @@ export const MapViewport: React.FC<MapViewportProps> = ({
           layers,
           sprites,
           ruler,
-          highlightOutline: inspection ? inspection.hits[inspection.selected]?.outline ?? null : null,
-          issueOutlines: issueOverlay?.outlines ?? null,
+          highlightOutline:
+            !editorBridge?.active && inspection ? inspection.hits[inspection.selected]?.outline ?? null : null,
+          issueOutlines: !editorBridge?.active ? issueOverlay?.outlines ?? null : null,
         });
+        if (editorBridge?.active) {
+          editorBridge.renderOverlay(ctx, vw, vh, currentWorldBounds);
+        }
       }
       const cmpRenderer = compareRendererRef.current;
       const cmpCanvas = compareCanvasRef.current;
@@ -719,14 +820,31 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       ctx?.clearRect(0, 0, pixelW, pixelH);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewportSize, currentWorldBounds, layers, mapData, mapReadyOnGpu, sprites, ruler, inspection, issueOverlay, prefs.showMinimap, compare, compareReady]);
+  }, [
+    viewportSize,
+    currentWorldBounds,
+    layers,
+    mapData,
+    mapReadyOnGpu,
+    sprites,
+    ruler,
+    inspection,
+    issueOverlay,
+    prefs.showMinimap,
+    minimapRefreshTick,
+    compare,
+    compareReady,
+    editorBridge?.active,
+    editorBridge?.overlayRevision,
+    editorBridge?.renderOverlay,
+  ]);
 
   // Minimap: snapshot + rectangle of the current camera view
   useEffect(() => {
     const canvas = minimapCanvasRef.current;
     const src = minimapSourceRef.current;
     const img = minimapImageRef.current;
-    if (!prefs.showMinimap || !canvas || !img || !src.geo || src.data !== mapData) return;
+    if (!prefs.showMinimap || !canvas || !img || !src.geo || (!editorBridge?.active && src.data !== mapData)) return;
     const { bounds: b, w, h } = src.geo;
     const dpr = window.devicePixelRatio || 1;
     if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
@@ -806,6 +924,54 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     if (e.button !== 0 && e.button !== 1) return;
     if ((e.target as HTMLElement).closest('[data-map-ui]')) return; // clicks inside floating panels
     if (e.button === 1) e.preventDefault(); // Middle-button pan must not start the browser autoscroll
+
+    if (editorBridgeRef.current?.active) {
+      // A dock field that applies its value when it loses focus must do that before this press acts on the map
+      // (otherwise the value lands on the next selection, or a drag started now overwrites it)
+      const focused = document.activeElement;
+      if (focused instanceof HTMLElement && focused.matches('input, textarea, select, [contenteditable="true"]')) {
+        focused.blur();
+      }
+      // A move queued before the press belongs to the hover, not to the drag this press may start
+      pendingMoveRef.current = null;
+      const w = clientToWorld(e.clientX, e.clientY);
+      const safeZoom = Math.max(0.02, transform.zoom || 0.5);
+      const handled = editorBridgeRef.current.onPointerDown({
+        worldX: w.x,
+        worldY: w.y,
+        clientX: e.clientX,
+        clientY: e.clientY,
+        button: e.button,
+        shiftKey: e.shiftKey,
+        altKey: e.altKey,
+        ctrlKey: e.ctrlKey,
+        metaKey: e.metaKey,
+        zoom: safeZoom,
+      });
+      // Another button pressed during a drag (middle to pan) must not swallow the drag's own release
+      if (handled) editorPointerPendingRef.current = true;
+      if (handled) return;
+      if (e.button === 0 && editorBridgeRef.current.wantsNativeRuler()) {
+        setRuler({ x1: w.x, y1: w.y, x2: w.x, y2: w.y });
+        dragRef.current = {
+          mode: 'ruler',
+          startClientX: e.clientX,
+          startClientY: e.clientY,
+          startCenterX: transform.centerX,
+          startCenterY: transform.centerY,
+        };
+        return;
+      }
+      dragRef.current = {
+        mode: 'pan',
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        startCenterX: transform.centerX,
+        startCenterY: transform.centerY,
+      };
+      return;
+    }
+
     if (rulerMode && e.button === 0) {
       const w = clientToWorld(e.clientX, e.clientY);
       setRuler({ x1: w.x, y1: w.y, x2: w.x, y2: w.y });
@@ -833,7 +999,15 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   transformRef.current = transform;
   const clientToWorldRef = useRef(clientToWorld);
   clientToWorldRef.current = clientToWorld;
-  const pendingMoveRef = useRef<{ clientX: number; clientY: number; shiftKey: boolean } | null>(null);
+  const pendingMoveRef = useRef<{
+    clientX: number;
+    clientY: number;
+    buttons: number;
+    shiftKey: boolean;
+    altKey: boolean;
+    ctrlKey: boolean;
+    metaKey: boolean;
+  } | null>(null);
   const moveFrameRef = useRef(0);
 
   // Coarse spatial grid so polygon hover tests only look at nearby triangles instead of all 5000
@@ -866,6 +1040,23 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       } else if (activeDrag.mode === 'ruler') {
         setRuler((prev) => (prev ? { ...prev, x2: w.x, y2: w.y } : null));
       }
+      return;
+    }
+
+    if (editorBridgeRef.current?.active) {
+      editorBridgeRef.current.onPointerMove({
+        worldX: w.x,
+        worldY: w.y,
+        clientX: ev.clientX,
+        clientY: ev.clientY,
+        buttons: ev.buttons,
+        shiftKey: ev.shiftKey,
+        altKey: ev.altKey,
+        ctrlKey: ev.ctrlKey,
+        metaKey: ev.metaKey,
+        zoom: Math.max(0.02, transformRef.current.zoom || 0.5),
+      });
+      setHoverHint(null);
       return;
     }
 
@@ -919,7 +1110,15 @@ export const MapViewport: React.FC<MapViewportProps> = ({
 
   // Mouse moves are coalesced to one state update per animation frame (pan + hover + cursor HUD)
   const handleMouseMove = (e: React.MouseEvent) => {
-    pendingMoveRef.current = { clientX: e.clientX, clientY: e.clientY, shiftKey: e.shiftKey };
+    pendingMoveRef.current = {
+      clientX: e.clientX,
+      clientY: e.clientY,
+      buttons: e.buttons,
+      shiftKey: e.shiftKey,
+      altKey: e.altKey,
+      ctrlKey: e.ctrlKey,
+      metaKey: e.metaKey,
+    };
     if (!moveFrameRef.current) {
       moveFrameRef.current = requestAnimationFrame(() => processPendingMouseMoveRef.current());
     }
@@ -985,6 +1184,24 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   const handleMouseUp = (e?: React.MouseEvent) => {
     const drag = dragRef.current;
     dragRef.current = null;
+    if (editorBridgeRef.current?.active) {
+      if (!editorPointerPendingRef.current) return;
+      editorPointerPendingRef.current = false;
+      const w = e ? clientToWorld(e.clientX, e.clientY) : cursorWorld ?? { x: 0, y: 0 };
+      editorBridgeRef.current.onPointerUp({
+        worldX: w.x,
+        worldY: w.y,
+        clientX: e?.clientX ?? 0,
+        clientY: e?.clientY ?? 0,
+        button: e?.button ?? 0,
+        shiftKey: Boolean(e?.shiftKey),
+        altKey: Boolean(e?.altKey),
+        ctrlKey: Boolean(e?.ctrlKey),
+        metaKey: Boolean(e?.metaKey),
+        zoom: Math.max(0.02, transform.zoom || 0.5),
+      });
+      return;
+    }
     if (!e || !drag || drag.mode !== 'pan' || e.button !== 0 || !mapData) return;
     if (Math.hypot(e.clientX - drag.startClientX, e.clientY - drag.startClientY) > 4) return;
     // Player view / soldier tools: a click leaves them on the map instead of opening the inspector
@@ -1344,7 +1561,19 @@ export const MapViewport: React.FC<MapViewportProps> = ({
               </div>
             )
           )}
-          {onOpenWorkshopModal && (
+          {!editorBridge?.active && onEditCurrentMap && (
+            <button
+              type="button"
+              onClick={onEditCurrentMap}
+              disabled={!mapData}
+              title={t('Open this map in the interactive Map Editor')}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold shadow-lg shadow-cyan-950/50 disabled:opacity-40 transition-all cursor-pointer shrink-0"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+              <span>{t('Edit map')}</span>
+            </button>
+          )}
+          {!editorBridge?.active && onOpenWorkshopModal && (
             <button
               type="button"
               onClick={() => onOpenWorkshopModal('fix')}
@@ -1425,8 +1654,37 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         }}
         onDoubleClick={(e) => {
           if ((e.target as HTMLElement).closest('[data-map-ui]')) return;
+          if (editorBridge?.active) {
+            const w = clientToWorld(e.clientX, e.clientY);
+            editorBridge.onDoubleClick({
+              worldX: w.x,
+              worldY: w.y,
+              zoom: Math.max(0.02, transform.zoom || 0.5),
+            });
+            return;
+          }
           if (mapData) fitMapToViewport(mapData);
         }}
+        onContextMenu={(e) => {
+          if ((e.target as HTMLElement).closest('[data-map-ui]')) return;
+          if (editorBridge?.active) {
+            const w = clientToWorld(e.clientX, e.clientY);
+            if (
+              editorBridge.onContextMenu({
+                worldX: w.x,
+                worldY: w.y,
+                zoom: Math.max(0.02, transform.zoom || 0.5),
+              })
+            ) {
+              e.preventDefault();
+            }
+          }
+        }}
+        style={
+          editorBridge?.active && editorBridge.cursorStyle
+            ? { cursor: editorBridge.cursorStyle }
+            : undefined
+        }
         className={`flex-1 relative overflow-hidden ${
           rulerMode ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
         }`}
@@ -1473,7 +1731,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         )}
 
         {/* Active Map Floating Header Badge */}
-        {mapEntry && (
+        {!editorBridge?.active && mapEntry && (
           <div className="absolute top-3 left-3 z-10 pointer-events-none bg-zinc-950/80 backdrop-blur-md border border-zinc-800/90 rounded-lg px-3 py-1.5 shadow-lg">
             <div className="flex items-center gap-2">
               <span
@@ -1807,27 +2065,34 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             data-map-ui
             className="flex items-center gap-1 bg-zinc-950/90 backdrop-blur-md border border-zinc-800 rounded-lg p-1 shadow-lg pointer-events-auto shrink-0"
           >
-            <button
-              type="button"
-              onClick={() => {
-                setRulerMode((v) => !v);
-                if (rulerMode) setRuler(null);
-              }}
-              title={t('Distance ruler (click and drag on the map)')}
-              className={`px-2 py-1 rounded text-xs flex items-center gap-1 transition-colors cursor-pointer ${
-                rulerMode
-                  ? 'bg-emerald-500/25 text-emerald-200 border border-emerald-500/40'
-                  : 'text-zinc-300 hover:bg-zinc-800'
-              }`}
-            >
-              <Ruler className="w-3.5 h-3.5" />
-              {t('Ruler')}
-            </button>
+            {/* The editor has its own ruler tool [M]; clicks on the map belong to the editor tools */}
+            {!editorBridge?.active && (
+              <button
+                type="button"
+                onClick={() => {
+                  setRulerMode((v) => !v);
+                  if (rulerMode) setRuler(null);
+                }}
+                title={t('Distance ruler (click and drag on the map)')}
+                className={`px-2 py-1 rounded text-xs flex items-center gap-1 transition-colors cursor-pointer ${
+                  rulerMode
+                    ? 'bg-emerald-500/25 text-emerald-200 border border-emerald-500/40'
+                    : 'text-zinc-300 hover:bg-zinc-800'
+                }`}
+              >
+                <Ruler className="w-3.5 h-3.5" />
+                {t('Ruler')}
+              </button>
+            )}
 
             <button
               type="button"
               onClick={() => setPrefs((p) => ({ ...p, showPlayerView: !p.showPlayerView }))}
-              title={t("Player's view frame at the cursor (Soldat shows 480 units of height) — click the map to leave one there")}
+              title={
+                editorBridge?.active
+                  ? t("Player's view frame at the cursor (Soldat shows 480 units of height)")
+                  : t("Player's view frame at the cursor (Soldat shows 480 units of height) — click the map to leave one there")
+              }
               aria-pressed={prefs.showPlayerView}
               className={`px-2 py-1 rounded text-xs flex items-center gap-1 transition-colors cursor-pointer ${
                 prefs.showPlayerView
@@ -1841,7 +2106,11 @@ export const MapViewport: React.FC<MapViewportProps> = ({
             <button
               type="button"
               onClick={() => setPrefs((p) => ({ ...p, showSoldier: !p.showSoldier }))}
-              title={t('Soldier at real size at the cursor — click the map to leave one (it stands on the floor below the cursor; hold Shift to place it in the air)')}
+              title={
+                editorBridge?.active
+                  ? t('Soldier at real size at the cursor (it stands on the floor below the cursor; hold Shift to see it in the air)')
+                  : t('Soldier at real size at the cursor — click the map to leave one (it stands on the floor below the cursor; hold Shift to place it in the air)')
+              }
               aria-pressed={prefs.showSoldier}
               className={`px-2 py-1 rounded text-xs flex items-center gap-1 transition-colors cursor-pointer ${
                 prefs.showSoldier
@@ -1852,7 +2121,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
               <PersonStanding className="w-3.5 h-3.5" />
               {t('Soldier')}
             </button>
-            {pins.length > 0 && (
+            {pins.length > 0 && !editorBridge?.active && (
               <button
                 type="button"
                 onClick={() => updatePins(() => [])}
@@ -2037,8 +2306,6 @@ const SOLDIER_TORSO = '-3.3,-16.6 3.4,-16 2.4,-8.6 -3,-8.9';
 const SOLDIER_HEAD = { x: 0.4, y: -19.6, r: 2.6 };
 const SOLDIER_HEIGHT = 22.2; // floor to the top of the head
 const SOLDIER_RIGHT = 7.7; // farthest point of the aimed arm
-// Polygons stop the soldier with probes 3.5 units left and right of its centre, from the floor up to 14 units
-const SOLDIER_COLLISION = { halfWidth: 3.5, height: 14 };
 // The camera follows the sprite position (with the cursor in the middle of the screen)
 const SOLDIER_CAMERA_HEIGHT = 2;
 // A soldier dropped from the cursor lands on a floor at most this far below

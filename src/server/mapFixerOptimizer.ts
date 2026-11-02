@@ -39,7 +39,16 @@ import {
 import { bakeTilesFor, estimateTileCrop, MAX_BAKE_TILES } from '../shared/bakeTiling';
 import { decodeBmpToRgba } from './bmpDecoder';
 import { t } from './i18n';
+import {
+  BackupSession,
+  GeneratedOutputRecord,
+  GeneratedOutputRegistry,
+  WorkshopError,
+  writeFileAtomic,
+} from './safeFileWriter';
 import { SoldatMapScanner } from './soldatScanner';
+
+export { WorkshopError };
 
 // Explicit canonical Soldat 1.6 dimensions (overrides unreferenced or 1.7.1-remastered official map entries)
 const FALLBACK_CANONICAL_16_DIMS: Record<string, { w: number; h: number }> = {
@@ -63,22 +72,6 @@ export function isBufferBmpMagic(buf: Buffer | Uint8Array): boolean {
   return buf.length >= 26 && buf[0] === 0x42 && buf[1] === 0x4d;
 }
 
-/**
- * Error carrying an HTTP status (e.g. 409 when a derived map already exists and overwrite was not confirmed).
- */
-export class WorkshopError extends Error {
-  constructor(message: string, public readonly status: number) {
-    super(message);
-  }
-}
-
-interface GeneratedOutputRecord {
-  crc32: number;
-  kind: '_f' | '_o' | '_a';
-  sourceMapId: string;
-  createdAt: number;
-}
-
 interface OptimizeSession {
   id: string;
   mapId: string;
@@ -92,43 +85,11 @@ interface OptimizeSession {
 
 export type { OverwritePolicy };
 
-/**
- * Copies files into `data/backups/<timestamp>/` right before they are overwritten or deleted.
- * One instance = one user operation, so all files touched together land in the same folder.
- */
-class BackupSession {
-  private dir: string | null = null;
-  public readonly saved: string[] = [];
-
-  constructor(private readonly backupsRoot: string) {}
-
-  public preserve(filePath: string): void {
-    if (!fs.existsSync(filePath)) return;
-    if (!this.dir) {
-      const stamp = new Date().toISOString().replace(/[:T]/g, '-').replace(/\..+$/, '');
-      this.dir = path.join(this.backupsRoot, stamp);
-      for (let n = 2; fs.existsSync(this.dir); n++) this.dir = path.join(this.backupsRoot, `${stamp}_${n}`);
-      fs.mkdirSync(this.dir, { recursive: true });
-    }
-    let target = path.join(this.dir, path.basename(filePath));
-    for (let n = 2; fs.existsSync(target); n++) {
-      const ext = path.extname(filePath);
-      target = path.join(this.dir, `${path.basename(filePath, ext)}_${n}${ext}`);
-    }
-    fs.copyFileSync(filePath, target);
-    this.saved.push(target);
-  }
-
-  public get directory(): string | null {
-    return this.dir;
-  }
-}
-
 export class SoldatMapWorkshop {
   private scanner: SoldatMapScanner;
   private exportsRoot: string;
   private sessionsRoot: string;
-  private registryPath: string;
+  private registry: GeneratedOutputRegistry;
   private backupsRoot: string;
 
   private cachedSoldatRoot = '';
@@ -136,12 +97,18 @@ export class SoldatMapWorkshop {
   private imgDimsCache = new Map<string, { w: number; h: number } | null>();
   private optimizeSessions = new Map<string, OptimizeSession>();
 
-  constructor(scanner: SoldatMapScanner, exportsRoot: string, cacheRoot: string, backupsRoot: string) {
+  constructor(
+    scanner: SoldatMapScanner,
+    exportsRoot: string,
+    cacheRoot: string,
+    backupsRoot: string,
+    registry?: GeneratedOutputRegistry
+  ) {
     this.scanner = scanner;
     this.exportsRoot = exportsRoot;
     this.backupsRoot = backupsRoot;
     this.sessionsRoot = path.join(cacheRoot, 'optimize-sessions');
-    this.registryPath = path.join(cacheRoot, 'generated-outputs.json');
+    this.registry = registry ?? new GeneratedOutputRegistry(path.join(cacheRoot, 'generated-outputs.json'));
   }
 
   /**
@@ -493,69 +460,24 @@ export class SoldatMapWorkshop {
   // Generated-output registry (lets the UI tell "my previous _f/_o output" from an unrelated map)
   // ---------------------------------------------------------------------------------------------
 
-  private registryCache: Record<string, GeneratedOutputRecord> | null = null;
-  private registryFlushTimer: NodeJS.Timeout | null = null;
-
-  /**
-   * Loaded once and kept in memory; entries whose file disappeared are dropped on load.
-   */
-  private getRegistry(): Record<string, GeneratedOutputRecord> {
-    if (this.registryCache) return this.registryCache;
-    let parsed: Record<string, GeneratedOutputRecord> = {};
-    try {
-      const raw = JSON.parse(fs.readFileSync(this.registryPath, 'utf-8'));
-      if (raw && typeof raw === 'object') parsed = raw;
-    } catch {
-      parsed = {};
-    }
-    for (const key of Object.keys(parsed)) {
-      if (!fs.existsSync(key)) delete parsed[key];
-    }
-    this.registryCache = parsed;
-    return parsed;
-  }
-
-  /**
-   * Batched, atomic write of the registry (a 10k-map batch writes it once, not 10k times).
-   */
   public flushRegistry(): void {
-    if (this.registryFlushTimer) {
-      clearTimeout(this.registryFlushTimer);
-      this.registryFlushTimer = null;
-    }
-    if (!this.registryCache) return;
-    try {
-      fs.mkdirSync(path.dirname(this.registryPath), { recursive: true });
-      writeFileAtomic(this.registryPath, Buffer.from(JSON.stringify(this.registryCache, null, 1), 'utf-8'));
-    } catch {
-      // Registry is a convenience only
-    }
+    this.registry.flush();
   }
 
-  private recordGeneratedOutput(outputPath: string, bytes: Uint8Array, rec: Omit<GeneratedOutputRecord, 'crc32' | 'createdAt'>): void {
-    this.getRegistry()[path.resolve(outputPath).toLowerCase()] = {
-      ...rec,
-      crc32: soldatCrc32(bytes),
-      createdAt: Date.now(),
-    };
-    if (!this.registryFlushTimer) {
-      this.registryFlushTimer = setTimeout(() => this.flushRegistry(), 1500);
-      this.registryFlushTimer.unref?.();
-    }
+  private recordGeneratedOutput(
+    outputPath: string,
+    bytes: Uint8Array,
+    rec: Omit<GeneratedOutputRecord, 'crc32' | 'createdAt'>
+  ): void {
+    this.registry.record(outputPath, bytes, rec);
   }
 
   private getGeneratedOutputRecord(outputPath: string): GeneratedOutputRecord | null {
-    const rec = this.getRegistry()[path.resolve(outputPath).toLowerCase()];
-    if (!rec) return null;
-    try {
-      return soldatCrc32(fs.readFileSync(outputPath)) === rec.crc32 ? rec : null;
-    } catch {
-      return null;
-    }
+    return this.registry.getRecord(outputPath);
   }
 
   private isGeneratedOutputUnchanged(outputPath: string): boolean {
-    return this.getGeneratedOutputRecord(outputPath) !== null;
+    return this.registry.isUnchanged(outputPath);
   }
 
   private describeTarget(outputMapPath: string, derivedBaseName: string, sceneryDir: string | null): DerivedTargetCheck {
@@ -1673,22 +1595,4 @@ function sanitizeSceneryPngName(raw: string): string {
   const withoutExt = base.replace(/\.png$/i, '');
   const clamped = withoutExt.slice(0, 45) || 'layer';
   return `${clamped}.png`;
-}
-
-/**
- * Writes via a temporary sibling file + rename so a crash never leaves a half-written map or PNG.
- */
-function writeFileAtomic(targetPath: string, data: Uint8Array): void {
-  const tmp = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
-  try {
-    fs.writeFileSync(tmp, data); // inside the try: a failed write (disk full) must not leave the .tmp behind
-    fs.renameSync(tmp, targetPath);
-  } catch (err) {
-    try {
-      fs.rmSync(tmp, { force: true });
-    } catch {
-      // Ignore
-    }
-    throw err;
-  }
 }

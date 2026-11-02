@@ -326,7 +326,7 @@ export async function bakeSceneryTiles(
   const glCanvas = document.createElement('canvas');
   glCanvas.width = 1;
   glCanvas.height = 1;
-  const glRenderer = new SoldatWebGLRenderer(glCanvas, { transparentCanvas: true });
+  const glRenderer = new SoldatWebGLRenderer(glCanvas, { transparentCanvas: true, textureCacheBudgetMB: 0 });
   const tiles: Array<BakedSceneryTileUpload & { png: Uint8Array<ArrayBuffer> }> = [];
   const throwIfAborted = () => {
     if (signal?.aborted) throw new DOMException(t('Optimization cancelled.'), 'AbortError');

@@ -1,5 +1,61 @@
 # Changelog
 
+## 2.7.0 — 2026-11-02
+
+### Edytor map (nowość)
+- **Otwieranie:** przycisk „Edytuj mapę” przy dowolnej mapie albo „Nowa mapa” z szablonu (pusta, arena, CTF
+  symetryczna, climb). Edycja odbywa się na tym samym podglądzie WebGL co w przeglądarce: tekstury, krawędzie i
+  warstwy scenerii wyglądają jak w grze.
+- **Poligony:**
+  - trójkąt, pas, wachlarz, kształt z automatyczną triangulacją, prostokąt i rysowanie „laserem”;
+  - edycja wierzchołków z łączeniem wspólnych wierzchołków i dzieleniem krawędzi;
+  - wszystkie 26 typów i sprężystość;
+  - kolory wierzchołków (pędzel, gradient, pipeta), wypalanie światła, kolejność rysowania;
+  - tekstury: przesuwanie, skalowanie i obrót UV, wyrównanie do świata.
+- **Scenerie:**
+  - przeglądarka zasobów: każdy obraz raz, z oznaczeniem HD i licznikiem użyć w mapie, filtr „W tej mapie”,
+    „zaznacz wszystkie”, „zamień obraz” i ostatnio stawiane;
+  - przeciągnięcie przy stawianiu rysuje scenerię w wybranym rozmiarze;
+  - Alt+kółko skaluje, Alt+Shift+kółko obraca;
+  - rozmiar w procentach z blokadą proporcji, szybkie obroty, warstwy i kolejność.
+- **Koloryzacja scenerii:**
+  - odcień, nasycenie i jasność, kolor hex, 12 presetów i ostatnio użyte kolory;
+  - przesuwanie kolorów wielu scenerii naraz z zachowaniem różnic między nimi;
+  - gradient koloru i krycia przez zaznaczenie;
+  - losowa wariacja (rozmiar, kąt, kolor, krycie, odbicie) z ponownym losowaniem;
+  - mgła głębi dla całej mapy według warstw.
+- **Pozostałe obiekty:** spawny, flagi i bonusy (wszystkie typy), kolidery, waypointy botów z połączeniami i akcjami
+  oraz ustawienia mapy (opis, tekstura, tło, paliwo jetpacka, paczki, pogoda, kroki).
+- **Zaznaczanie i przekształcenia:**
+  - klik (ponowny klik wybiera obiekt pod spodem), prostokąt, lasso i filtr typów;
+  - zaznacz podobne (Ctrl+Shift+A) i odwróć zaznaczenie (Ctrl+I);
+  - uchwyty przesuwania, obrotu i skalowania, dokładne pola X/Y/W/H, wyrównywanie;
+  - przyciąganie do siatki, wierzchołków, krawędzi i kątów.
+- **Narzędzia:**
+  - symetria z zamianą drużyn, prefaby oraz kopiuj/wklej między mapami;
+  - zamiana obrazu na poligony, generator wysp i skorupy terenu, cieniowanie reliefu;
+  - test żołnierza z jetpackiem;
+  - paleta poleceń (Ctrl+K), lista skrótów (?), chowanie paneli (Tab).
+- **Historia i szkice:** cofanie bez limitu z panelem historii (jedno przeciągnięcie to jeden krok). Szkic zapisuje
+  się w tle i po awarii można go przywrócić.
+- **Sprawdzanie mapy na bieżąco:**
+  - limity silnika, brakujące pliki, zasady CTF, spawny w ścianach;
+  - poligony z normalnymi kolizji skierowanymi na zewnątrz, z naprawą jednym kliknięciem;
+  - wskazówki (zdegenerowane i zduplikowane trójkąty, wąskie przejścia) osobno i zwinięte.
+- **Zapis:**
+  - nowy plik `<mapa>_e` albo dowolna nazwa: do folderu gry, do `exports/edited_maps/` lub do własnego folderu;
+  - Ctrl+S zapisuje ponownie w to samo miejsce, Ctrl+Shift+S to „Zapisz jako”;
+  - nadpisanie wymaga potwierdzenia i robi kopię zapasową.
+- **Wierność pliku:** mapa otwarta i zapisana bez zmian jest identyczna bajt w bajt (sprawdzone na 3880 mapach).
+  Dane kolizji (normalne, sektory) są przeliczane tylko dla zmienionych poligonów, a sama zmiana kolorów ich nie
+  rusza.
+
+### Podgląd i wydajność
+- Pamięć tekstur GPU ma limit i zwalnia najdawniej używane tekstury. Przeglądanie setek map i podglądy `_o` nie
+  zapychają już karty graficznej.
+- „Odśwież” wczytuje tekstury od nowa, a pliki, których nie dało się wczytać, są próbowane ponownie.
+- Edytor ładuje się dopiero przy pierwszym otwarciu, więc start aplikacji jest mniejszy.
+
 ## 2.6.0 — 2026-11-02
 
 ### Archiwum map (`_a`)

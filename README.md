@@ -17,7 +17,18 @@ computer: a small Node.js server reads the game folder and the interface opens i
   - `_f` — fixes scenery sizes stretched by the move to Soldat 1.7.1,
   - `_o` — merges hundreds of sceneries into a few PNG layers (fewer objects, no transparency flickering),
     with a preview before saving and a fidelity report,
-  - `_f_o` — both steps at once, also in batch mode; every file that gets overwritten is backed up first.
+  - `_f_o` — both steps at once, also in batch mode; every file that gets overwritten is backed up first,
+  - `_a` — an archive: layers merged as in `_o`, and every remaining scenery and the polygon texture copied under
+    the map's own name, so other packs or game updates can't change how the map looks.
+- **Map editor** — edit any map or start one from a template, on the same game-accurate canvas:
+  - polygons (triangle, strip, fan, auto-triangulated shape, freehand), vertex editing with welding and edge
+    splitting, all 26 polygon types, vertex colours, light baking and texture coordinates;
+  - sceneries: draw them at any size, colorize (hue / saturation / brightness), gradients, random variation and
+    depth haze; spawn points, colliders, bot waypoints and map settings;
+  - unlimited undo, symmetry with team swap, prefabs, copy / paste between maps, a live map check with one-click
+    fixes, a soldier playtest, the command palette (Ctrl+K) and a shortcut list (?);
+  - saving checks the engine limits, rebuilds collision data only where the geometry changed, backs up files it
+    overwrites and keeps recovery drafts.
 - **Server map packs** — ZIP, folder or `.smap`, split by prefix or mode, default game files left out, map list
   for the server, CRC32 manifest, saved presets, letter-case fix for Linux servers, safe extraction of downloaded
   archives.
@@ -140,8 +151,9 @@ distribution or use a virtual environment.
 ## Where the data lives
 
 - `data/` — settings (`config.json` with this computer's paths), the map index, thumbnails, backups
-  (`data/backups/`), the server log (`data/logs/`).
-- `exports/` — packs, map screenshots and `_f`/`_o` maps when they are not saved into the game folder.
+  (`data/backups/`), the server log (`data/logs/`), editor recovery drafts (`data/editor-drafts/`) and prefabs.
+- `exports/` — packs, map screenshots and `_f`/`_o`/`_a` maps when they are not saved into the game folder;
+  `exports/edited_maps/` holds editor saves made there.
 
 Both folders are local and never go into the repository. The server listens only on `127.0.0.1` and rejects
 requests from other websites, so other computers on the network and web pages cannot reach it.

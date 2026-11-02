@@ -1,12 +1,14 @@
+import { hasSameCollisionGeometry } from '@shared/pmsCompiler';
 import {
   computePropCorners,
   computeTransformCorners,
   PmsMapData,
   PmsProp,
   PmsVertex,
+  sectorTablePolygons,
 } from '@shared/pmsParser';
 import { t } from '../i18n';
-import { loadSoldatAssetImage } from './assetLoader';
+import { getAssetCacheEpoch, loadSoldatAssetImage } from './assetLoader';
 import { RenderLayerVisibility } from './types';
 
 const VERTEX_SHADER_SRC = `#version 300 es
@@ -64,11 +66,6 @@ interface PropDrawCall {
   vertexCount: number;
 }
 
-interface TextureRecord {
-  tex: WebGLTexture;
-  hasMipmaps: boolean;
-}
-
 interface SceneryTextureInfo {
   tex: WebGLTexture;
   width: number;
@@ -80,16 +77,44 @@ interface SceneryTextureInfo {
   v1: number;
 }
 
+interface CachedGpuTextureEntry {
+  tex: WebGLTexture;
+  hasMipmaps: boolean;
+  isOwned: boolean;
+  width: number;
+  height: number;
+  sceneryInfo?: SceneryTextureInfo;
+  pixelatedApplied: boolean;
+  bytes: number; // Approximate GPU memory (0 for shared placeholders)
+  lastUsed: number; // Use clock value of the last map that drew it (LRU eviction)
+  placeholder?: boolean; // The image failed to load: retried on the next full loadMap()
+}
+
+interface CachedGeometrySlice {
+  polygonsRef: PmsMapData['polygons'];
+  sectorsDivision: number;
+  floats: Float32Array;
+  edgeBackCount: number;
+  edgeFrontCount: number;
+  polyBackCount: number;
+  polyFrontCount: number;
+}
+
 interface PreparedGpuMap {
   map: PmsMapData;
   preferClassicBmp: boolean;
-  pixelatedApplied: boolean;
+  skipGeometry: boolean;
+  hasPropFilter: boolean;
+  textureNameLower: string;
   whiteTex: WebGLTexture;
   mainTex: WebGLTexture;
   edgeTex: WebGLTexture | null;
-  ownedTextures: TextureRecord[];
+  edgeDims: { width: number; height: number } | null;
+  activeTextures: CachedGpuTextureEntry[];
   vao: WebGLVertexArrayObject;
   vbo: WebGLBuffer;
+  vboCapacityFloats: number;
+  geometryCache: CachedGeometrySlice | null;
 
   bgBackRange: { first: number; count: number };
   edgeBackRange: { first: number; count: number };
@@ -97,6 +122,21 @@ interface PreparedGpuMap {
   edgeFrontRange: { first: number; count: number };
   polyFrontRange: { first: number; count: number };
   propCalls: [PropDrawCall[], PropDrawCall[], PropDrawCall[]];
+}
+
+// Textures of maps that are no longer shown stay on the GPU up to this budget (and count), so switching back to a
+// recent map or editing it costs no re-upload; the least recently used ones go first
+const DEFAULT_TEXTURE_CACHE_BUDGET_MB = 192;
+const MAX_GPU_TEXTURE_CACHE = 400;
+
+function textureBytes(width: number, height: number, mipmaps: boolean): number {
+  return Math.round(width * height * 4 * (mipmaps ? 4 / 3 : 1));
+}
+
+/** True when the stored sector table was read or built for exactly these triangles (game-exact smooth edges) */
+function sectorTableFitsPolygons(map: PmsMapData): boolean {
+  const owner = sectorTablePolygons(map.sectorsPolys);
+  return Boolean(owner && hasSameCollisionGeometry(map.polygons, owner));
 }
 
 export interface OffscreenReadback {
@@ -155,14 +195,17 @@ function pascalRound(v: number): number {
  * Uses the map's own PMS sector table exactly like TPolyMap.CollisionTestExcept (Round()-based sector,
  * 1-based polygon numbers, EXCLUDED types); falls back to a spatial grid when the table is unusable.
  */
-function createEdgeCoverageTest(map: PmsMapData): (mx: number, my: number, selfIdx: number) => boolean {
+function createEdgeCoverageTest(
+  map: PmsMapData,
+  forceDynamicSpatialGrid = false
+): (mx: number, my: number, selfIdx: number) => boolean {
   const n = map.sectorsNum;
   const div = map.sectorsDivision;
   const side = 2 * n + 1;
   const sectors = map.sectorsPolys;
   const polys = map.polygons;
 
-  if (sectors && div > 0 && n >= 0 && sectors.length === side * side) {
+  if (!forceDynamicSpatialGrid && sectors && div > 0 && n >= 0 && sectors.length === side * side) {
     return (mx, my, selfIdx) => {
       const kx = pascalRound(mx / div);
       const ky = pascalRound(my / div);
@@ -246,11 +289,21 @@ export class SoldatWebGLRenderer {
   private whiteTexture: WebGLTexture;
   private fallbackCheckerTexture: WebGLTexture;
   private prepared: PreparedGpuMap | null = null;
+  private gpuTextureCache = new Map<string, CachedGpuTextureEntry>();
+  private readonly textureCacheBudgetBytes: number;
+  private useClock = 0;
+  private assetEpochSeen = getAssetCacheEpoch();
+  private scratchBuffer = new Float32Array(65536);
   private loadSeq = 0;
   private floatTargetSupported: boolean | null = null;
 
-  constructor(canvas: HTMLCanvasElement, options?: { transparentCanvas?: boolean }) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    options?: { transparentCanvas?: boolean; textureCacheBudgetMB?: number }
+  ) {
     this.canvas = canvas;
+    this.textureCacheBudgetBytes =
+      Math.max(0, options?.textureCacheBudgetMB ?? DEFAULT_TEXTURE_CACHE_BUDGET_MB) * 1024 * 1024;
     const gl = canvas.getContext('webgl2', {
       alpha: Boolean(options?.transparentCanvas),
       antialias: !options?.transparentCanvas,
@@ -284,6 +337,7 @@ export class SoldatWebGLRenderer {
   private resourcesLost = false;
   private readonly handleContextLost = (): void => {
     this.resourcesLost = true;
+    this.gpuTextureCache.clear();
   };
 
   public isContextLost(): boolean {
@@ -302,112 +356,20 @@ export class SoldatWebGLRenderer {
     return this.prepared ? this.prepared.preferClassicBmp : null;
   }
 
-  /**
-   * Uploads a map to the GPU. Returns false when the load was superseded by a newer loadMap() call
-   * (rapid map switching) or the context was lost — the previously prepared map is then left untouched.
-   */
-  public async loadMap(
+  private ensureScratchFloats(minFloats: number): Float32Array {
+    if (this.scratchBuffer.length < minFloats) {
+      let nextCap = this.scratchBuffer.length || 65536;
+      while (nextCap < minFloats) nextCap *= 2;
+      this.scratchBuffer = new Float32Array(nextCap);
+    }
+    return this.scratchBuffer;
+  }
+
+  private buildGeometrySlice(
     map: PmsMapData,
-    options?: {
-      preferClassicBmp?: boolean;
-      skipGeometry?: boolean;
-      propFilter?: (prop: PmsProp, arrayIdx: number) => boolean;
-    }
-  ): Promise<boolean> {
-    const gl = this.gl;
-    if (gl.isContextLost()) return false;
-    const seq = ++this.loadSeq;
-    const preferClassicBmp = Boolean(options?.preferClassicBmp);
-    const skipGeometry = Boolean(options?.skipGeometry);
-    const propFilter = options?.propFilter;
-    const texFilename = map.texture || 'default.bmp';
-
-    // Load main texture, smooth edge texture, and all used scenery textures in parallel
-    const usedSceneryIndices = new Set<number>();
-    for (let idx = 0; idx < map.props.length; idx++) {
-      const p = map.props[idx];
-      if (p.active && p.level <= 2 && p.style > 0 && p.style <= map.scenery.length) {
-        if (!propFilter || propFilter(p, idx)) {
-          usedSceneryIndices.add(p.style - 1);
-        }
-      }
-    }
-
-    const [mainImg, edgeImg, ...sceneryImgs] = await Promise.all([
-      skipGeometry
-        ? Promise.resolve(null)
-        : loadSoldatAssetImage('textures', texFilename, false, preferClassicBmp).then(
-            (img) => img ?? loadSoldatAssetImage('textures', 'default.bmp', false, preferClassicBmp)
-          ),
-      skipGeometry
-        ? Promise.resolve(null)
-        : loadSoldatAssetImage('textures/edges', texFilename, true, preferClassicBmp).then(
-            (img) =>
-              img ?? loadSoldatAssetImage('textures/edges', 'default.bmp', true, preferClassicBmp)
-          ),
-      ...Array.from(usedSceneryIndices).map(async (scIdx) => {
-        const asset = await loadSoldatAssetImage(
-          'scenery-gfx',
-          map.scenery[scIdx].filename,
-          true,
-          preferClassicBmp
-        );
-        return { scIdx, asset };
-      }),
-    ]);
-
-    if (gl.isContextLost() || seq !== this.loadSeq) return false;
-
-    this.disposeCurrentMap();
-
-    const ownedTextures: TextureRecord[] = [];
-
-    const mainTex = mainImg
-      ? this.uploadTexture(mainImg.width, mainImg.height, mainImg.premultipliedData, true, true)
-      : this.fallbackCheckerTexture;
-    if (mainImg) ownedTextures.push({ tex: mainTex, hasMipmaps: true });
-
-    let edgeTex: WebGLTexture | null = null;
-    if (edgeImg) {
-      // Edge strips are thin (e.g. 90x4 or 90x1); disable mipmaps to prevent vertical alpha bleed
-      edgeTex = this.uploadTexture(edgeImg.width, edgeImg.height, edgeImg.premultipliedData, false, false);
-      ownedTextures.push({ tex: edgeTex, hasMipmaps: false });
-    }
-
-    const sceneryTexMap = new Map<number, SceneryTextureInfo>();
-    for (const { scIdx, asset } of sceneryImgs) {
-      if (asset) {
-        const pad = SCENERY_ATLAS_PADDING;
-        const padded = padTransparent(asset.width, asset.height, asset.premultipliedData, pad);
-        const tex = this.uploadTexture(padded.width, padded.height, padded.data, false, true);
-        ownedTextures.push({ tex, hasMipmaps: true });
-        sceneryTexMap.set(scIdx, {
-          tex,
-          width: asset.width,
-          height: asset.height,
-          u0: pad / padded.width,
-          v0: pad / padded.height,
-          u1: (pad + asset.width) / padded.width,
-          v1: (pad + asset.height) / padded.height,
-        });
-      } else {
-        sceneryTexMap.set(scIdx, {
-          tex: this.fallbackCheckerTexture,
-          width: 32,
-          height: 32,
-          u0: 0,
-          v0: 0,
-          u1: 1,
-          v1: 1,
-        });
-      }
-    }
-
-    // Build unified float32 vertex buffer:
-    // MapGraphics.pas: d := MAX_SECTOR * Max(SectorsDivision, Ceil(0.5 * GameHeight / MAX_SECTOR)), GameHeight = 480
-    const d = 25 * Math.max(map.sectorsDivision || 1, 10);
-    const HUGE = 500000;
-
+    edgeDims: { width: number; height: number } | null,
+    forceDynamicSpatialGrid: boolean
+  ): CachedGeometrySlice {
     const verts: number[] = [];
     const pushVert = (
       x: number,
@@ -421,7 +383,6 @@ export class SoldatWebGLRenderer {
     ) => {
       verts.push(x, y, u, v, r / 255, g / 255, b / 255, a / 255);
     };
-
     const pushQuad = (
       x0: number, y0: number, u0: number, v0: number, r0: number, g0: number, b0: number, a0: number,
       x1: number, y1: number, u1: number, v1: number, r1: number, g1: number, b1: number, a1: number,
@@ -436,39 +397,11 @@ export class SoldatWebGLRenderer {
       pushVert(x0, y0, u0, v0, r0, g0, b0, a0);
     };
 
-    const topC = map.bgColorTop;
-    const btmC = map.bgColorBtm;
-
-    // 1. Background gradient (MapGraphics.pas, extended with flat colors above -d / below d)
-    const bgFirst = 0;
-    pushQuad(
-      -HUGE, -HUGE, 0, 0, topC.r, topC.g, topC.b, 255,
-       HUGE, -HUGE, 1, 0, topC.r, topC.g, topC.b, 255,
-       HUGE, -d,    1, 1, topC.r, topC.g, topC.b, 255,
-      -HUGE, -d,    0, 1, topC.r, topC.g, topC.b, 255
-    );
-    pushQuad(
-      -HUGE, -d, 0, 0, topC.r, topC.g, topC.b, 255,
-       HUGE, -d, 1, 0, topC.r, topC.g, topC.b, 255,
-       HUGE,  d, 1, 1, btmC.r, btmC.g, btmC.b, 255,
-      -HUGE,  d, 0, 1, btmC.r, btmC.g, btmC.b, 255
-    );
-    pushQuad(
-      -HUGE,  d,    0, 0, btmC.r, btmC.g, btmC.b, 255,
-       HUGE,  d,    1, 0, btmC.r, btmC.g, btmC.b, 255,
-       HUGE,  HUGE, 1, 1, btmC.r, btmC.g, btmC.b, 255,
-      -HUGE,  HUGE, 0, 1, btmC.r, btmC.g, btmC.b, 255
-    );
-    const bgCount = verts.length / FLOATS_PER_VERTEX - bgFirst;
-
-    // 2. Smooth Edges (OpenSoldat MapGraphics.pas r_smoothedges + PolyMap.pas sector coverage test)
-    let edgeBackFirst = verts.length / FLOATS_PER_VERTEX;
     let edgeBackCount = 0;
-    let edgeFrontFirst = edgeBackFirst;
     let edgeFrontCount = 0;
 
-    if (!skipGeometry && edgeImg && edgeTex && map.polygons.length > 0) {
-      const isCovered = createEdgeCoverageTest(map);
+    if (edgeDims && map.polygons.length > 0) {
+      const isCovered = createEdgeCoverageTest(map, forceDynamicSpatialGrid);
       const backEdges: Array<{ a: PmsVertex; b: PmsVertex }> = [];
       const frontEdges: Array<{ a: PmsVertex; b: PmsVertex }> = [];
 
@@ -493,8 +426,8 @@ export class SoldatWebGLRenderer {
       }
 
       const emitEdges = (edgeList: Array<{ a: PmsVertex; b: PmsVertex }>) => {
-        const ew = edgeImg.width;
-        const eh = edgeImg.height;
+        const ew = edgeDims.width;
+        const eh = edgeDims.height;
         for (const e of edgeList) {
           const dx = e.b.x - e.a.x;
           const dy = e.b.y - e.a.y;
@@ -514,54 +447,159 @@ export class SoldatWebGLRenderer {
         }
       };
 
-      edgeBackFirst = verts.length / FLOATS_PER_VERTEX;
+      const startBack = verts.length / FLOATS_PER_VERTEX;
       emitEdges(backEdges);
-      edgeBackCount = verts.length / FLOATS_PER_VERTEX - edgeBackFirst;
+      edgeBackCount = verts.length / FLOATS_PER_VERTEX - startBack;
 
-      edgeFrontFirst = verts.length / FLOATS_PER_VERTEX;
+      const startFront = verts.length / FLOATS_PER_VERTEX;
       emitEdges(frontEdges);
-      edgeFrontCount = verts.length / FLOATS_PER_VERTEX - edgeFrontFirst;
+      edgeFrontCount = verts.length / FLOATS_PER_VERTEX - startFront;
     }
 
-    // 3. Background Polygons (PolyType 24 = BACKGROUND, 25 = BACKGROUND_TRANSITION)
-    const polyBackFirst = verts.length / FLOATS_PER_VERTEX;
-    if (!skipGeometry) {
-      for (const poly of map.polygons) {
-        if (poly.polyType === 24 || poly.polyType === 25) {
-          for (const v of poly.vertices) {
-            pushVert(v.x, v.y, v.u, v.v, v.color.r, v.color.g, v.color.b, v.color.a);
-          }
+    const startPolyBack = verts.length / FLOATS_PER_VERTEX;
+    for (const poly of map.polygons) {
+      if (poly.polyType === 24 || poly.polyType === 25) {
+        for (const v of poly.vertices) {
+          pushVert(v.x, v.y, v.u, v.v, v.color.r, v.color.g, v.color.b, v.color.a);
         }
       }
     }
-    const polyBackCount = verts.length / FLOATS_PER_VERTEX - polyBackFirst;
+    const polyBackCount = verts.length / FLOATS_PER_VERTEX - startPolyBack;
 
-    // 4. Foreground / Normal Polygons (PolyType != 24 && != 25)
-    const polyFrontFirst = verts.length / FLOATS_PER_VERTEX;
-    if (!skipGeometry) {
-      for (const poly of map.polygons) {
-        if (poly.polyType !== 24 && poly.polyType !== 25) {
-          for (const v of poly.vertices) {
-            pushVert(v.x, v.y, v.u, v.v, v.color.r, v.color.g, v.color.b, v.color.a);
-          }
+    const startPolyFront = verts.length / FLOATS_PER_VERTEX;
+    for (const poly of map.polygons) {
+      if (poly.polyType !== 24 && poly.polyType !== 25) {
+        for (const v of poly.vertices) {
+          pushVert(v.x, v.y, v.u, v.v, v.color.r, v.color.g, v.color.b, v.color.a);
         }
       }
     }
-    const polyFrontCount = verts.length / FLOATS_PER_VERTEX - polyFrontFirst;
+    const polyFrontCount = verts.length / FLOATS_PER_VERTEX - startPolyFront;
+
+    return {
+      polygonsRef: map.polygons,
+      sectorsDivision: map.sectorsDivision,
+      floats: new Float32Array(verts),
+      edgeBackCount,
+      edgeFrontCount,
+      polyBackCount,
+      polyFrontCount,
+    };
+  }
+
+  private packFullVertexBuffer(
+    map: PmsMapData,
+    geometrySlice: CachedGeometrySlice | null,
+    resolveScenery: (scIdx: number) => SceneryTextureInfo | undefined,
+    propFilter?: (prop: PmsProp, arrayIdx: number) => boolean
+  ): {
+    floatSlice: Float32Array;
+    bgBackRange: { first: number; count: number };
+    edgeBackRange: { first: number; count: number };
+    polyBackRange: { first: number; count: number };
+    edgeFrontRange: { first: number; count: number };
+    polyFrontRange: { first: number; count: number };
+    propCalls: [PropDrawCall[], PropDrawCall[], PropDrawCall[]];
+  } {
+    const geomFloats = geometrySlice ? geometrySlice.floats.length : 0;
+    // 18 bg vertices + geometry + up to 6 vertices per prop
+    const maxFloats = 18 * FLOATS_PER_VERTEX + geomFloats + map.props.length * 6 * FLOATS_PER_VERTEX;
+    const buf = this.ensureScratchFloats(maxFloats);
+    let ptr = 0;
+
+    const writeVert = (
+      x: number,
+      y: number,
+      u: number,
+      v: number,
+      r: number,
+      g: number,
+      b: number,
+      a: number
+    ) => {
+      buf[ptr++] = x;
+      buf[ptr++] = y;
+      buf[ptr++] = u;
+      buf[ptr++] = v;
+      buf[ptr++] = r / 255;
+      buf[ptr++] = g / 255;
+      buf[ptr++] = b / 255;
+      buf[ptr++] = a / 255;
+    };
+
+    const writeQuad = (
+      x0: number, y0: number, u0: number, v0: number, r0: number, g0: number, b0: number, a0: number,
+      x1: number, y1: number, u1: number, v1: number, r1: number, g1: number, b1: number, a1: number,
+      x2: number, y2: number, u2: number, v2: number, r2: number, g2: number, b2: number, a2: number,
+      x3: number, y3: number, u3: number, v3: number, r3: number, g3: number, b3: number, a3: number
+    ) => {
+      writeVert(x0, y0, u0, v0, r0, g0, b0, a0);
+      writeVert(x1, y1, u1, v1, r1, g1, b1, a1);
+      writeVert(x2, y2, u2, v2, r2, g2, b2, a2);
+      writeVert(x2, y2, u2, v2, r2, g2, b2, a2);
+      writeVert(x3, y3, u3, v3, r3, g3, b3, a3);
+      writeVert(x0, y0, u0, v0, r0, g0, b0, a0);
+    };
+
+    // 1. Background gradient
+    const d = 25 * Math.max(map.sectorsDivision || 1, 10);
+    const HUGE = 500000;
+    const topC = map.bgColorTop;
+    const btmC = map.bgColorBtm;
+    const bgFirst = 0;
+    writeQuad(
+      -HUGE, -HUGE, 0, 0, topC.r, topC.g, topC.b, 255,
+       HUGE, -HUGE, 1, 0, topC.r, topC.g, topC.b, 255,
+       HUGE, -d,    1, 1, topC.r, topC.g, topC.b, 255,
+      -HUGE, -d,    0, 1, topC.r, topC.g, topC.b, 255
+    );
+    writeQuad(
+      -HUGE, -d, 0, 0, topC.r, topC.g, topC.b, 255,
+       HUGE, -d, 1, 0, topC.r, topC.g, topC.b, 255,
+       HUGE,  d, 1, 1, btmC.r, btmC.g, btmC.b, 255,
+      -HUGE,  d, 0, 1, btmC.r, btmC.g, btmC.b, 255
+    );
+    writeQuad(
+      -HUGE,  d,    0, 0, btmC.r, btmC.g, btmC.b, 255,
+       HUGE,  d,    1, 0, btmC.r, btmC.g, btmC.b, 255,
+       HUGE,  HUGE, 1, 1, btmC.r, btmC.g, btmC.b, 255,
+      -HUGE,  HUGE, 0, 1, btmC.r, btmC.g, btmC.b, 255
+    );
+    const bgCount = ptr / FLOATS_PER_VERTEX - bgFirst;
+
+    // 2–4. Smooth Edges & Polygons
+    let edgeBackFirst = ptr / FLOATS_PER_VERTEX;
+    let edgeBackCount = 0;
+    let edgeFrontFirst = edgeBackFirst;
+    let edgeFrontCount = 0;
+    let polyBackFirst = edgeBackFirst;
+    let polyBackCount = 0;
+    let polyFrontFirst = edgeBackFirst;
+    let polyFrontCount = 0;
+
+    if (geometrySlice) {
+      buf.set(geometrySlice.floats, ptr);
+      ptr += geometrySlice.floats.length;
+
+      edgeBackCount = geometrySlice.edgeBackCount;
+      edgeFrontFirst = edgeBackFirst + edgeBackCount;
+      edgeFrontCount = geometrySlice.edgeFrontCount;
+      polyBackFirst = edgeFrontFirst + edgeFrontCount;
+      polyBackCount = geometrySlice.polyBackCount;
+      polyFrontFirst = polyBackFirst + polyBackCount;
+      polyFrontCount = geometrySlice.polyFrontCount;
+    }
 
     // 5. Scenery Props grouped by Level (0 = Back, 1 = Mid, 2 = Front) preserving exact PMS order!
     const propCalls: [PropDrawCall[], PropDrawCall[], PropDrawCall[]] = [[], [], []];
-
     for (let level = 0 as 0 | 1 | 2; level <= 2; level = (level + 1) as 0 | 1 | 2) {
       for (let pIdx = 0; pIdx < map.props.length; pIdx++) {
         const prop = map.props[pIdx];
         if (!prop.active || prop.level !== level) continue;
         if (propFilter && !propFilter(prop, pIdx)) continue;
         const scIdx = prop.style - 1;
-        const scInfo = sceneryTexMap.get(scIdx);
+        const scInfo = resolveScenery(scIdx);
         if (!scInfo) continue;
-        // GfxSpriteVertices builds the quad from the PMS Width/Height: 0 is an invisible degenerate quad in-game,
-        // negative values mirror the sprite exactly like the game does.
         if (prop.width === 0 || prop.height === 0) continue;
 
         const corners = computePropCorners(
@@ -574,14 +612,14 @@ export class SoldatWebGLRenderer {
           prop.rotation
         );
 
-        const firstV = verts.length / FLOATS_PER_VERTEX;
+        const firstV = ptr / FLOATS_PER_VERTEX;
         const r = prop.color.r;
         const g = prop.color.g;
         const b = prop.color.b;
         const a = prop.alpha;
         const { u0, v0, u1, v1 } = scInfo;
 
-        pushQuad(
+        writeQuad(
           corners[0], corners[1], u0, v0, r, g, b, a,
           corners[2], corners[3], u1, v0, r, g, b, a,
           corners[4], corners[5], u1, v1, r, g, b, a,
@@ -602,12 +640,379 @@ export class SoldatWebGLRenderer {
       }
     }
 
+    return {
+      floatSlice: buf.subarray(0, ptr),
+      bgBackRange: { first: bgFirst, count: bgCount },
+      edgeBackRange: { first: edgeBackFirst, count: edgeBackCount },
+      polyBackRange: { first: polyBackFirst, count: polyBackCount },
+      edgeFrontRange: { first: edgeFrontFirst, count: edgeFrontCount },
+      polyFrontRange: { first: polyFrontFirst, count: polyFrontCount },
+      propCalls,
+    };
+  }
+
+  /**
+   * Frees the least recently used textures that the current map does not draw, until the unused ones fit the
+   * byte budget and the cache fits the entry cap. Must run after disposeCurrentMap() (nothing else holds them).
+   */
+  private evictExcessCachedTextures(keepSet: Set<CachedGpuTextureEntry>): void {
+    const gl = this.gl;
+    const candidates: Array<[string, CachedGpuTextureEntry]> = [];
+    let unusedBytes = 0;
+    for (const item of this.gpuTextureCache.entries()) {
+      if (keepSet.has(item[1])) continue;
+      candidates.push(item);
+      unusedBytes += item[1].bytes;
+    }
+    candidates.sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+    for (const [key, entry] of candidates) {
+      if (unusedBytes <= this.textureCacheBudgetBytes && this.gpuTextureCache.size <= MAX_GPU_TEXTURE_CACHE) break;
+      if (entry.isOwned && !gl.isContextLost() && !this.resourcesLost) {
+        gl.deleteTexture(entry.tex);
+      }
+      unusedBytes -= entry.bytes;
+      this.gpuTextureCache.delete(key);
+    }
+  }
+
+  private touchTextures(entries: Iterable<CachedGpuTextureEntry>): void {
+    const now = ++this.useClock;
+    for (const entry of entries) entry.lastUsed = now;
+  }
+
+  /**
+   * Synchronously updates vertex buffers in-place (`gl.bufferSubData` on `gl.DYNAMIC_DRAW`)
+   * with zero async asset fetches or texture re-uploads whenever all referenced textures are already cached on the GPU.
+   * Returns `false` when a new texture or scenery image must be loaded via `loadMap()`.
+   */
+  public updateMapFast(
+    nextMap: PmsMapData,
+    options?: { preferClassicBmp?: boolean }
+  ): boolean {
+    const gl = this.gl;
+    const prev = this.prepared;
+    if (gl.isContextLost() || !prev || prev.skipGeometry || prev.hasPropFilter) {
+      return false;
+    }
+    // Images were reloaded from disk (refresh, new Soldat path): only a full loadMap() picks them up
+    if (getAssetCacheEpoch() !== this.assetEpochSeen) return false;
+
+    const preferClassicBmp = Boolean(options?.preferClassicBmp);
+    if (prev.preferClassicBmp !== preferClassicBmp) return false;
+
+    const nextTexLower = (nextMap.texture || 'default.bmp').toLowerCase();
+    if (prev.textureNameLower !== nextTexLower) return false;
+
+    const bmpFlag = preferClassicBmp ? '1' : '0';
+    const activeSet = new Set<CachedGpuTextureEntry>();
+    for (const t of prev.activeTextures) activeSet.add(t);
+
+    const sceneryByIndex = new Map<number, SceneryTextureInfo>();
+    for (let idx = 0; idx < nextMap.props.length; idx++) {
+      const p = nextMap.props[idx];
+      if (!p.active || p.level > 2 || p.style <= 0 || p.style > nextMap.scenery.length) continue;
+      const scIdx = p.style - 1;
+      if (sceneryByIndex.has(scIdx)) continue;
+      const scKey = `scen:${bmpFlag}:${nextMap.scenery[scIdx].filename.toLowerCase()}`;
+      const cached = this.gpuTextureCache.get(scKey);
+      if (!cached || !cached.sceneryInfo) {
+        return false;
+      }
+      activeSet.add(cached);
+      sceneryByIndex.set(scIdx, cached.sceneryInfo);
+    }
+
+    // Invalidate any older async loadMap() that might still be in flight
+    this.loadSeq++;
+
+    const geometryUnchanged =
+      prev.geometryCache !== null &&
+      prev.geometryCache.polygonsRef === nextMap.polygons &&
+      prev.geometryCache.sectorsDivision === nextMap.sectorsDivision;
+
+    // Edited triangles no longer match the file's sector table: smooth edges then use the live spatial grid
+    const geometrySlice = geometryUnchanged
+      ? prev.geometryCache!
+      : this.buildGeometrySlice(nextMap, prev.edgeDims, !sectorTableFitsPolygons(nextMap));
+    this.touchTextures(activeSet);
+
+    const packed = this.packFullVertexBuffer(
+      nextMap,
+      geometrySlice,
+      (scIdx) => sceneryByIndex.get(scIdx)
+    );
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, prev.vbo);
+    let capacityFloats = prev.vboCapacityFloats;
+    if (packed.floatSlice.length <= capacityFloats) {
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, packed.floatSlice);
+    } else {
+      capacityFloats = Math.max(packed.floatSlice.length + 4096, Math.ceil(packed.floatSlice.length * 1.5));
+      gl.bufferData(gl.ARRAY_BUFFER, capacityFloats * 4, gl.DYNAMIC_DRAW);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, packed.floatSlice);
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+    this.prepared = {
+      ...prev,
+      map: nextMap,
+      activeTextures: Array.from(activeSet),
+      vboCapacityFloats: capacityFloats,
+      geometryCache: geometrySlice,
+      bgBackRange: packed.bgBackRange,
+      edgeBackRange: packed.edgeBackRange,
+      polyBackRange: packed.polyBackRange,
+      edgeFrontRange: packed.edgeFrontRange,
+      polyFrontRange: packed.polyFrontRange,
+      propCalls: packed.propCalls,
+    };
+
+    return true;
+  }
+
+  /**
+   * Uploads a map to the GPU. Returns false when the load was superseded by a newer loadMap() call
+   * (rapid map switching) or the context was lost — the previously prepared map is then left untouched.
+   */
+  public async loadMap(
+    map: PmsMapData,
+    options?: {
+      preferClassicBmp?: boolean;
+      skipGeometry?: boolean;
+      propFilter?: (prop: PmsProp, arrayIdx: number) => boolean;
+    }
+  ): Promise<boolean> {
+    const gl = this.gl;
+    if (gl.isContextLost()) return false;
+    const seq = ++this.loadSeq;
+    const preferClassicBmp = Boolean(options?.preferClassicBmp);
+    const skipGeometry = Boolean(options?.skipGeometry);
+    const propFilter = options?.propFilter;
+    const texFilename = map.texture || 'default.bmp';
+    const texLower = texFilename.toLowerCase();
+    const bmpFlag = preferClassicBmp ? '1' : '0';
+
+    const mainKey = `main:${bmpFlag}:${texLower}`;
+    const edgeKey = `edge:${bmpFlag}:${texLower}`;
+
+    // Identify all used scenery indices and which textures are not yet in the GPU cache
+    const usedSceneryIndices = new Set<number>();
+    for (let idx = 0; idx < map.props.length; idx++) {
+      const p = map.props[idx];
+      if (p.active && p.level <= 2 && p.style > 0 && p.style <= map.scenery.length) {
+        if (!propFilter || propFilter(p, idx)) {
+          usedSceneryIndices.add(p.style - 1);
+        }
+      }
+    }
+
+    // After the images were reloaded from disk, every texture is uploaded again into a fresh cache that replaces
+    // the old one once this load is applied (the old textures may still be drawn until then)
+    const epoch = getAssetCacheEpoch();
+    const freshCache = epoch !== this.assetEpochSeen;
+    const cache = freshCache ? new Map<string, CachedGpuTextureEntry>() : this.gpuTextureCache;
+    // Failed loads are cached as placeholders so edits stay fast, but each full load tries them again
+    const isCached = (key: string) => {
+      const entry = cache.get(key);
+      return Boolean(entry && !entry.placeholder);
+    };
+
+    const needMainFetch = !skipGeometry && !isCached(mainKey);
+    const needEdgeFetch = !skipGeometry && !isCached(edgeKey);
+    const uncachedSceneryIndices = Array.from(usedSceneryIndices).filter((scIdx) => {
+      const scKey = `scen:${bmpFlag}:${map.scenery[scIdx].filename.toLowerCase()}`;
+      return !isCached(scKey);
+    });
+
+    const [mainImg, edgeImg, ...sceneryImgs] = await Promise.all([
+      !needMainFetch
+        ? Promise.resolve(null)
+        : loadSoldatAssetImage('textures', texFilename, false, preferClassicBmp).then(
+            (img) => img ?? loadSoldatAssetImage('textures', 'default.bmp', false, preferClassicBmp)
+          ),
+      !needEdgeFetch
+        ? Promise.resolve(null)
+        : loadSoldatAssetImage('textures/edges', texFilename, true, preferClassicBmp).then(
+            (img) =>
+              img ?? loadSoldatAssetImage('textures/edges', 'default.bmp', true, preferClassicBmp)
+          ),
+      ...uncachedSceneryIndices.map(async (scIdx) => {
+        const asset = await loadSoldatAssetImage(
+          'scenery-gfx',
+          map.scenery[scIdx].filename,
+          true,
+          preferClassicBmp
+        );
+        return { scIdx, asset };
+      }),
+    ]);
+
+    if (gl.isContextLost() || seq !== this.loadSeq) return false;
+
+    const activeTexturesSet = new Set<CachedGpuTextureEntry>();
+
+    let mainEntry = skipGeometry ? undefined : cache.get(mainKey);
+    if (!skipGeometry && (!mainEntry || (mainEntry.placeholder && mainImg))) {
+      if (mainImg) {
+        const tex = this.uploadTexture(mainImg.width, mainImg.height, mainImg.premultipliedData, true, true);
+        mainEntry = {
+          tex,
+          hasMipmaps: true,
+          isOwned: true,
+          width: mainImg.width,
+          height: mainImg.height,
+          pixelatedApplied: false,
+          bytes: textureBytes(mainImg.width, mainImg.height, true),
+          lastUsed: 0,
+        };
+      } else {
+        mainEntry = {
+          tex: this.fallbackCheckerTexture,
+          hasMipmaps: true,
+          isOwned: false,
+          width: 16,
+          height: 16,
+          pixelatedApplied: false,
+          bytes: 0,
+          lastUsed: 0,
+          placeholder: true,
+        };
+      }
+      cache.set(mainKey, mainEntry);
+    }
+    if (mainEntry) activeTexturesSet.add(mainEntry);
+
+    let edgeEntry = skipGeometry ? undefined : cache.get(edgeKey);
+    if (!skipGeometry && (!edgeEntry || (edgeEntry.placeholder && edgeImg))) {
+      if (edgeImg) {
+        // Edge strips are thin (e.g. 90x4 or 90x1); disable mipmaps to prevent vertical alpha bleed
+        const tex = this.uploadTexture(edgeImg.width, edgeImg.height, edgeImg.premultipliedData, false, false);
+        edgeEntry = {
+          tex,
+          hasMipmaps: false,
+          isOwned: true,
+          width: edgeImg.width,
+          height: edgeImg.height,
+          pixelatedApplied: false,
+          bytes: textureBytes(edgeImg.width, edgeImg.height, false),
+          lastUsed: 0,
+        };
+      } else {
+        edgeEntry = {
+          tex: this.whiteTexture,
+          hasMipmaps: false,
+          isOwned: false,
+          width: 0,
+          height: 0,
+          pixelatedApplied: false,
+          bytes: 0,
+          lastUsed: 0,
+          placeholder: true,
+        };
+      }
+      cache.set(edgeKey, edgeEntry);
+    }
+    if (edgeEntry && edgeEntry.width > 0) activeTexturesSet.add(edgeEntry);
+
+    for (const { scIdx, asset } of sceneryImgs) {
+      const scKey = `scen:${bmpFlag}:${map.scenery[scIdx].filename.toLowerCase()}`;
+      const existing = cache.get(scKey);
+      if (existing && (!existing.placeholder || !asset)) continue;
+      if (asset) {
+        const pad = SCENERY_ATLAS_PADDING;
+        const padded = padTransparent(asset.width, asset.height, asset.premultipliedData, pad);
+        const tex = this.uploadTexture(padded.width, padded.height, padded.data, false, true);
+        const sceneryInfo: SceneryTextureInfo = {
+          tex,
+          width: asset.width,
+          height: asset.height,
+          u0: pad / padded.width,
+          v0: pad / padded.height,
+          u1: (pad + asset.width) / padded.width,
+          v1: (pad + asset.height) / padded.height,
+        };
+        cache.set(scKey, {
+          tex,
+          hasMipmaps: true,
+          isOwned: true,
+          width: asset.width,
+          height: asset.height,
+          sceneryInfo,
+          pixelatedApplied: false,
+          bytes: textureBytes(padded.width, padded.height, true),
+          lastUsed: 0,
+        });
+      } else {
+        cache.set(scKey, {
+          tex: this.fallbackCheckerTexture,
+          hasMipmaps: true,
+          isOwned: false,
+          width: 32,
+          height: 32,
+          sceneryInfo: {
+            tex: this.fallbackCheckerTexture,
+            width: 32,
+            height: 32,
+            u0: 0,
+            v0: 0,
+            u1: 1,
+            v1: 1,
+          },
+          pixelatedApplied: false,
+          bytes: 0,
+          lastUsed: 0,
+          placeholder: true,
+        });
+      }
+    }
+
+    const sceneryTexMap = new Map<number, SceneryTextureInfo>();
+    for (const scIdx of usedSceneryIndices) {
+      const scKey = `scen:${bmpFlag}:${map.scenery[scIdx].filename.toLowerCase()}`;
+      const entry = cache.get(scKey);
+      if (entry && entry.sceneryInfo) {
+        activeTexturesSet.add(entry);
+        sceneryTexMap.set(scIdx, entry.sceneryInfo);
+      }
+    }
+
+    this.disposeCurrentMap();
+    if (freshCache) {
+      // Nothing draws the textures of the previous epoch any more
+      const gl2 = this.gl;
+      for (const entry of this.gpuTextureCache.values()) {
+        if (entry.isOwned && !gl2.isContextLost() && !this.resourcesLost) gl2.deleteTexture(entry.tex);
+      }
+      this.gpuTextureCache = cache;
+      this.assetEpochSeen = epoch;
+    }
+    this.touchTextures(activeTexturesSet);
+    this.evictExcessCachedTextures(activeTexturesSet);
+
+    const edgeTex = edgeEntry && edgeEntry.width > 0 ? edgeEntry.tex : null;
+    const edgeDims =
+      edgeEntry && edgeEntry.width > 0 ? { width: edgeEntry.width, height: edgeEntry.height } : null;
+
+    const geometrySlice = skipGeometry
+      ? null
+      : this.buildGeometrySlice(map, edgeDims, !sectorTableFitsPolygons(map));
+    const packed = this.packFullVertexBuffer(
+      map,
+      geometrySlice,
+      (scIdx) => sceneryTexMap.get(scIdx),
+      propFilter
+    );
+
+    const capacityFloats = Math.max(packed.floatSlice.length + 2048, Math.ceil(packed.floatSlice.length * 1.25));
     const vao = gl.createVertexArray()!;
     const vbo = gl.createBuffer()!;
 
     gl.bindVertexArray(vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, capacityFloats * 4, gl.DYNAMIC_DRAW);
+    if (packed.floatSlice.length > 0) {
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, packed.floatSlice);
+    }
 
     const strideBytes = FLOATS_PER_VERTEX * 4;
     gl.enableVertexAttribArray(0);
@@ -618,49 +1023,56 @@ export class SoldatWebGLRenderer {
     gl.vertexAttribPointer(2, 4, gl.FLOAT, false, strideBytes, 16);
 
     gl.bindVertexArray(null);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
     this.prepared = {
       map,
       preferClassicBmp,
-      pixelatedApplied: false,
+      skipGeometry,
+      hasPropFilter: Boolean(propFilter),
+      textureNameLower: texLower,
       whiteTex: this.whiteTexture,
-      mainTex,
+      mainTex: mainEntry ? mainEntry.tex : this.fallbackCheckerTexture,
       edgeTex,
-      ownedTextures,
+      edgeDims,
+      activeTextures: Array.from(activeTexturesSet),
       vao,
       vbo,
-      bgBackRange: { first: bgFirst, count: bgCount },
-      edgeBackRange: { first: edgeBackFirst, count: edgeBackCount },
-      polyBackRange: { first: polyBackFirst, count: polyBackCount },
-      edgeFrontRange: { first: edgeFrontFirst, count: edgeFrontCount },
-      polyFrontRange: { first: polyFrontFirst, count: polyFrontCount },
-      propCalls,
+      vboCapacityFloats: capacityFloats,
+      geometryCache: geometrySlice,
+      bgBackRange: packed.bgBackRange,
+      edgeBackRange: packed.edgeBackRange,
+      polyBackRange: packed.polyBackRange,
+      edgeFrontRange: packed.edgeFrontRange,
+      polyFrontRange: packed.polyFrontRange,
+      propCalls: packed.propCalls,
     };
     return true;
   }
 
   private syncTextureFilter(pixelated: boolean): void {
-    if (!this.prepared || this.prepared.pixelatedApplied === pixelated) return;
+    if (!this.prepared) return;
     const gl = this.gl;
-    for (const rec of this.prepared.ownedTextures) {
-      gl.bindTexture(gl.TEXTURE_2D, rec.tex);
+    for (const entry of this.prepared.activeTextures) {
+      if (!entry.isOwned || entry.pixelatedApplied === pixelated) continue;
+      gl.bindTexture(gl.TEXTURE_2D, entry.tex);
       if (pixelated) {
         gl.texParameteri(
           gl.TEXTURE_2D,
           gl.TEXTURE_MIN_FILTER,
-          rec.hasMipmaps ? gl.NEAREST_MIPMAP_NEAREST : gl.NEAREST
+          entry.hasMipmaps ? gl.NEAREST_MIPMAP_NEAREST : gl.NEAREST
         );
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
       } else {
         gl.texParameteri(
           gl.TEXTURE_2D,
           gl.TEXTURE_MIN_FILTER,
-          rec.hasMipmaps ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR
+          entry.hasMipmaps ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR
         );
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       }
+      entry.pixelatedApplied = pixelated;
     }
-    this.prepared.pixelatedApplied = pixelated;
   }
 
   /**
@@ -922,13 +1334,22 @@ export class SoldatWebGLRenderer {
     }
   }
 
+  public clearGpuTextureCache(): void {
+    const gl = this.gl;
+    if (!gl.isContextLost() && !this.resourcesLost) {
+      for (const entry of this.gpuTextureCache.values()) {
+        if (entry.isOwned) {
+          gl.deleteTexture(entry.tex);
+        }
+      }
+    }
+    this.gpuTextureCache.clear();
+  }
+
   public disposeCurrentMap(): void {
     if (!this.prepared) return;
     const gl = this.gl;
     if (!gl.isContextLost() && !this.resourcesLost) {
-      for (const rec of this.prepared.ownedTextures) {
-        gl.deleteTexture(rec.tex);
-      }
       gl.deleteBuffer(this.prepared.vbo);
       gl.deleteVertexArray(this.prepared.vao);
     }
@@ -938,6 +1359,7 @@ export class SoldatWebGLRenderer {
   public destroy(loseContext = false): void {
     this.loadSeq++; // Invalidate any in-flight loadMap()
     this.disposeCurrentMap();
+    this.clearGpuTextureCache();
     this.canvas.removeEventListener('webglcontextlost', this.handleContextLost, false);
     if (!this.gl.isContextLost()) {
       if (!this.resourcesLost) {

@@ -93,3 +93,24 @@ export const SCENERY_LEVEL_NAMES: Record<number, string> = {
   1: 'Środek (Middle — przed graczem, za poligonami)',
   2: 'Przód (Front — kryjówka na wierzchu)',
 };
+
+/**
+ * Standing / moving Soldat player collision box (OpenSoldat Control.pas / PolyMap.pas):
+ * probes extend 3.5 world units left and right of centre (7 units wide) and 14 units up from the feet.
+ */
+export const SOLDIER_COLLISION = {
+  halfWidth: 3.5,
+  width: 7,
+  height: 14,
+} as const;
+
+export const WAYPOINT_ACTION_NAMES_EN: Record<number, string> = {
+  0: 'None',
+  1: 'Stop and camp',
+  2: 'Wait 1 second',
+  3: 'Wait 5 seconds',
+  4: 'Wait 10 seconds',
+  5: 'Wait 15 seconds',
+  6: 'Wait 20 seconds',
+};
+

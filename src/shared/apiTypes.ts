@@ -564,3 +564,121 @@ export interface OptimizeSaveResponse {
   backupDir?: string | null;  // copies of every overwritten / removed file (data/backups/<timestamp>)
   archive?: OptimizeArchiveSummary | null;
 }
+
+// ============================================================================
+// Map Editor: Asset Catalog, Safe Save, Autosave Drafts & Reusable Prefabs
+// ============================================================================
+
+export type EditorSaveDestination = 'soldat_maps' | 'exports_editor' | 'custom';
+
+export interface EditorAssetItem {
+  name: string;
+  category: 'textures' | 'scenery-gfx';
+  isVanilla: boolean;
+  sizeBytes: number;
+  sourcePriority: number;
+  hasEdge?: boolean;
+}
+
+export interface EditorAssetCatalogResponse {
+  textures: EditorAssetItem[];
+  sceneries: EditorAssetItem[];
+}
+
+export interface EditorSaveCheckRequest {
+  baseName: string;
+  destination: EditorSaveDestination;
+  customOutputFolder?: string;
+  sourceMapId?: string | null;
+}
+
+export interface EditorSaveCheckResponse {
+  baseName: string;
+  fileName: string;
+  outputPath: string;
+  exists: boolean;
+  isSameAsSource: boolean;
+  existingMapTitle: string | null;
+  existingWasGeneratedByStudio: boolean;
+}
+
+export interface EditorSaveRequest {
+  baseName: string;
+  destination: EditorSaveDestination;
+  customOutputFolder?: string;
+  sourceMapId?: string | null;
+  confirmOverwrite?: boolean;
+  pmsBase64: string;
+  documentId?: string; // the editor session's document (draft id): saving it again over its own file needs no backup
+}
+
+export interface EditorSaveResponse {
+  baseName: string;
+  fileName: string;
+  outputPath: string;
+  newMapId: string | null;
+  backupDir: string | null;
+  crc32: number;
+  fileSize: number;
+  meta?: IndexMetaResponse;
+}
+
+export interface EditorDraftSummary {
+  draftId: string;
+  sourceMapId: string | null;
+  baseName: string;
+  title: string;
+  updatedAt: number;
+  polygonCount: number;
+  propCount: number;
+  fileSize: number;
+}
+
+export interface EditorDraftPayload extends EditorDraftSummary {
+  pmsBase64: string;
+}
+
+export interface EditorPrefabElementBundle {
+  polygons: Array<{
+    vertices: Array<{ x: number; y: number; color: RgbaColor; u: number; v: number }>;
+    polyType: number;
+    bounciness: number;
+  }>;
+  props: Array<{
+    sceneryName: string;
+    sceneryDate?: number;
+    width: number;
+    height: number;
+    x: number;
+    y: number;
+    rotation: number;
+    scaleX: number;
+    scaleY: number;
+    alpha: number;
+    color: RgbaColor;
+    level: number;
+  }>;
+  spawns: Array<{ x: number; y: number; team: number }>;
+  colliders: Array<{ x: number; y: number; radius: number }>;
+  waypoints: Array<{
+    x: number;
+    y: number;
+    left: boolean;
+    right: boolean;
+    up: boolean;
+    down: boolean;
+    jetpack: boolean;
+    pathNum: number;
+    action: number;
+    connections: number[]; // 0-based indices within this bundle's waypoints list
+  }>;
+}
+
+export interface EditorPrefabItem {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  bounds: PmsBounds;
+  bundle: EditorPrefabElementBundle;
+}

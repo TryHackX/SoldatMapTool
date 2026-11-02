@@ -42,16 +42,61 @@ import {
 } from './utils/mapCache';
 import {
   Archive,
+  FilePlus2,
   FolderOpen,
   Package,
   PanelLeft,
   PanelRight,
+  Pencil,
   RefreshCw,
   Settings,
   ShieldCheck,
   Tags,
   Wrench,
 } from 'lucide-react';
+import { EditorDraftRecoveryBanner } from './editor/components/EditorDraftRecoveryBanner';
+import type { EditorValidationIssueUI } from './editor/components/EditorRightDock';
+import { isSelectionEmpty } from './editor/EditorDocument';
+import { useDeferredValidation } from './editor/useDeferredValidation';
+import { useEditorController } from './editor/useEditorController';
+
+// The editor UI loads with the first opened map (the browser alone never needs it)
+const EditorCommandPalette = lazy(() =>
+  import('./editor/components/EditorCommandPalette').then((m) => ({ default: m.EditorCommandPalette }))
+);
+const EditorImageTraceModal = lazy(() =>
+  import('./editor/components/EditorImageTraceModal').then((m) => ({ default: m.EditorImageTraceModal }))
+);
+const EditorLeftDock = lazy(() =>
+  import('./editor/components/EditorLeftDock').then((m) => ({ default: m.EditorLeftDock }))
+);
+const EditorNewMapModal = lazy(() =>
+  import('./editor/components/EditorNewMapModal').then((m) => ({ default: m.EditorNewMapModal }))
+);
+const EditorSaveModal = lazy(() =>
+  import('./editor/components/EditorSaveModal').then((m) => ({ default: m.EditorSaveModal }))
+);
+const EditorStatusBar = lazy(() =>
+  import('./editor/components/EditorStatusBar').then((m) => ({ default: m.EditorStatusBar }))
+);
+const EditorSymmetryModal = lazy(() =>
+  import('./editor/components/EditorSymmetryModal').then((m) => ({ default: m.EditorSymmetryModal }))
+);
+const EditorShortcutsModal = lazy(() =>
+  import('./editor/components/EditorShortcutsModal').then((m) => ({ default: m.EditorShortcutsModal }))
+);
+const EditorToasts = lazy(() =>
+  import('./editor/components/EditorToasts').then((m) => ({ default: m.EditorToasts }))
+);
+const EditorToolRail = lazy(() =>
+  import('./editor/components/EditorToolRail').then((m) => ({ default: m.EditorToolRail }))
+);
+const EditorTopBar = lazy(() =>
+  import('./editor/components/EditorTopBar').then((m) => ({ default: m.EditorTopBar }))
+);
+const EditorRightDock = lazy(() =>
+  import('./editor/components/EditorRightDock').then((m) => ({ default: m.EditorRightDock }))
+);
 
 // Modals are code-split: their chunks load on first opening, so the start-up bundle stays small
 const MapWorkshopModal = lazy(() =>
@@ -852,9 +897,95 @@ export const App: React.FC = () => {
   const settingsMounted = useMountedAfterFirstOpen(settingsModalOpen);
   const libraryToolsMounted = useMountedAfterFirstOpen(libraryToolsState.open);
 
+  const editor = useEditorController({
+    layers,
+    onChangeLayers: setLayers,
+    onMetaUpdated: applyMetaUpdate,
+    onSavedToLibrary: selectMapById,
+  });
+
+  const handleEditCurrentMap = useCallback(() => {
+    const targetData = loadedMap?.data;
+    if (!targetData) return;
+    const baseName =
+      (loadedDetails && loadedDetails.id === loadedMap.id
+        ? loadedDetails.baseName
+        : compactsByIdRef.current.get(loadedMap.id)?.baseName) ?? null;
+    editor.openMapInEditor({
+      map: targetData,
+      sourceMapId: loadedMap.id,
+      sourceBaseName: baseName,
+    });
+  }, [loadedMap, loadedDetails, editor]);
+
+  const knownEditorAssetSets = useMemo(() => {
+    if (!editor.assetCatalog) return { textures: null, sceneries: null };
+    return {
+      textures: new Set(editor.assetCatalog.textures.map((item) => item.name.toLowerCase())),
+      sceneries: new Set(editor.assetCatalog.sceneries.map((item) => item.name.toLowerCase())),
+    };
+  }, [editor.assetCatalog]);
+
+  const [validationHints, setValidationHints] = useState(false);
+  const deferredValidation = useDeferredValidation(editor.snapshot?.map ?? null, {
+    knownTexturesLower: knownEditorAssetSets.textures,
+    knownSceneriesLower: knownEditorAssetSets.sceneries,
+    mapBaseName: editor.snapshot ? editor.snapshot.currentBaseName || editor.snapshot.sourceBaseName : null,
+    includeHints: validationHints,
+  });
+  const editorValidationIssues: EditorValidationIssueUI[] = useMemo(() => {
+    return deferredValidation.issues.map((issue) => {
+      const params =
+        issue.messageParams && typeof issue.messageParams.label === 'string'
+          ? { ...issue.messageParams, label: t(issue.messageParams.label) }
+          : issue.messageParams;
+      return {
+        id: issue.id,
+        severity: issue.severity,
+        message: t(issue.messageKey, params),
+        selection: issue.selection,
+        focusBounds: issue.focusBounds,
+        focusPoint: issue.focusPoint,
+        fix: issue.fix,
+      };
+    });
+  }, [deferredValidation.issues]);
+  const editorErrorCount = editorValidationIssues.filter((i) => i.severity === 'error').length;
+  const editorWarningCount = editorValidationIssues.filter((i) => i.severity === 'warning').length;
+
   return (
     <div className="h-screen w-screen flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden">
-      {/* Top Application Header Bar */}
+      {/* Top Application Header Bar (or Editor Top Bar when editing) */}
+      {editor.isOpen && editor.snapshot ? (
+        <Suspense fallback={<div className="h-11 shrink-0 bg-zinc-900/95 border-b border-zinc-800" />}>
+        <EditorTopBar
+          snapshot={editor.snapshot}
+          isDirty={editor.isDirty}
+          canUndo={editor.canUndo}
+          canRedo={editor.canRedo}
+          selectionFilter={editor.selectionFilter}
+          onChangeSelectionFilter={editor.setSelectionFilter}
+          validationErrors={editorErrorCount}
+          validationWarnings={editorWarningCount}
+          onUndo={editor.undo}
+          onRedo={editor.redo}
+          onOpenNewMap={() => editor.setNewMapModalOpen(true)}
+          onOpenSave={() => editor.setSaveModalOpen(true)}
+          onOpenSymmetry={() => editor.setSymmetryModalOpen(true)}
+          onOpenImageTrace={() => editor.setImageTraceModalOpen(true)}
+          onOpenValidation={() => editor.setRightTab('validation')}
+          onOpenCommandPalette={() => editor.setCommandPaletteOpen(true)}
+          onExitEditor={(force) => {
+            editor.closeEditor(force);
+          }}
+          panelsHidden={editor.panelsHidden}
+          onTogglePanels={() => editor.setPanelsHidden((v) => !v)}
+          hasSaveTarget={editor.hasSaveTarget}
+          onQuickSave={() => void editor.quickSave()}
+          lastAutosaveAt={editor.lastAutosaveAt}
+        />
+        </Suspense>
+      ) : (
       <header className="h-12 shrink-0 bg-zinc-950 border-b border-zinc-800/90 px-4 flex items-center justify-between select-none">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center shadow-md shadow-emerald-950 shrink-0">
@@ -923,6 +1054,27 @@ export const App: React.FC = () => {
             }`}
           >
             <PanelRight className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => editor.setNewMapModalOpen(true)}
+            title={t('Create a new .pms map from a starter template')}
+            className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-emerald-500/35 text-xs font-semibold text-emerald-200 flex items-center gap-1.5 cursor-pointer"
+          >
+            <FilePlus2 className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden lg:inline">{t('New map')}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleEditCurrentMap}
+            disabled={!loadedMap}
+            title={t('Open this map in the interactive Map Editor')}
+            className="px-2.5 py-1.5 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/35 border border-cyan-500/40 text-xs font-semibold text-cyan-100 flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
+          >
+            <Pencil className="w-3.5 h-3.5 text-cyan-300" />
+            <span className="hidden lg:inline">{t('Edit map')}</span>
           </button>
 
           <button
@@ -1010,6 +1162,13 @@ export const App: React.FC = () => {
           </button>
         </div>
       </header>
+      )}
+
+      {/* Crash-Recovery Banner for Unsaved Map Editor Drafts */}
+      <EditorDraftRecoveryBanner
+        isEditorOpen={editor.isOpen}
+        onRecoverDraft={(opts) => editor.openMapInEditor({ ...opts, startDirty: true })}
+      />
 
       {/* Live Background Indexing Progress Banner (for huge 50,000+ map scans) */}
       {liveScanStatus?.scanning && (
@@ -1068,87 +1227,149 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* Main 4-Pane Workspace */}
+      {/* Main Workspace (WebGL2 MapViewport stays mounted in slot 1 across Browser <-> Editor switches!) */}
       <div className="flex-1 min-h-0 flex overflow-hidden">
-        {panels.sidebar && (
-        <PrefixSidebar
-          totalMaps={meta?.totalMaps ?? 0}
-          customMapsCount={meta?.customMapsCount ?? 0}
-          vanillaMapsCount={meta?.vanillaMapsCount ?? 0}
-          brokenMapsCount={meta?.brokenMapsCount ?? 0}
-          duplicateMapsCount={meta?.duplicateMapsCount ?? 0}
-          incompatibleMapsCount={meta?.incompatibleMapsCount ?? 0}
-          favoriteMapsCount={meta?.favoriteMapsCount ?? 0}
-          userTags={meta?.userTags ?? []}
-          onSearchTag={handleSearchTag}
-          packCount={packMapIds.size}
-          modeGroups={meta?.modeGroups ?? []}
-          prefixes={meta?.prefixes ?? []}
-          discoveredSubprefixes={meta?.discoveredSubprefixes ?? []}
-          sources={meta?.sources ?? []}
-          selectedModeGroupIds={selectedModeGroupIds}
-          selectedPrefixes={selectedPrefixes}
-          selectedSubprefixes={selectedSubprefixes}
-          selectedSourceIds={selectedSourceIds}
-          onToggleModeGroup={handleToggleModeGroup}
-          onTogglePrefix={handleTogglePrefix}
-          onToggleSubprefix={handleToggleSubprefix}
-          onToggleSource={handleToggleSource}
-          onClearTaxonomySelection={handleClearTaxonomySelection}
-          onAddModeGroupToPack={handleAddModeGroupToPack}
-          onAddPrefixToPack={handleAddPrefixToPack}
-          onAddSubprefixToPack={handleAddSubprefixToPack}
-          onOpenPrefixStudio={(draft) =>
-            setPrefixStudioState({ open: true, draftPrefix: draft ?? null })
-          }
-          statusFilter={statusFilter}
-          onChangeStatusFilter={setStatusFilter}
-          extraFilters={extraFilters}
-          onChangeExtraFilters={setExtraFilters}
-          onOpenCaseTools={() => setLibraryToolsState({ open: true, tab: 'case' })}
-        />
+        {editor.isOpen && editor.snapshot ? (
+          <Suspense fallback={null}>
+            <EditorToolRail
+              activeTool={editor.activeTool}
+              onSelectTool={editor.setActiveTool}
+              onOpenImageTrace={() => editor.setImageTraceModalOpen(true)}
+              snapToGrid={editor.snap.snapToGrid}
+              onToggleGridSnap={() =>
+                editor.setSnap((prev) => ({ ...prev, snapToGrid: !prev.snapToGrid }))
+              }
+              hasSelection={!isSelectionEmpty(editor.snapshot.selection)}
+              onDuplicate={editor.handleDuplicateSelection}
+              onDelete={editor.handleDeleteSelection}
+            />
+            <div className={editor.panelsHidden ? 'hidden' : 'contents'}>
+            <EditorLeftDock
+              activeTab={editor.leftTab}
+              onChangeTab={editor.setLeftTab}
+              map={editor.snapshot.map}
+              selection={editor.snapshot.selection}
+              onUpdateSelection={editor.updateSelection}
+              onFocusBounds={editor.focusWorldRect}
+              layers={layers}
+              onChangeLayers={setLayers}
+              locks={editor.locks}
+              onChangeLocks={editor.setLocks}
+              snap={editor.snap}
+              onChangeSnap={editor.setSnap}
+              blueprint={editor.blueprint}
+              onChangeBlueprint={editor.setBlueprint}
+              onOpenImageTrace={() => editor.setImageTraceModalOpen(true)}
+              assetCatalog={editor.assetCatalog}
+              onRefreshAssets={editor.refreshAssetCatalog}
+              placement={editor.placement}
+              onChangePlacement={editor.setPlacement}
+              onSelectTool={editor.setActiveTool}
+              onApplyMapTexture={(texName) => editor.updateHeader({ texture: texName })}
+              activePrefab={editor.activePrefab}
+              onSelectPrefab={editor.setActivePrefab}
+              onReplaceSelectedScenery={editor.replaceSelectedScenery}
+              recentSceneries={editor.recentSceneries}
+            />
+            </div>
+          </Suspense>
+        ) : (
+          <>
+            {panels.sidebar && (
+              <PrefixSidebar
+                totalMaps={meta?.totalMaps ?? 0}
+                customMapsCount={meta?.customMapsCount ?? 0}
+                vanillaMapsCount={meta?.vanillaMapsCount ?? 0}
+                brokenMapsCount={meta?.brokenMapsCount ?? 0}
+                duplicateMapsCount={meta?.duplicateMapsCount ?? 0}
+                incompatibleMapsCount={meta?.incompatibleMapsCount ?? 0}
+                favoriteMapsCount={meta?.favoriteMapsCount ?? 0}
+                userTags={meta?.userTags ?? []}
+                onSearchTag={handleSearchTag}
+                packCount={packMapIds.size}
+                modeGroups={meta?.modeGroups ?? []}
+                prefixes={meta?.prefixes ?? []}
+                discoveredSubprefixes={meta?.discoveredSubprefixes ?? []}
+                sources={meta?.sources ?? []}
+                selectedModeGroupIds={selectedModeGroupIds}
+                selectedPrefixes={selectedPrefixes}
+                selectedSubprefixes={selectedSubprefixes}
+                selectedSourceIds={selectedSourceIds}
+                onToggleModeGroup={handleToggleModeGroup}
+                onTogglePrefix={handleTogglePrefix}
+                onToggleSubprefix={handleToggleSubprefix}
+                onToggleSource={handleToggleSource}
+                onClearTaxonomySelection={handleClearTaxonomySelection}
+                onAddModeGroupToPack={handleAddModeGroupToPack}
+                onAddPrefixToPack={handleAddPrefixToPack}
+                onAddSubprefixToPack={handleAddSubprefixToPack}
+                onOpenPrefixStudio={(draft) =>
+                  setPrefixStudioState({ open: true, draftPrefix: draft ?? null })
+                }
+                statusFilter={statusFilter}
+                onChangeStatusFilter={setStatusFilter}
+                extraFilters={extraFilters}
+                onChangeExtraFilters={setExtraFilters}
+                onOpenCaseTools={() => setLibraryToolsState({ open: true, tab: 'case' })}
+              />
+            )}
+
+            <MapBrowserPanel
+              totalFiltered={totalFiltered}
+              queryDurationMs={queryDurationMs}
+              getItemAt={getItemAt}
+              onEnsureRange={handleEnsureRange}
+              activeMapId={activeMapId}
+              activeIndex={activeIndex}
+              onSelectMapAt={handleSelectMapAt}
+              packMapIds={packMapIds}
+              onToggleMapInPack={handleToggleMapInPack}
+              onRangeAddMapsToPack={handleRangeAddMapsToPack}
+              onAddAllFilteredToPack={handleAddAllFilteredToPack}
+              onRemoveFilteredFromPack={handleRemoveFilteredFromPack}
+              onOpenBatchScreenshot={() => setScreenshotModalState({ open: true, batch: true })}
+              searchQuery={searchQuery}
+              onChangeSearchQuery={setSearchQuery}
+              sortField={sortField}
+              onChangeSortField={setSortField}
+              viewMode={viewMode}
+              onChangeViewMode={setViewMode}
+              resetScrollToken={resetScrollToken}
+              listError={listError}
+              onRetryList={() => setMetaRevision((r) => r + 1)}
+              onToggleFavorite={handleToggleFavorite}
+            />
+          </>
         )}
 
-        <MapBrowserPanel
-          totalFiltered={totalFiltered}
-          queryDurationMs={queryDurationMs}
-          getItemAt={getItemAt}
-          onEnsureRange={handleEnsureRange}
-          activeMapId={activeMapId}
-          activeIndex={activeIndex}
-          onSelectMapAt={handleSelectMapAt}
-          packMapIds={packMapIds}
-          onToggleMapInPack={handleToggleMapInPack}
-          onRangeAddMapsToPack={handleRangeAddMapsToPack}
-          onAddAllFilteredToPack={handleAddAllFilteredToPack}
-          onRemoveFilteredFromPack={handleRemoveFilteredFromPack}
-          onOpenBatchScreenshot={() => setScreenshotModalState({ open: true, batch: true })}
-          searchQuery={searchQuery}
-          onChangeSearchQuery={setSearchQuery}
-          sortField={sortField}
-          onChangeSortField={setSortField}
-          viewMode={viewMode}
-          onChangeViewMode={setViewMode}
-          resetScrollToken={resetScrollToken}
-          listError={listError}
-          onRetryList={() => setMetaRevision((r) => r + 1)}
-          onToggleFavorite={handleToggleFavorite}
-        />
-
-        <ErrorBoundary fallbackTitle={t('WebGL2 map view rendering error')}>
+        <ErrorBoundary key="main-map-viewport" fallbackTitle={t('WebGL2 map view rendering error')}>
           <MapViewport
             mapEntry={
-              livePreviewMap && livePreviewMap.forMapId === activeMapId ? activeMapDetails : viewportEntry
+              editor.isOpen
+                ? null
+                : livePreviewMap && livePreviewMap.forMapId === activeMapId
+                ? activeMapDetails
+                : viewportEntry
             }
-            mapKey={livePreviewMap && livePreviewMap.forMapId === activeMapId ? activeMapId : loadedMap?.id ?? null}
+            mapKey={
+              editor.isOpen && editor.snapshot
+                ? `editor:${editor.snapshot.draftId}`
+                : livePreviewMap && livePreviewMap.forMapId === activeMapId
+                ? activeMapId
+                : loadedMap?.id ?? null
+            }
             mapData={
-              livePreviewMap && livePreviewMap.forMapId === activeMapId
+              editor.isOpen && editor.snapshot
+                ? editor.snapshot.map
+                : livePreviewMap && livePreviewMap.forMapId === activeMapId
                 ? livePreviewMap.data
                 : loadedMap?.data ?? null
             }
-            actionsEnabled={Boolean(activeMapData && activeMapDetails)}
-            loading={loadingMap}
-            error={mapLoadError}
+            actionsEnabled={
+              editor.isOpen ? Boolean(editor.snapshot?.map) : Boolean(activeMapData && activeMapDetails)
+            }
+            loading={!editor.isOpen && loadingMap}
+            error={!editor.isOpen ? mapLoadError : null}
             layers={layers}
             onChangeLayers={setLayers}
             onOpenFullSizeModal={() => setScreenshotModalState({ open: true, batch: false })}
@@ -1156,37 +1377,137 @@ export const App: React.FC = () => {
               setWorkshopModalState({ open: true, tab: tab ?? 'fix' })
             }
             previewModeBanner={
-              livePreviewMap && livePreviewMap.forMapId === activeMapId
+              !editor.isOpen && livePreviewMap && livePreviewMap.forMapId === activeMapId
                 ? livePreviewMap.banner
                 : null
             }
             previewLayerQuality={
-              livePreviewMap && livePreviewMap.forMapId === activeMapId ? livePreviewMap.layerQuality ?? null : null
+              !editor.isOpen && livePreviewMap && livePreviewMap.forMapId === activeMapId
+                ? livePreviewMap.layerQuality ?? null
+                : null
             }
             onClearPreviewMode={() => setLivePreviewMap(null)}
-            compare={compareTarget && compareTarget.forMapId === activeMapId ? compareTarget : null}
+            compare={
+              !editor.isOpen && compareTarget && compareTarget.forMapId === activeMapId
+                ? compareTarget
+                : null
+            }
             mainLabel={previewActive ? t('preview of changes') : activeMapDetails?.baseName}
             compareCandidates={compareCandidates}
             onStartCompare={handleStartCompare}
             onCompareWithOriginal={handleCompareWithOriginal}
             onStopCompare={() => setCompareTarget(null)}
+            editorBridge={editor.viewportBridge}
+            onEditCurrentMap={handleEditCurrentMap}
           />
         </ErrorBoundary>
 
-        {panels.inspector && (
-          <MapInspectorDrawer
-            map={activeMapDetails}
-            loadingDetails={loadingDetails}
-            detailsError={detailsError}
-            inPack={activeMapId ? packMapIds.has(activeMapId) : false}
-            onTogglePack={() => activeMapId && handleToggleMapInPack(activeMapId)}
-            onSelectMapById={selectMapById}
-            onOpenWorkshop={(tab) => setWorkshopModalState({ open: true, tab })}
-            onUpdateUserData={handleUpdateUserData}
-            knownTags={knownTags}
+        {editor.isOpen && editor.snapshot ? (
+          <div className={editor.panelsHidden ? 'hidden' : 'contents'}>
+          <Suspense fallback={null}>
+          <EditorRightDock
+            activeTab={editor.rightTab}
+            onChangeTab={editor.setRightTab}
+            snapshot={editor.snapshot}
+            activeTool={editor.activeTool}
+            selectionSummary={editor.selectionSummary}
+            brush={editor.brush}
+            onChangeBrush={editor.setBrush}
+            placement={editor.placement}
+            onChangePlacement={editor.setPlacement}
+            assetCatalog={editor.assetCatalog}
+            texDims={editor.texDims}
+            sceneryPreviewDims={editor.sceneryPreviewDims}
+            preferClassicBmp={layers.preferClassicBmp}
+            validationIssues={editorValidationIssues}
+            getViewCenter={editor.getViewCenter}
+            weldSharedVertices={editor.snap.weldSharedVertices}
+            validationPending={deferredValidation.pending}
+            validationHintsEnabled={validationHints}
+            onToggleValidationHints={setValidationHints}
+            onFixValidationIssue={(issue) => issue.fix && editor.applyValidationFix(issue.fix)}
+            playtest={editor.playtest}
+            playtestTeam={editor.playtestTeam}
+            onChangePlaytestTeam={(tm) => {
+              editor.setPlaytestTeam(tm);
+              if (editor.playtest?.active) {
+                editor.spawnPlaytestSoldier(
+                  editor.playtest.x,
+                  editor.playtest.y,
+                  tm,
+                  editor.playtestCarryingFlag
+                );
+              }
+            }}
+            playtestCarryingFlag={editor.playtestCarryingFlag}
+            onChangePlaytestCarryingFlag={(cf) => {
+              editor.setPlaytestCarryingFlag(cf);
+              if (editor.playtest?.active) {
+                editor.spawnPlaytestSoldier(
+                  editor.playtest.x,
+                  editor.playtest.y,
+                  editor.playtestTeam,
+                  cf
+                );
+              }
+            }}
+            onRespawnPlaytest={() => editor.spawnPlaytestSoldier()}
+            onOpenImageTrace={() => editor.setImageTraceModalOpen(true)}
+            onApplySurfaceCrust={editor.applySurfaceCrust}
+            onApplyReliefShading={editor.applyReliefShading}
+            onSubdividePolygons={editor.handleSubdividePolygons}
+            onGenerateProceduralIsland={editor.handleGenerateProceduralIsland}
+            onCommitMutation={editor.commitMutation}
+            onUpdateSelection={editor.updateSelection}
+            onPropDrawOrder={editor.handlePropDrawOrder}
+            onPolygonDrawOrder={editor.handlePolygonDrawOrder}
+            onResetPolygonUv={editor.resetSelectedPolygonsUvWorldAligned}
+            onFlipPolygonWinding={editor.flipSelectedPolygonsWinding}
+            onUpdateHeader={editor.updateHeader}
+            onJumpToHistory={editor.jumpToHistory}
+            onFocusBounds={editor.focusWorldRect}
+            onSetValidationFocus={editor.setValidationFocus}
           />
+          </Suspense>
+          </div>
+        ) : (
+          panels.inspector && (
+            <MapInspectorDrawer
+              map={activeMapDetails}
+              loadingDetails={loadingDetails}
+              detailsError={detailsError}
+              inPack={activeMapId ? packMapIds.has(activeMapId) : false}
+              onTogglePack={() => activeMapId && handleToggleMapInPack(activeMapId)}
+              onSelectMapById={selectMapById}
+              onOpenWorkshop={(tab) => setWorkshopModalState({ open: true, tab })}
+              onEditMap={handleEditCurrentMap}
+              onUpdateUserData={handleUpdateUserData}
+              knownTags={knownTags}
+            />
+          )
         )}
       </div>
+
+      {editor.isOpen && (
+        <Suspense fallback={null}>
+          <EditorToasts toasts={editor.toasts} onDismiss={editor.dismissToast} />
+          <EditorShortcutsModal open={editor.shortcutsOpen} onClose={() => editor.setShortcutsOpen(false)} />
+        </Suspense>
+      )}
+
+      {/* Editor Status Bar */}
+      {editor.isOpen && editor.snapshot && (
+        <Suspense fallback={<div className="h-7 shrink-0 bg-zinc-950 border-t border-zinc-800/90" />}>
+        <EditorStatusBar
+          map={editor.snapshot.map}
+          activeTool={editor.activeTool}
+          cursorWorld={editor.cursorWorld}
+          zoom={editor.zoom}
+          selectionSummary={editor.selectionSummary}
+          isDirty={editor.isDirty}
+        />
+        </Suspense>
+      )}
 
       {/* Modals */}
       <ErrorBoundary overlay fallbackTitle={t('Could not load the application window (e.g. after an update) — refresh the page')}>
@@ -1246,7 +1567,7 @@ export const App: React.FC = () => {
         initialBatchMode={screenshotModalState.batch}
         onClose={() => setScreenshotModalState((s) => ({ ...s, open: false }))}
         currentMapEntry={activeMapDetails}
-        currentMapData={activeMapData}
+        currentMapData={editor.isOpen && editor.snapshot ? editor.snapshot.map : activeMapData}
         currentLayers={layers}
         batchCount={packMapIds.size > 0 ? packMapIds.size : totalFiltered}
         batchSourceLabel={packMapIds.size > 0 ? t('from the pack selection') : t('from the current filter')}
@@ -1270,6 +1591,121 @@ export const App: React.FC = () => {
         initialTab={libraryToolsState.tab}
         onClose={() => setLibraryToolsState((st) => ({ ...st, open: false }))}
         onMetaUpdated={applyMetaUpdate}
+      />
+      )}
+      </Suspense>
+
+      <Suspense fallback={null}>
+      {editor.newMapModalOpen && (
+      <EditorNewMapModal
+        open={editor.newMapModalOpen}
+        onClose={() => editor.setNewMapModalOpen(false)}
+        availableTextures={(editor.assetCatalog?.textures ?? []).map((tx) => tx.name)}
+        hasUnsavedChanges={editor.isOpen && editor.isDirty}
+        onCreateMap={({ map, initialBaseName }) => {
+          // The user confirmed in the dialog: close the old document (its draft goes too) before the new one
+          if (editor.isOpen) editor.closeEditor(true);
+          editor.openMapInEditor({
+            map,
+            initialBaseName,
+          });
+        }}
+      />
+      )}
+
+      {editor.snapshot && (
+        <EditorSaveModal
+          open={editor.saveModalOpen}
+          onClose={() => editor.setSaveModalOpen(false)}
+          snapshot={editor.snapshot}
+          onSave={editor.saveMapToDisk}
+        />
+      )}
+
+      {editor.snapshot && (
+        <EditorSymmetryModal
+          open={editor.symmetryModalOpen}
+          onClose={() => editor.setSymmetryModalOpen(false)}
+          snapshot={editor.snapshot}
+          selectionSummary={editor.selectionSummary}
+          onSetPreviewAxisX={editor.setSymmetryAxisX}
+          onApplyMirror={(label, nextMap, nextSel) =>
+            editor.commitMutation(label, nextMap, nextSel)
+          }
+        />
+      )}
+
+      {editor.snapshot && (
+        <EditorImageTraceModal
+          open={editor.imageTraceModalOpen}
+          onClose={() => editor.setImageTraceModalOpen(false)}
+          map={editor.snapshot.map}
+          assetCatalog={editor.assetCatalog}
+          preferClassicBmp={layers.preferClassicBmp}
+          texDims={editor.texDims}
+          defaultPolyType={editor.placement.polyType}
+          defaultColor={editor.placement.polyColor}
+          onInsertPolygons={editor.insertGeneratedPolygons}
+          getViewCenter={editor.getViewCenter}
+          onPinBlueprint={editor.setBlueprint}
+        />
+      )}
+
+      {editor.isOpen && (
+      <EditorCommandPalette
+        open={editor.commandPaletteOpen}
+        onClose={() => editor.setCommandPaletteOpen(false)}
+        layers={layers}
+        onChangeLayers={setLayers}
+        snap={editor.snap}
+        onChangeSnap={editor.setSnap}
+        onSelectTool={editor.setActiveTool}
+        onUndo={editor.undo}
+        onRedo={editor.redo}
+        onDuplicate={editor.handleDuplicateSelection}
+        onDelete={editor.handleDeleteSelection}
+        onSelectAll={editor.handleSelectAll}
+        onWorldAlignUvs={editor.resetSelectedPolygonsUvWorldAligned}
+        onFlipWinding={editor.flipSelectedPolygonsWinding}
+        onOpenSymmetry={() => editor.setSymmetryModalOpen(true)}
+        onOpenImageTrace={() => editor.setImageTraceModalOpen(true)}
+        onApplyGrassCrust={() =>
+          editor.applySurfaceCrust({
+            thickness: 10,
+            topColor: { r: 92, g: 196, b: 84, a: 255 },
+            bottomColor: { r: 44, g: 98, b: 46, a: 255 },
+            polyType: 0,
+          })
+        }
+        onApplyReliefShading={() =>
+          editor.applyReliefShading({ lightAngleDeg: -55, contrast: 0.38 })
+        }
+        onSubdividePolygons={editor.handleSubdividePolygons}
+        onGenerateIsland={() =>
+          editor.handleGenerateProceduralIsland({
+            width: 220,
+            height: 120,
+            segments: 14,
+            roughness: 0.35,
+            seed: Math.floor(Math.random() * 99999),
+            flatTop: true,
+            addGrassCrust: true,
+          })
+        }
+        onOpenSave={() => editor.setSaveModalOpen(true)}
+        onOpenNewMap={() => editor.setNewMapModalOpen(true)}
+        onSelectRightTab={editor.setRightTab}
+        extraActions={[
+          { id: 'sel_similar', label: t('Select similar objects'), category: t('Edit'), shortcut: 'Ctrl+Shift+A', run: editor.selectSimilar },
+          { id: 'sel_invert', label: t('Invert selection'), category: t('Edit'), shortcut: 'Ctrl+I', run: editor.invertSelection },
+          { id: 'view_frame_sel', label: t('Zoom to the selection'), category: t('View'), shortcut: 'Shift+F', run: editor.frameSelection },
+          { id: 'view_frame_map', label: t('Zoom to the whole map'), category: t('View'), shortcut: 'Home', run: editor.frameMap },
+          { id: 'view_panels', label: t('Hide / show the side panels'), category: t('View'), shortcut: 'Tab', run: () => editor.setPanelsHidden((v) => !v) },
+          { id: 'help_shortcuts', label: t('Keyboard shortcuts'), category: t('Help'), shortcut: '?', run: () => editor.setShortcutsOpen(true) },
+          { id: 'order_poly_front', label: t('Polygons to the front'), category: t('Edit'), shortcut: 'Shift+PgUp', run: () => editor.handlePolygonDrawOrder('front') },
+          { id: 'order_poly_back', label: t('Polygons to the back'), category: t('Edit'), shortcut: 'Shift+PgDn', run: () => editor.handlePolygonDrawOrder('back') },
+          { id: 'act_quick_save', label: t('Save again (same file)'), category: t('File'), shortcut: 'Ctrl+S', run: () => void editor.quickSave() },
+        ]}
       />
       )}
       </Suspense>

@@ -232,4 +232,8 @@ export const VIEWPORT_PL: PlDictionary = {
     'Twoja przeglądarka nie obsługuje WebGL2 wymaganego przez silnik Soldat Map Studio.',
   'WebGL2 context lost while rendering a layer.': 'Utracono kontekst WebGL2 podczas renderowania warstwy.',
   'Could not create a {w}×{h} px render buffer.': 'Nie udało się utworzyć bufora renderowania {w}×{h} px.',
+  "Player's view frame at the cursor (Soldat shows 480 units of height)":
+    'Ramka widoku gracza przy kursorze (Soldat pokazuje 480 jednostek wysokości)',
+  'Soldier at real size at the cursor (it stands on the floor below the cursor; hold Shift to see it in the air)':
+    'Żołnierz w prawdziwej skali przy kursorze (stoi na podłodze pod kursorem; z Shift pokazuje się w powietrzu)',
 };

@@ -1,5 +1,6 @@
 import { APP_PL } from './app';
 import { BROWSER_PL } from './browser';
+import { EDITOR_PL } from './editor';
 import { PACKS_PL } from './packs';
 import { SHARED_PL } from './shared';
 import type { PlDictionary } from './types';
@@ -14,4 +15,5 @@ export const PL: PlDictionary = {
   ...VIEWPORT_PL,
   ...PACKS_PL,
   ...WORKSHOP_PL,
+  ...EDITOR_PL,
 };

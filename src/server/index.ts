@@ -8,7 +8,9 @@ import sharp from 'sharp';
 import { SoldatMapScanner } from './soldatScanner';
 import { AssetCategory } from './assetResolver';
 import { decodeBmpToRgba } from './bmpDecoder';
+import { SoldatMapEditorService } from './editorService';
 import { isBufferBmpMagic, OverwritePolicy, SoldatMapWorkshop, WorkshopError } from './mapFixerOptimizer';
+import { GeneratedOutputRegistry } from './safeFileWriter';
 import { buildPackPreview, executePackBuild } from './packBuilder';
 import {
   addSessionTile,
@@ -126,11 +128,20 @@ const scanner = new SoldatMapScanner(
 const userData = new UserDataStore(path.join(DATA_DIR, 'user-data.json'));
 const packPresets = new PackPresetStore(path.join(DATA_DIR, 'pack-presets.json'));
 scanner.setUserDataStore(userData);
+const outputRegistry = new GeneratedOutputRegistry(path.join(CACHE_DIR, 'generated-outputs.json'));
 const workshop = new SoldatMapWorkshop(
   scanner,
   path.join(WORKSPACE_ROOT, 'exports'),
   CACHE_DIR,
-  path.join(DATA_DIR, 'backups')
+  path.join(DATA_DIR, 'backups'),
+  outputRegistry
+);
+const editorService = new SoldatMapEditorService(
+  scanner,
+  path.join(WORKSPACE_ROOT, 'exports'),
+  DATA_DIR,
+  path.join(DATA_DIR, 'backups'),
+  outputRegistry
 );
 
 // The initial scan and temp-folder cleanup start only after app.listen() succeeded (see bottom), so a second
@@ -1086,7 +1097,111 @@ app.delete('/api/workshop/optimize-session/:sessionId', (req, res) => {
   res.json({ ok: true });
 });
 
-// 8. System helpers: file manager and native pickers (Windows, Linux, macOS — see platform.ts)
+// 8. Map Editor: Asset Catalog, Safe Save, Drafts & Prefabs
+app.get('/api/editor/assets', (_req, res) => {
+  try {
+    res.json(editorService.listAssets());
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+app.post('/api/editor/save-check', (req, res) => {
+  try {
+    res.json(
+      editorService.checkSaveTarget({
+        baseName: String(req.body?.baseName || ''),
+        destination: req.body?.destination || 'soldat_maps',
+        customOutputFolder:
+          typeof req.body?.customOutputFolder === 'string' ? req.body.customOutputFolder : undefined,
+        sourceMapId: typeof req.body?.sourceMapId === 'string' ? req.body.sourceMapId : null,
+      })
+    );
+  } catch (err) {
+    sendError(res, err, 400);
+  }
+});
+
+app.post('/api/editor/save', async (req, res) => {
+  try {
+    const result = await editorService.saveEditedMap({
+      baseName: String(req.body?.baseName || ''),
+      destination: req.body?.destination || 'soldat_maps',
+      customOutputFolder:
+        typeof req.body?.customOutputFolder === 'string' ? req.body.customOutputFolder : undefined,
+      sourceMapId: typeof req.body?.sourceMapId === 'string' ? req.body.sourceMapId : null,
+      confirmOverwrite: Boolean(req.body?.confirmOverwrite),
+      documentId: typeof req.body?.documentId === 'string' ? req.body.documentId : undefined,
+      pmsBase64: String(req.body?.pmsBase64 || ''),
+    });
+    res.json(result);
+  } catch (err) {
+    sendError(res, err, 400);
+  }
+});
+
+app.get('/api/editor/drafts', (_req, res) => {
+  try {
+    res.json({ drafts: editorService.listDrafts() });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+app.get('/api/editor/drafts/:draftId', (req, res) => {
+  try {
+    res.json(editorService.getDraft(req.params.draftId));
+  } catch (err) {
+    sendError(res, err, 404);
+  }
+});
+
+app.post('/api/editor/drafts/:draftId', (req, res) => {
+  try {
+    const summary = editorService.saveDraft(req.params.draftId, {
+      sourceMapId: typeof req.body?.sourceMapId === 'string' ? req.body.sourceMapId : null,
+      baseName: String(req.body?.baseName || 'untitled'),
+      pmsBase64: String(req.body?.pmsBase64 || ''),
+    });
+    res.json(summary);
+  } catch (err) {
+    sendError(res, err, 400);
+  }
+});
+
+app.delete('/api/editor/drafts/:draftId', (req, res) => {
+  editorService.deleteDraft(req.params.draftId);
+  res.json({ ok: true });
+});
+
+app.get('/api/editor/prefabs', (_req, res) => {
+  try {
+    res.json({ prefabs: editorService.listPrefabs() });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+app.post('/api/editor/prefabs', (req, res) => {
+  try {
+    const item = editorService.savePrefab({
+      id: typeof req.body?.id === 'string' ? req.body.id : undefined,
+      name: String(req.body?.name || ''),
+      bounds: req.body?.bounds,
+      bundle: req.body?.bundle,
+    });
+    res.json(item);
+  } catch (err) {
+    sendError(res, err, 400);
+  }
+});
+
+app.delete('/api/editor/prefabs/:id', (req, res) => {
+  editorService.deletePrefab(req.params.id);
+  res.json({ ok: true });
+});
+
+// 9. System helpers: file manager and native pickers (Windows, Linux, macOS — see platform.ts)
 app.post('/api/system/open-path', (req, res) => {
   const target = String(req.body?.path || '').trim();
   if (!target || !fs.existsSync(target)) {

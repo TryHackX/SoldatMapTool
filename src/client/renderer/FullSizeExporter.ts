@@ -441,7 +441,7 @@ export async function generateAndCacheThumbnail(
       const c = document.createElement('canvas');
       c.width = 320;
       c.height = 192;
-      sharedThumbRenderer = new SoldatWebGLRenderer(c);
+      sharedThumbRenderer = new SoldatWebGLRenderer(c, { textureCacheBudgetMB: 48 });
     }
     const canvas = sharedThumbRenderer.getCanvas();
     canvas.width = 320;

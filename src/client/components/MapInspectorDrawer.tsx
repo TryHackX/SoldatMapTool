@@ -19,6 +19,7 @@ import {
   Info,
   Layers,
   PackagePlus,
+  Pencil,
   Star,
   Tag,
   Wrench,
@@ -48,6 +49,7 @@ interface MapInspectorDrawerProps {
   onTogglePack: () => void;
   onSelectMapById?: (mapId: string) => void;
   onOpenWorkshop?: (tab: 'fix' | 'optimize') => void;
+  onEditMap?: () => void;
   onUpdateUserData: (mapId: string, patch: MapUserDataPatch) => void;
   knownTags: string[];
 }
@@ -60,6 +62,7 @@ export const MapInspectorDrawer: React.FC<MapInspectorDrawerProps> = ({
   onTogglePack,
   onSelectMapById,
   onOpenWorkshop,
+  onEditMap,
   onUpdateUserData,
   knownTags,
 }) => {
@@ -243,6 +246,18 @@ export const MapInspectorDrawer: React.FC<MapInspectorDrawerProps> = ({
             ))}
           </datalist>
         </div>
+
+        {onEditMap && (
+          <button
+            type="button"
+            onClick={onEditMap}
+            title={t('Open this map in the interactive Map Editor')}
+            className="w-full py-1.5 px-3 rounded-md text-xs font-semibold flex items-center justify-center gap-1.5 bg-cyan-600/20 hover:bg-cyan-600/35 text-cyan-100 border border-cyan-500/40 transition-colors cursor-pointer"
+          >
+            <Pencil className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+            <span>{t('Edit map')}</span>
+          </button>
+        )}
 
         {onOpenWorkshop && (
           <div className="grid grid-cols-2 gap-1.5">

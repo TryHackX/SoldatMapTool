@@ -4,6 +4,11 @@ import React, { useCallback, useEffect, useRef } from 'react';
 const openModalStack: number[] = [];
 let nextModalId = 1;
 
+/** True while any modal using this hook is open (the map editor then ignores its shortcuts) */
+export function isAnyModalOpen(): boolean {
+  return openModalStack.length > 0;
+}
+
 /**
  * Provides consistent Escape-key closing and safe outside-backdrop click closing
  * across all modals in Soldat Map Studio.

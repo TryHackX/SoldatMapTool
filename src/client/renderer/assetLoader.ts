@@ -128,10 +128,18 @@ async function decodeImageBlob(
   }
 }
 
+// Bumped on every clear, so renderers know their GPU copies of the images may be outdated too
+let assetCacheEpoch = 0;
+
+export function getAssetCacheEpoch(): number {
+  return assetCacheEpoch;
+}
+
 export function clearSoldatAssetCache(): void {
   imageAssetCache.clear();
   assetBytesByKey.clear();
   totalAssetBytes = 0;
+  assetCacheEpoch++;
   // Object sprites come from the same folders (a different Soldat path may have different ones)
   cachedObjectSpritesPromise = null;
 }

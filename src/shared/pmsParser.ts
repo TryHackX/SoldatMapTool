@@ -30,6 +30,7 @@ export interface PmsPolygon {
   normals: [PmsVec3, PmsVec3, PmsVec3];
   polyType: number;
   bounciness: number;
+  raw?: Uint8Array; // Original 121-byte record (full parser only): re-saved verbatim while unchanged
 }
 
 export interface PmsProp {
@@ -63,6 +64,7 @@ export interface PmsCollider {
   x: number;
   y: number;
   radius: number; // Stored in PMS as diameter (editor radius = radius / 2, bullet radius = radius / 1.7)
+  raw?: Uint8Array; // Original 16-byte record (full parser only)
 }
 
 export interface PmsSpawnpoint {
@@ -71,6 +73,7 @@ export interface PmsSpawnpoint {
   x: number;
   y: number;
   team: number;
+  raw?: Uint8Array; // Original 16-byte record (full parser only)
 }
 
 export interface PmsWaypoint {
@@ -86,7 +89,10 @@ export interface PmsWaypoint {
   jetpack: boolean;
   pathNum: number;
   action: number;
+  c2?: number;
+  c3?: number;
   connections: number[];
+  raw?: Uint8Array; // Original 112-byte record (full parser only)
 }
 
 export interface PmsMapData {
@@ -102,6 +108,8 @@ export interface PmsMapData {
   weather: number;
   steps: number;
   randomId: number;
+  rawHeader?: Uint8Array; // Original 88-byte PMS header (full parser only)
+  rawTail?: Uint8Array; // Bytes after the waypoints (many PolyWorks maps end with padding), written back on save
   sectorsDivision: number;
   sectorsNum: number;
   sectorsPolys?: Uint16Array[];
@@ -345,6 +353,257 @@ function sceneryMatchesRawRecord(s: PmsSceneryDef): boolean {
   return date === s.date && decodeShortString(raw, 0, 50) === s.filename;
 }
 
+function decodeHeaderRecord(raw: Uint8Array): {
+  version: number;
+  mapName: string;
+  texture: string;
+  bgColorTop: RgbaColor;
+  bgColorBtm: RgbaColor;
+  startJet: number;
+  grenadePacks: number;
+  medikits: number;
+  weather: number;
+  steps: number;
+  randomId: number;
+} {
+  const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+  return {
+    version: view.getInt32(0, true),
+    mapName: decodeShortString(raw, 4, 38),
+    texture: decodeShortString(raw, 43, 24),
+    bgColorTop: {
+      b: view.getUint8(68),
+      g: view.getUint8(69),
+      r: view.getUint8(70),
+      a: view.getUint8(71),
+    },
+    bgColorBtm: {
+      b: view.getUint8(72),
+      g: view.getUint8(73),
+      r: view.getUint8(74),
+      a: view.getUint8(75),
+    },
+    startJet: view.getInt32(76, true),
+    grenadePacks: view.getUint8(80),
+    medikits: view.getUint8(81),
+    weather: view.getUint8(82),
+    steps: view.getUint8(83),
+    randomId: view.getInt32(84, true),
+  };
+}
+
+function decodeVertexAt(view: DataView, off: number): PmsVertex {
+  return {
+    x: finiteFloat(view, off),
+    y: finiteFloat(view, off + 4),
+    z: finiteFloat(view, off + 8),
+    rhw: finiteFloat(view, off + 12),
+    color: {
+      b: view.getUint8(off + 16),
+      g: view.getUint8(off + 17),
+      r: view.getUint8(off + 18),
+      a: view.getUint8(off + 19),
+    },
+    u: finiteFloat(view, off + 20),
+    v: finiteFloat(view, off + 24),
+  };
+}
+
+function decodeVec3At(view: DataView, off: number): PmsVec3 {
+  return {
+    x: finiteFloat(view, off),
+    y: finiteFloat(view, off + 4),
+    z: finiteFloat(view, off + 8),
+  };
+}
+
+function decodePolygonRecord(view: DataView, off: number): Omit<PmsPolygon, 'raw'> {
+  const v0 = decodeVertexAt(view, off);
+  const v1 = decodeVertexAt(view, off + 28);
+  const v2 = decodeVertexAt(view, off + 56);
+  const n0 = decodeVec3At(view, off + 84);
+  const n1 = decodeVec3At(view, off + 96);
+  const n2 = decodeVec3At(view, off + 108);
+  const polyType = view.getUint8(off + 120);
+  return {
+    vertices: [v0, v1, v2],
+    normals: [n0, n1, n2],
+    polyType,
+    bounciness: Math.hypot(n2.x, n2.y),
+  };
+}
+
+function polygonMatchesRawRecord(p: PmsPolygon): boolean {
+  const raw = p.raw;
+  if (!raw || raw.byteLength !== 121) return false;
+  const d = decodePolygonRecord(new DataView(raw.buffer, raw.byteOffset, raw.byteLength), 0);
+  if (d.polyType !== p.polyType) return false;
+  if (Math.abs(d.bounciness - p.bounciness) > 1e-6) return false;
+  for (let k = 0; k < 3; k++) {
+    const dv = d.vertices[k];
+    const pv = p.vertices[k];
+    if (
+      dv.x !== pv.x ||
+      dv.y !== pv.y ||
+      dv.z !== pv.z ||
+      dv.rhw !== pv.rhw ||
+      dv.u !== pv.u ||
+      dv.v !== pv.v ||
+      dv.color.r !== pv.color.r ||
+      dv.color.g !== pv.color.g ||
+      dv.color.b !== pv.color.b ||
+      dv.color.a !== pv.color.a
+    ) {
+      return false;
+    }
+    const dn = d.normals[k];
+    const pn = p.normals[k];
+    if (dn.x !== pn.x || dn.y !== pn.y || dn.z !== pn.z) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// The polygon list each sector table was read or compiled for, so a save can tell whether the table still fits
+const sectorTableOwners = new WeakMap<Uint16Array[], ReadonlyArray<PmsPolygon>>();
+
+export function registerSectorTable(
+  sectors: Uint16Array[] | undefined,
+  polygons: ReadonlyArray<PmsPolygon>
+): void {
+  if (sectors) sectorTableOwners.set(sectors, polygons);
+}
+
+export function sectorTablePolygons(sectors: Uint16Array[] | undefined): ReadonlyArray<PmsPolygon> | null {
+  return sectors ? sectorTableOwners.get(sectors) ?? null : null;
+}
+
+/**
+ * True when the polygon's collision data (vertex positions, type, bounciness, normals) still equals its file
+ * record, so its stored normals stay valid even if colours or texture coordinates were edited.
+ */
+export function polygonCollisionMatchesRaw(p: PmsPolygon): boolean {
+  const raw = p.raw;
+  if (!raw || raw.byteLength !== 121) return false;
+  const d = decodePolygonRecord(new DataView(raw.buffer, raw.byteOffset, raw.byteLength), 0);
+  if (d.polyType !== p.polyType || Math.abs(d.bounciness - p.bounciness) > 1e-6) return false;
+  for (let k = 0; k < 3; k++) {
+    const dv = d.vertices[k];
+    const pv = p.vertices[k];
+    if (dv.x !== pv.x || dv.y !== pv.y) return false;
+    const dn = d.normals[k];
+    const pn = p.normals[k];
+    if (dn.x !== pn.x || dn.y !== pn.y || dn.z !== pn.z) return false;
+  }
+  return true;
+}
+
+function decodeColliderRecord(view: DataView, off: number): Omit<PmsCollider, 'index' | 'raw'> {
+  return {
+    active: view.getUint8(off) !== 0,
+    x: finiteFloat(view, off + 4),
+    y: finiteFloat(view, off + 8),
+    radius: finiteFloat(view, off + 12),
+  };
+}
+
+function colliderMatchesRawRecord(c: PmsCollider): boolean {
+  const raw = c.raw;
+  if (!raw || raw.byteLength !== 16) return false;
+  const d = decodeColliderRecord(new DataView(raw.buffer, raw.byteOffset, raw.byteLength), 0);
+  return d.active === c.active && d.x === c.x && d.y === c.y && d.radius === c.radius;
+}
+
+function decodeSpawnRecord(view: DataView, off: number): Omit<PmsSpawnpoint, 'index' | 'raw'> {
+  let active = view.getUint8(off) !== 0;
+  const x = view.getInt32(off + 4, true);
+  const y = view.getInt32(off + 8, true);
+  const team = view.getInt32(off + 12, true);
+  if (Math.abs(x) >= 2000000 || Math.abs(y) >= 2000000) {
+    active = false;
+  }
+  return { active, x, y, team };
+}
+
+function spawnMatchesRawRecord(sp: PmsSpawnpoint): boolean {
+  const raw = sp.raw;
+  if (!raw || raw.byteLength !== 16) return false;
+  const d = decodeSpawnRecord(new DataView(raw.buffer, raw.byteOffset, raw.byteLength), 0);
+  return d.active === sp.active && d.x === sp.x && d.y === sp.y && d.team === sp.team;
+}
+
+function decodeWaypointRecord(view: DataView, off: number): Omit<PmsWaypoint, 'index' | 'raw'> {
+  let active = view.getUint8(off) !== 0;
+  const id = view.getInt32(off + 4, true);
+  const x = view.getInt32(off + 8, true);
+  const y = view.getInt32(off + 12, true);
+  const left = view.getUint8(off + 16) !== 0;
+  const right = view.getUint8(off + 17) !== 0;
+  const up = view.getUint8(off + 18) !== 0;
+  const down = view.getUint8(off + 19) !== 0;
+  const jetpack = view.getUint8(off + 20) !== 0;
+  const pathNum = view.getUint8(off + 21);
+  const action = view.getUint8(off + 22);
+  const c2 = view.getUint8(off + 23);
+  const c3 = view.getUint8(off + 24);
+  const connectionsNum = view.getInt32(off + 28, true);
+  const connections: number[] = [];
+  for (let j = 0; j < 20; j++) {
+    const conn = view.getInt32(off + 32 + j * 4, true);
+    if (j < connectionsNum && conn > 0) {
+      connections.push(conn);
+    }
+  }
+  if (Math.abs(x) >= 2000000 || Math.abs(y) >= 2000000) {
+    active = false;
+  }
+  return {
+    active,
+    id,
+    x,
+    y,
+    left,
+    right,
+    up,
+    down,
+    jetpack,
+    pathNum,
+    action,
+    c2,
+    c3,
+    connections,
+  };
+}
+
+function waypointMatchesRawRecord(wp: PmsWaypoint): boolean {
+  const raw = wp.raw;
+  if (!raw || raw.byteLength !== 112) return false;
+  const d = decodeWaypointRecord(new DataView(raw.buffer, raw.byteOffset, raw.byteLength), 0);
+  if (
+    d.active !== wp.active ||
+    d.id !== wp.id ||
+    d.x !== wp.x ||
+    d.y !== wp.y ||
+    d.left !== wp.left ||
+    d.right !== wp.right ||
+    d.up !== wp.up ||
+    d.down !== wp.down ||
+    d.jetpack !== wp.jetpack ||
+    d.pathNum !== wp.pathNum ||
+    d.action !== wp.action ||
+    (wp.c2 ?? d.c2) !== d.c2 ||
+    (wp.c3 ?? d.c3) !== d.c3 ||
+    d.connections.length !== wp.connections.length
+  ) {
+    return false;
+  }
+  for (let i = 0; i < d.connections.length; i++) {
+    if (d.connections[i] !== wp.connections[i]) return false;
+  }
+  return true;
+}
+
 class BinaryReader {
   private view: DataView;
   private bytes: Uint8Array;
@@ -571,6 +830,7 @@ export function parsePmsFull(input: ArrayBuffer | Uint8Array): PmsMapData {
 
   const polygons: PmsPolygon[] = new Array(polyCount);
   for (let i = 0; i < polyCount; i++) {
+    const polyOff = br.pos;
     const v1 = readVertex(br);
     const v2 = readVertex(br);
     const v3 = readVertex(br);
@@ -604,6 +864,7 @@ export function parsePmsFull(input: ArrayBuffer | Uint8Array): PmsMapData {
       normals: [n1, n2, n3],
       polyType,
       bounciness,
+      raw: br.rawBytes.subarray(polyOff, polyOff + POLYGON_RECORD_SIZE),
     };
   }
 
@@ -701,12 +962,20 @@ export function parsePmsFull(input: ArrayBuffer | Uint8Array): PmsMapData {
   const colliders: PmsCollider[] = [];
   if (colliderCount > 0) {
     for (let i = 0; i < colliderCount; i++) {
+      const colOff = br.pos;
       const active = br.readUint8() !== 0;
       br.skip(3);
       const x = br.readFloat32();
       const y = br.readFloat32();
       const radius = br.readFloat32();
-      colliders.push({ index: i, active, x, y, radius });
+      colliders.push({
+        index: i,
+        active,
+        x,
+        y,
+        radius,
+        raw: br.rawBytes.subarray(colOff, colOff + COLLIDER_RECORD_SIZE),
+      });
     }
   }
 
@@ -716,6 +985,7 @@ export function parsePmsFull(input: ArrayBuffer | Uint8Array): PmsMapData {
   const spawnpoints: PmsSpawnpoint[] = [];
   if (spawnCount > 0) {
     for (let i = 0; i < spawnCount; i++) {
+      const spOff = br.pos;
       let active = br.readUint8() !== 0;
       br.skip(3);
       const x = br.readInt32();
@@ -730,7 +1000,14 @@ export function parsePmsFull(input: ArrayBuffer | Uint8Array): PmsMapData {
         if (y < fTop) fTop = y;
         if (y > fBottom) fBottom = y;
       }
-      spawnpoints.push({ index: i, active, x, y, team });
+      spawnpoints.push({
+        index: i,
+        active,
+        x,
+        y,
+        team,
+        raw: br.rawBytes.subarray(spOff, spOff + SPAWN_RECORD_SIZE),
+      });
     }
   }
 
@@ -740,6 +1017,7 @@ export function parsePmsFull(input: ArrayBuffer | Uint8Array): PmsMapData {
   const waypoints: PmsWaypoint[] = [];
   if (waypointCount > 0) {
     for (let i = 0; i < waypointCount; i++) {
+      const wpOff = br.pos;
       let active = br.readUint8() !== 0;
       br.skip(3);
       const id = br.readInt32();
@@ -752,7 +1030,9 @@ export function parsePmsFull(input: ArrayBuffer | Uint8Array): PmsMapData {
       const jetpack = br.readUint8() !== 0;
       const pathNum = br.readUint8();
       const action = br.readUint8();
-      br.skip(5);
+      const c2 = br.readUint8();
+      const c3 = br.readUint8();
+      br.skip(3);
       const connectionsNum = br.readInt32();
       const connections: number[] = [];
       for (let j = 0; j < 20; j++) {
@@ -777,13 +1057,23 @@ export function parsePmsFull(input: ArrayBuffer | Uint8Array): PmsMapData {
         jetpack,
         pathNum,
         action,
+        c2,
+        c3,
         connections,
+        raw: br.rawBytes.subarray(wpOff, wpOff + WAYPOINT_RECORD_SIZE),
       });
     }
   }
 
   const polyBounds = finalizeBounds(pLeft, pRight, pTop, pBottom);
   const fullBounds = finalizeBounds(fLeft, fRight, fTop, fBottom);
+  // Only a fully parsed file has a meaningful tail (after a damaged section the rest is unread data)
+  const tailBytes = br.length - br.pos;
+  const rawTail =
+    waypointCount >= 0 && tailBytes > 0 && tailBytes <= MAX_RAW_TAIL_BYTES
+      ? br.rawBytes.subarray(br.pos, br.length)
+      : undefined;
+  registerSectorTable(sectorsPolys, polygons);
 
   return {
     version,
@@ -798,6 +1088,8 @@ export function parsePmsFull(input: ArrayBuffer | Uint8Array): PmsMapData {
     weather,
     steps,
     randomId,
+    rawHeader: br.length >= 88 ? br.rawBytes.subarray(0, 88) : undefined,
+    rawTail,
     sectorsDivision,
     sectorsNum,
     sectorsPolys,
@@ -820,6 +1112,7 @@ const SCENERY_RECORD_SIZE = 55;
 const COLLIDER_RECORD_SIZE = 16;
 const SPAWN_RECORD_SIZE = 16;
 const WAYPOINT_RECORD_SIZE = 112;
+const MAX_RAW_TAIL_BYTES = 4 * 1024 * 1024;
 
 /**
  * True when Soldat actually draws the prop (MapGraphics.pas: Active, Level <= 2, valid 1-based Style).
@@ -1135,9 +1428,11 @@ export function encodePascalShortString(str: string, maxSize: number): Uint8Arra
  * The result is guaranteed to differ (case-insensitively) from the source name, so a derived map can
  * never overwrite its own source (e.g. "ctf_x_f" -> "ctf_x_f_f" instead of "ctf_x_f").
  */
+export type DerivedMapSuffix = '_f' | '_o' | '_f_o' | '_a' | '_f_a' | '_e';
+
 export function makeDerivedMapName(
   baseName: string,
-  suffix: '_f' | '_o' | '_f_o' | '_a' | '_f_a',
+  suffix: DerivedMapSuffix,
   maxBaseLength = 24
 ): string {
   const safeMax = Math.max(6, Math.min(44, Math.floor(maxBaseLength || 24)));
@@ -1156,6 +1451,10 @@ export function makeDerivedMapName(
     derived = `${shorter}${suffix}`;
   }
   return derived;
+}
+
+export function makeEditedMapName(baseName: string, maxBaseLength = 24): string {
+  return makeDerivedMapName(baseName, '_e', maxBaseLength);
 }
 
 export function currentDosTimestamp(): number {
@@ -1338,18 +1637,12 @@ export function serializePms(map: PmsMapData): Uint8Array {
     4 +
     map.waypoints.length * 112;
 
-  const totalLen = headerAndPolysLen + propsAndScenery.byteLength + tailLen;
+  const extraTail = map.rawTail ?? null;
+  const totalLen = headerAndPolysLen + propsAndScenery.byteLength + tailLen + (extraTail?.byteLength ?? 0);
   const buf = new ArrayBuffer(totalLen);
   const view = new DataView(buf);
   const bytes = new Uint8Array(buf);
   let pos = 0;
-
-  view.setInt32(pos, map.version || 11, true);
-  pos += 4;
-  bytes.set(encodePascalShortString(map.mapName, 38), pos);
-  pos += 39;
-  bytes.set(encodePascalShortString(map.texture, 24), pos);
-  pos += 25;
 
   const writeColor = (c: RgbaColor) => {
     view.setUint8(pos, c.b & 0xff);
@@ -1358,21 +1651,88 @@ export function serializePms(map: PmsMapData): Uint8Array {
     view.setUint8(pos + 3, c.a & 0xff);
     pos += 4;
   };
-  writeColor(map.bgColorTop);
-  writeColor(map.bgColorBtm);
 
-  view.setInt32(pos, map.startJet || 0, true);
-  pos += 4;
-  view.setUint8(pos++, map.grenadePacks & 0xff);
-  view.setUint8(pos++, map.medikits & 0xff);
-  view.setUint8(pos++, map.weather & 0xff);
-  view.setUint8(pos++, map.steps & 0xff);
-  view.setInt32(pos, map.randomId || 0, true);
-  pos += 4;
+  if (map.rawHeader && map.rawHeader.byteLength === 88) {
+    bytes.set(map.rawHeader, 0);
+    const orig = decodeHeaderRecord(map.rawHeader);
+    const targetVersion = map.version || 11;
+    if (targetVersion !== orig.version) {
+      view.setInt32(0, targetVersion, true);
+    }
+    if (map.mapName !== orig.mapName) {
+      bytes.set(encodePascalShortString(map.mapName, 38), 4);
+    }
+    if (map.texture !== orig.texture) {
+      bytes.set(encodePascalShortString(map.texture, 24), 43);
+    }
+    if (
+      map.bgColorTop.r !== orig.bgColorTop.r ||
+      map.bgColorTop.g !== orig.bgColorTop.g ||
+      map.bgColorTop.b !== orig.bgColorTop.b ||
+      map.bgColorTop.a !== orig.bgColorTop.a
+    ) {
+      pos = 68;
+      writeColor(map.bgColorTop);
+    }
+    if (
+      map.bgColorBtm.r !== orig.bgColorBtm.r ||
+      map.bgColorBtm.g !== orig.bgColorBtm.g ||
+      map.bgColorBtm.b !== orig.bgColorBtm.b ||
+      map.bgColorBtm.a !== orig.bgColorBtm.a
+    ) {
+      pos = 72;
+      writeColor(map.bgColorBtm);
+    }
+    const targetJet = map.startJet || 0;
+    if (targetJet !== orig.startJet) {
+      view.setInt32(76, targetJet, true);
+    }
+    if ((map.grenadePacks & 0xff) !== orig.grenadePacks) {
+      view.setUint8(80, map.grenadePacks & 0xff);
+    }
+    if ((map.medikits & 0xff) !== orig.medikits) {
+      view.setUint8(81, map.medikits & 0xff);
+    }
+    if ((map.weather & 0xff) !== orig.weather) {
+      view.setUint8(82, map.weather & 0xff);
+    }
+    if ((map.steps & 0xff) !== orig.steps) {
+      view.setUint8(83, map.steps & 0xff);
+    }
+    const targetRandomId = map.randomId || 0;
+    if (targetRandomId !== orig.randomId) {
+      view.setInt32(84, targetRandomId, true);
+    }
+    pos = 88;
+  } else {
+    view.setInt32(pos, map.version || 11, true);
+    pos += 4;
+    bytes.set(encodePascalShortString(map.mapName, 38), pos);
+    pos += 39;
+    bytes.set(encodePascalShortString(map.texture, 24), pos);
+    pos += 25;
+
+    writeColor(map.bgColorTop);
+    writeColor(map.bgColorBtm);
+
+    view.setInt32(pos, map.startJet || 0, true);
+    pos += 4;
+    view.setUint8(pos++, map.grenadePacks & 0xff);
+    view.setUint8(pos++, map.medikits & 0xff);
+    view.setUint8(pos++, map.weather & 0xff);
+    view.setUint8(pos++, map.steps & 0xff);
+    view.setInt32(pos, map.randomId || 0, true);
+    pos += 4;
+  }
 
   view.setInt32(pos, map.polygons.length, true);
   pos += 4;
   for (const poly of map.polygons) {
+    if (polygonMatchesRawRecord(poly)) {
+      bytes.set(poly.raw!, pos);
+      pos += 121;
+      continue;
+    }
     for (const v of poly.vertices) {
       view.setFloat32(pos, v.x, true);
       view.setFloat32(pos + 4, v.y, true);
@@ -1415,6 +1775,11 @@ export function serializePms(map: PmsMapData): Uint8Array {
   view.setInt32(pos, map.colliders.length, true);
   pos += 4;
   for (const col of map.colliders) {
+    if (colliderMatchesRawRecord(col)) {
+      bytes.set(col.raw!, pos);
+      pos += 16;
+      continue;
+    }
     view.setUint8(pos, col.active ? 1 : 0);
     view.setFloat32(pos + 4, col.x, true);
     view.setFloat32(pos + 8, col.y, true);
@@ -1425,6 +1790,11 @@ export function serializePms(map: PmsMapData): Uint8Array {
   view.setInt32(pos, map.spawnpoints.length, true);
   pos += 4;
   for (const sp of map.spawnpoints) {
+    if (spawnMatchesRawRecord(sp)) {
+      bytes.set(sp.raw!, pos);
+      pos += 16;
+      continue;
+    }
     view.setUint8(pos, sp.active ? 1 : 0);
     view.setInt32(pos + 4, sp.x, true);
     view.setInt32(pos + 8, sp.y, true);
@@ -1435,6 +1805,11 @@ export function serializePms(map: PmsMapData): Uint8Array {
   view.setInt32(pos, map.waypoints.length, true);
   pos += 4;
   for (const wp of map.waypoints) {
+    if (waypointMatchesRawRecord(wp)) {
+      bytes.set(wp.raw!, pos);
+      pos += 112;
+      continue;
+    }
     view.setUint8(pos, wp.active ? 1 : 0);
     view.setInt32(pos + 4, wp.id, true);
     view.setInt32(pos + 8, wp.x, true);
@@ -1446,6 +1821,8 @@ export function serializePms(map: PmsMapData): Uint8Array {
     view.setUint8(pos + 20, wp.jetpack ? 1 : 0);
     view.setUint8(pos + 21, wp.pathNum & 0xff);
     view.setUint8(pos + 22, wp.action & 0xff);
+    view.setUint8(pos + 23, (wp.c2 ?? 0) & 0xff);
+    view.setUint8(pos + 24, (wp.c3 ?? 0) & 0xff);
     const conns = wp.connections.slice(0, 20);
     view.setInt32(pos + 28, conns.length, true);
     for (let j = 0; j < 20; j++) {
@@ -1453,6 +1830,7 @@ export function serializePms(map: PmsMapData): Uint8Array {
     }
     pos += 112;
   }
+  if (extraTail) bytes.set(extraTail, pos);
 
   return bytes;
 }

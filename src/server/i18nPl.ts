@@ -175,4 +175,25 @@ export const SERVER_PL: Record<string, string | readonly [string, string, string
   // platform.ts
   'The picker dialog needs zenity or kdialog (e.g. sudo apt install zenity) — you can also type the path manually.':
     'Okno wyboru wymaga programu zenity albo kdialog (np. sudo apt install zenity) — możesz też wpisać ścieżkę ręcznie.',
+
+  // editorService.ts — Map Editor
+  'Enter a map file name.': 'Podaj nazwę pliku mapy.',
+  'Invalid map file name "{name}" — avoid special path characters.':
+    'Nieprawidłowa nazwa pliku mapy „{name}” — unikaj znaków specjalnych ścieżek.',
+  'Invalid map file name "{name}" — reserved system name.':
+    'Nieprawidłowa nazwa pliku mapy „{name}” — zarezerwowana nazwa systemowa.',
+  'Map file name is too long (maximum 64 characters).':
+    'Nazwa pliku mapy jest za długa (maksymalnie 64 znaki).',
+  'The Soldat game folder is not configured — choose Exports or a custom folder.':
+    'Folder gry Soldat nie jest skonfigurowany — wybierz katalog Exports lub własny folder.',
+  'Missing PMS map payload.': 'Brak danych binarnych mapy PMS.',
+  'Invalid or empty PMS map data.': 'Nieprawidłowe lub puste dane mapy PMS.',
+  'Refusing to save invalid PMS binary: {error}':
+    'Odmowa zapisu uszkodzonego pliku PMS: {error}',
+  'Cannot save map because it exceeds Soldat engine limits ({limits}).':
+    'Nie można zapisać mapy, ponieważ przekracza limity silnika Soldat ({limits}).',
+  'Draft not found: {id}': 'Nie znaleziono wersji roboczej: {id}',
+  'Enter a prefab name.': 'Podaj nazwę prefabrykatu.',
+  'Prefab has no elements.': 'Prefabrykat nie zawiera żadnych obiektów.',
+  'You can save at most {max} prefabs.': 'Można zapisać najwyżej {max} prefabrykatów.',
 };

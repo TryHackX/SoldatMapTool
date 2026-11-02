@@ -335,4 +335,12 @@ export class SoldatAssetResolver {
     if (!dirMap) return null;
     return dirMap.get(diskName.toLowerCase()) ?? null;
   }
+
+  public listCategoryEntries(
+    category: 'textures' | 'textures/edges' | 'scenery-gfx'
+  ): DirFileEntry[] {
+    const dirMap = this.dirIndexes.get(category);
+    if (!dirMap) return [];
+    return Array.from(dirMap.values());
+  }
 }
