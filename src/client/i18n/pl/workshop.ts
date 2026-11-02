@@ -2,6 +2,8 @@ import type { PlDictionary } from './types';
 
 // Map Workshop: 1.7.1 scenery fix (_f), Optimize Sceneries (_o), layer baking and batch runs
 export const WORKSHOP_PL: PlDictionary = {
+  '{name} is already an Optimize Sceneries result: its sceneries are baked layers. Baking them again only blurs them, so optimize the original map ({original}) instead.':
+    '{name} to już wynik Optimize Sceneries: jej scenerie są wypalonymi warstwami. Ponowne wypalenie tylko je rozmyje, dlatego zoptymalizuj oryginalną mapę ({original}).',
   // Header, tabs, name length limit, shared buttons
   'PMS Map Workshop — 1.7.1 Scenery Fix ({f}) and Optimize Sceneries ({o})':
     'Warsztat Map PMS — Naprawa Scenerii 1.7.1 ({f}) i Optimize Sceneries ({o})',

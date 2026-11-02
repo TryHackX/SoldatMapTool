@@ -17,6 +17,7 @@ import {
   makeDerivedMapName,
   PmsMapData,
 } from '@shared/pmsParser';
+import { stripDerivedSuffix } from '@shared/mapFamily';
 import { locale, t, tp, tr, tText } from '../i18n';
 import {
   buildOptimizePreview,
@@ -291,6 +292,9 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
   const derivedFixName = currentMapEntry
     ? makeDerivedMapName(currentMapEntry.baseName, '_f', maxBaseLength)
     : t('map_f');
+  // A map that already is an Optimize result holds baked layers: baking them again only blurs them (the batch skips
+  // such maps too); the original map should be optimized instead
+  const isOptimizeResult = currentMapEntry ? /_o$/i.test(currentMapEntry.baseName) : false;
   // The server decides the final name (`_f_o` only when fixFirst really repaired something)
   const derivedOptName =
     optPlan && currentMapEntry && optPlan.mapId === currentMapEntry.id
@@ -1530,6 +1534,17 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                 />
               ) : (
               <>
+              {isOptimizeResult && currentMapEntry && (
+                <div className="bg-amber-950/40 border border-amber-600/50 rounded-lg px-3 py-2 text-amber-100 flex gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                  <span>
+                    {t(
+                      '{name} is already an Optimize Sceneries result: its sceneries are baked layers. Baking them again only blurs them, so optimize the original map ({original}) instead.',
+                      { name: currentMapEntry.baseName, original: stripDerivedSuffix(currentMapEntry.baseName) }
+                    )}
+                  </span>
+                </div>
+              )}
               {/* Summary Metrics */}
               <div className="grid grid-cols-3 gap-2">
                 <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-2.5">
@@ -1778,6 +1793,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                   disabled={
                     optimizing ||
                     previewing ||
+                    isOptimizeResult ||
                     !currentMapData ||
                     !optPlan ||
                     optPlan.groups.length === 0
@@ -1794,6 +1810,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                   disabled={
                     optimizing ||
                     previewing ||
+                    isOptimizeResult ||
                     !currentMapData ||
                     !optPlan ||
                     optPlan.groups.length === 0

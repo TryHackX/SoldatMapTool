@@ -115,6 +115,8 @@ export const SERVER_PL: Record<string, string | readonly [string, string, string
   'Wrong Power-of-Two size from MapMaker ({from} → {to})': 'Błędny rozmiar Power-of-Two z MapMakera ({from} → {to})',
   'Distorted scenery proportions ({from} → {to})': 'Zniekształcone proporcje scenerii ({from} → {to})',
   'Size differs from the file ({from} → {to})': 'Różnica wymiaru względem pliku ({from} → {to})',
+  'probably not the file the map was made with; the game uses the size saved in the map':
+    'prawdopodobnie to nie ten plik, z którym powstała mapa; gra używa wymiaru zapisanego w mapie',
   'The output map would have the same name and folder as the source map — saving stopped so the original is not overwritten.':
     'Mapa wynikowa miałaby tę samą nazwę i folder co mapa źródłowa — zapis przerwany, aby nie nadpisać oryginału.',
   'File {file} exists and is not an unchanged Studio output for this map — skipped.':

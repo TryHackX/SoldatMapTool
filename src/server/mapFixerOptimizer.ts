@@ -414,18 +414,25 @@ export class SoldatMapWorkshop {
 
             detectedReason = 'pot_or_stale';
             const sizeChange = { from: `${p.width}×${p.height}`, to: `${true1x.w}×${true1x.h}` };
+            // A 1x1 file is a placeholder for a missing image, never the size the author meant
+            const placeholderFile = true1x.w <= 1 && true1x.h <= 1;
             if (isPotBug && aspectDiffRatio > 0.03) {
               reasonLabelPl = t('Stretched Power-of-Two texture ({from} → {to})', sizeChange);
-              recommended = true;
+              recommended = !placeholderFile;
             } else if (isPotBug) {
               reasonLabelPl = t('Wrong Power-of-Two size from MapMaker ({from} → {to})', sizeChange);
-              recommended = true;
-            } else if (aspectDiffRatio > 0.03) {
-              reasonLabelPl = t('Distorted scenery proportions ({from} → {to})', sizeChange);
-              recommended = true;
+              recommended = !placeholderFile;
             } else {
-              reasonLabelPl = t('Size differs from the file ({from} → {to})', sizeChange);
-              recommended = Math.abs(p.width - true1x.w) > 2 || Math.abs(p.height - true1x.h) > 2;
+              // Sizes that are not powers of two were recorded from the image the author really used, and the game
+              // draws props at the size saved in the map. A different file with the same name (another pack, an HD
+              // remake, the default .bmp behind a custom .png) does not make the map wrong: resizing to that file
+              // breaks the layout — e.g. water strips laid edge to edge shrink into islands. Offered, not ticked.
+              reasonLabelPl = `${
+                aspectDiffRatio > 0.03
+                  ? t('Distorted scenery proportions ({from} → {to})', sizeChange)
+                  : t('Size differs from the file ({from} → {to})', sizeChange)
+              } — ${t('probably not the file the map was made with; the game uses the size saved in the map')}`;
+              recommended = false;
             }
           }
         }

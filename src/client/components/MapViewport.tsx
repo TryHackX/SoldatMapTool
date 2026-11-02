@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { MapCompactEntry, MapFixAnalysisResponse, MapIndexEntry, SceneryFixIssueGroup } from '@shared/apiTypes';
 import { computePropCorners, isPropRenderable, PmsMapData } from '@shared/pmsParser';
 import { POLY_TYPES, SPAWN_TYPES } from '@shared/soldatConstants';
@@ -1127,8 +1128,11 @@ export const MapViewport: React.FC<MapViewportProps> = ({
                   <Columns2 className="w-3.5 h-3.5 text-sky-300" />
                   <span className="hidden xl:inline">{t('Compare')}</span>
                 </button>
-                {compareMenuPos && (
+                {/* In <body>: inside the toolbar's stacking context the preview banner below would cover it */}
+                {compareMenuPos &&
+                  createPortal(
                   <div
+                    data-compare-menu
                     className="fixed z-50 w-64 bg-zinc-900 border border-zinc-700 rounded-lg shadow-2xl py-1 text-xs"
                     style={{ left: compareMenuPos.left, top: compareMenuPos.top }}
                   >
@@ -1160,7 +1164,8 @@ export const MapViewport: React.FC<MapViewportProps> = ({
                         {c.baseName}
                       </button>
                     ))}
-                  </div>
+                  </div>,
+                  document.body
                 )}
               </div>
             )

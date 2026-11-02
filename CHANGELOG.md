@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.5.1 — 2026-11-02
+
+### Naprawione
+- **Poprawka 1.7.1 (`_f`, „najpierw napraw, potem sklej”) potrafiła zepsuć mapę**, np. pasy wody w `ctf_tw_hue`
+  kurczyły się do wysp, bo `water.png` mierzono domyślnym `water.bmp` 100×100. Wymiar, który nie jest potęgą
+  dwójki, pochodzi z pliku, którego naprawdę użył autor, a gra rysuje propy według wymiaru zapisanego w mapie —
+  takie różnice są teraz pokazywane z wyjaśnieniem, ale nie są zaznaczane do naprawy. Zalecane zostają klasyczne
+  błędy 1.7.1: rozmiary Power-of-Two ze starego MapMakera i powiększenia HD z PolyWorks. Plik 1×1 (zaślepka
+  brakującego obrazu) nigdy nie jest celem naprawy. Na całej kolekcji z zaleceń wypadło 77 takich przypadków.
+- Ponowna optymalizacja mapy, która już jest wynikiem `_o` (np. `ctf_tw_hue_o` → `ctf_tw_hue_o_f_o`), jest
+  zablokowana z wyjaśnieniem — tryb wsadowy już takie mapy pomijał.
+- Menu „Compare” nie jest już zasłaniane przez pasek podglądu `_f` / `_o`.
+
+### Testy
+- 62 testy automatyczne (1 nowy).
+
 ## 2.5.0 — 2026-11-01
 
 Dwa języki interfejsu.

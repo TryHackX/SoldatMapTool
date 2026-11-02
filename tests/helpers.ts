@@ -33,6 +33,7 @@ export function buildSyntheticPms(opts: {
   invalidLevelOnProp?: number;
   title?: string;
   propPositions?: Array<{ x: number; y: number }>;
+  propSizes?: Array<{ width: number; height: number }>;
 }): Uint8Array {
   const scenery = (opts.scenery ?? ['a.png']).map((filename, i) => ({
     index: i + 1,
@@ -48,8 +49,8 @@ export function buildSyntheticPms(opts: {
       index: i,
       active: true,
       style: (i % Math.max(1, scenery.length)) + 1,
-      width: 32,
-      height: 16,
+      width: opts.propSizes?.[i]?.width ?? 32,
+      height: opts.propSizes?.[i]?.height ?? 16,
       x: opts.propPositions?.[i]?.x ?? i * 40,
       y: opts.propPositions?.[i]?.y ?? -20,
       rotation: 0,
