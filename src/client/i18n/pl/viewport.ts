@@ -3,6 +3,10 @@ import type { PlDictionary } from './types';
 // Map view: toolbar, overlays, object inspector, map details drawer, full-size screenshot export, renderer errors.
 // 'Polygons', 'Colliders' and 'Spawn points' are used here too; their entries live in SHARED_PL.
 export const VIEWPORT_PL: PlDictionary = {
+  'At {zoom}% the {q}× layers are enlarged beyond their resolution and look softer than HD sceneries. In game (about {game}% here) they look as the report says.':
+    'Przy {zoom}% warstwy {q}× są powiększone ponad swoją rozdzielczość i wyglądają miękcej niż scenerie HD. W grze (tu ok. {game}%) wyglądają tak, jak mówi raport.',
+  'Zoom to the in-game scale at 1080p': 'Ustaw powiększenie jak w grze przy 1080p',
+  'Game scale': 'Skala gry',
   // Toolbar: layers and tactical overlays (MapViewport)
   'View:': 'Widok:',
   Background: 'Tło',

@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.5.2 — 2026-11-02
+
+### Podgląd `_o`
+- Gdy powiększenie w oknie mapy przekracza rozdzielczość podglądanych warstw (np. ponad ok. 230% przy jakości 2×),
+  pasek podglądu wyjaśnia, że warstwy są wtedy tylko powiększane i wyglądają miękcej niż scenerie HD, oraz podaje
+  skalę gry (przycisk „Skala gry” — 225% przy 1080p). Przykład `tw_Doppleganger`: 83% propów ma tekstury HD
+  (co najmniej 3,5 piksela na jednostkę świata), więc przy 424% oryginał pokazuje więcej detali niż warstwa 2×; w skali
+  gry ostrość wynosi 97,4% przy 2× i 101,3% przy 3×.
+- Pasek podglądu pokazuje jakość, z którą podgląd został zbudowany (wcześniej — aktualnie wybraną w oknie).
+- Opis kafelków 4096 px mówi, że zużywają więcej pamięci tekstur: gorzej przycinają puste miejsca, przez co tryb
+  Auto może wybrać niższą jakość (`tw_Doppleganger`: 3× przy 2048 px, 2× przy 4096 px).
+
 ## 2.5.1 — 2026-11-02
 
 ### Naprawione

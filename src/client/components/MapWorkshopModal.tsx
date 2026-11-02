@@ -62,7 +62,7 @@ interface MapWorkshopModalProps {
   batchCount: number;
   batchSourceLabel: string;
   onResolveBatchCandidates: () => Promise<MapCompactEntry[]>;
-  onApplyLivePreviewMap: (previewData: PmsMapData, bannerText: string) => void;
+  onApplyLivePreviewMap: (previewData: PmsMapData, bannerText: string, layerQuality?: number) => void;
   onMetaUpdated: (meta: IndexMetaResponse) => void;
   onSelectMapById: (mapId: string) => void;
 }
@@ -496,7 +496,9 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
   const handleShowPreviewInViewport = () => {
     if (!optPreview || !currentMapEntry) return;
     const f = optPreview.fidelity;
-    const banner = t('Optimize result preview ({name}.pms, {ss}×, not saved)', { name: derivedOptName, ss: supersample });
+    // The quality the preview was baked with (the select may have changed since)
+    const quality = Number(JSON.parse(optPreview.optionsKey).supersample) || supersample;
+    const banner = t('Optimize result preview ({name}.pms, {ss}×, not saved)', { name: derivedOptName, ss: quality });
     onApplyLivePreviewMap(
       optPreview.previewMap,
       f
@@ -504,7 +506,8 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
             pct: f.sharpnessPct,
             diff: f.meanAbsDiff,
           })}`
-        : banner
+        : banner,
+      quality
     );
     onClose();
   };
@@ -1334,7 +1337,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                     className="w-full bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1.5 text-zinc-200 focus:outline-none focus:border-emerald-500"
                   >
                     <option value={2048}>{t('2048 × 2048 px (100% GPU compatibility)')}</option>
-                    <option value={4096}>{t('4096 × 4096 px (fewer files on large maps)')}</option>
+                    <option value={4096}>{t('4096 × 4096 px (fewer files, more texture memory)')}</option>
                   </select>
                 </div>
               </div>

@@ -48,6 +48,8 @@ interface MapViewportProps {
   onOpenFullSizeModal: () => void;
   onOpenWorkshopModal?: (tab?: 'fix' | 'optimize') => void;
   previewModeBanner?: string | null;
+  // Texels per world unit of the previewed `_o` layers (their quality): zooming past it shows their resolution limit
+  previewLayerQuality?: number | null;
   onClearPreviewMode?: () => void;
   // B5: second map drawn right of a draggable divider (same camera)
   compare?: { key: string; label: string; data: PmsMapData } | null;
@@ -87,6 +89,9 @@ const PLAYER_ASPECTS: Array<[string, number]> = [
   ['4:3', 4 / 3],
   ['21:9', 21 / 9],
 ];
+
+// Device pixels per world unit in game at 1080p (1080 / 480)
+const GAME_PX_PER_UNIT_1080P = 2.25;
 
 // Soldat shows a fixed 480 world units of height; the width follows the screen aspect (640 at 4:3)
 const PLAYER_VIEW_HEIGHT = 480;
@@ -169,6 +174,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   onOpenFullSizeModal,
   onOpenWorkshopModal,
   previewModeBanner,
+  previewLayerQuality,
   onClearPreviewMode,
   compare = null,
   mainLabel,
@@ -929,6 +935,17 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     });
   };
 
+  // The canvas renders in device pixels; past `quality` device px per world unit a baked layer is only enlarged
+  const devicePxPerUnit = transform.zoom * (window.devicePixelRatio || 1);
+  const layerZoomHint =
+    previewModeBanner && previewLayerQuality && devicePxPerUnit > previewLayerQuality * 1.15
+      ? {
+          zoom: Math.round(transform.zoom * 100),
+          q: previewLayerQuality,
+          game: Math.round((GAME_PX_PER_UNIT_1080P / (window.devicePixelRatio || 1)) * 100),
+        }
+      : null;
+
   return (
     <main className="flex-1 min-w-0 relative bg-zinc-950 flex flex-col h-full overflow-hidden select-none">
       {/* Top Floating Layer & Tactical Toolbar */}
@@ -1203,9 +1220,27 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       {/* Live Preview Mode Banner (when inspecting _f Scenery Repair Before/After) */}
       {previewModeBanner && (
         <div className="z-20 bg-amber-950/90 border-b border-amber-500/50 px-4 py-1.5 flex items-center justify-between text-xs text-amber-200">
-          <div className="flex items-center gap-2 font-medium">
+          <div className="flex items-center gap-2 font-medium min-w-0">
             <Wrench className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-            <span>{previewModeBanner}</span>
+            <span>
+              {previewModeBanner}
+              {layerZoomHint && (
+                <span className="block font-normal text-amber-300/90">
+                  {t(
+                    'At {zoom}% the {q}× layers are enlarged beyond their resolution and look softer than HD sceneries. In game (about {game}% here) they look as the report says.',
+                    layerZoomHint
+                  )}{' '}
+                  <button
+                    type="button"
+                    onClick={() => setTransform((p) => ({ ...p, zoom: GAME_PX_PER_UNIT_1080P / (window.devicePixelRatio || 1) }))}
+                    title={t('Zoom to the in-game scale at 1080p')}
+                    className="underline decoration-dotted hover:text-amber-100 cursor-pointer"
+                  >
+                    {t('Game scale')}
+                  </button>
+                </span>
+              )}
+            </span>
           </div>
           {onClearPreviewMode && (
             <button

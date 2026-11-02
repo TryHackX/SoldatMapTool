@@ -305,6 +305,7 @@ export const App: React.FC = () => {
     forMapId: string;
     data: PmsMapData;
     banner: string;
+    layerQuality?: number;
   } | null>(null);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [libraryToolsState, setLibraryToolsState] = useState<{ open: boolean; tab: LibraryToolsTab }>({
@@ -1159,6 +1160,9 @@ export const App: React.FC = () => {
                 ? livePreviewMap.banner
                 : null
             }
+            previewLayerQuality={
+              livePreviewMap && livePreviewMap.forMapId === activeMapId ? livePreviewMap.layerQuality ?? null : null
+            }
             onClearPreviewMode={() => setLivePreviewMap(null)}
             compare={compareTarget && compareTarget.forMapId === activeMapId ? compareTarget : null}
             mainLabel={previewActive ? t('preview of changes') : activeMapDetails?.baseName}
@@ -1198,12 +1202,13 @@ export const App: React.FC = () => {
         batchCount={packMapIds.size > 0 ? packMapIds.size : totalFiltered}
         batchSourceLabel={packMapIds.size > 0 ? t('from the pack selection') : t('from the current filter')}
         onResolveBatchCandidates={handleResolveBatchCandidates}
-        onApplyLivePreviewMap={(previewData, bannerText) => {
+        onApplyLivePreviewMap={(previewData, bannerText, layerQuality) => {
           if (activeMapId) {
             setLivePreviewMap({
               forMapId: activeMapId,
               data: previewData,
               banner: bannerText,
+              layerQuality,
             });
           }
         }}

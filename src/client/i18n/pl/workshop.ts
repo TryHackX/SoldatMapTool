@@ -148,7 +148,7 @@ export const WORKSHOP_PL: PlDictionary = {
     'Rozmiar warstw: do {mp} MPx (~{mb} MB VRAM, puste obszary są przycinane). Na 1080p gra pokazuje ok. 2.25 px na jednostkę świata: 3× wychodzi najostrzej, 2× nieco miękko, 1× wyraźnie rozmyte; 4× przydaje się od 1440p.',
   'Maximum PNG tile size': 'Maksymalny rozmiar kafelka PNG',
   '2048 × 2048 px (100% GPU compatibility)': '2048 × 2048 px (100% kompatybilności GPU)',
-  '4096 × 4096 px (fewer files on large maps)': '4096 × 4096 px (mniej plików na dużych mapach)',
+  '4096 × 4096 px (fewer files, more texture memory)': '4096 × 4096 px (mniej plików, więcej pamięci tekstur)',
   "Author's Intent Protection (Z-Order Safe)": 'Ochrona Zamysłu Autora (Z-Order Safe)',
   'Always keep animated {gif} sceneries separate (fire, water, blinking lamps)':
     'Zawsze zachowuj animowane scenerie {gif} osobno (ogień, woda, migające lampy)',
