@@ -3,16 +3,10 @@ import path from 'path';
 import { DatabaseSync } from 'node:sqlite';
 import { PmsSummaryData } from '../shared/pmsParser';
 
-export interface SqliteCachedSummary {
-  fullPath: string;
-  mtimeMs: number;
-  fileSize: number;
-  summary: PmsSummaryData;
-}
-
 // v3: summaries carry `parseWarnings` and the parser clamps over-long strings -> re-parse everything once
 // v4: parse warnings are English source text (the UI translates them) -> re-parse once
-const SCHEMA_VERSION = 4;
+// Prior Linux keys folded case, which could associate a cached summary with a different file.
+const SCHEMA_VERSION = process.platform === 'win32' ? 4 : 5;
 
 /**
  * Persistent SQLite WAL summary cache built on Node's native `node:sqlite`.

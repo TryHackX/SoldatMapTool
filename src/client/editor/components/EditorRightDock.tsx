@@ -1,11 +1,12 @@
+import { EntityInspector } from './EntityInspector';
+import { SceneryInspector } from './SceneryInspector';
+import { PolygonInspector,usePolygonColorInspector } from './PolygonInspector';
+import { PanelCard } from './EditorPanelCard';
+import type { MapValidationIssue } from '@shared/mapValidator';
 import React, { useState } from 'react';
 import { EditorAssetCatalogResponse } from '@shared/apiTypes';
-import {
-  createPolygonFromPoints,
-  ensureSceneryEntry,
-  rebuildPolygonGeometry,
-} from '@shared/pmsCompiler';
-import { PmsMapData, PmsProp, PmsVertex } from '@shared/pmsParser';
+import { createPolygonFromPoints } from '@shared/pmsCompiler';
+import { PmsMapData } from '@shared/pmsParser';
 import {
   POLY_TYPES,
   RgbaColor,
@@ -13,24 +14,16 @@ import {
   WAYPOINT_ACTION_NAMES_EN,
 } from '@shared/soldatConstants';
 import {
-  AlertTriangle,
   AlignCenterHorizontal,
   AlignCenterVertical,
   AlignEndHorizontal,
   AlignEndVertical,
   AlignStartHorizontal,
   AlignStartVertical,
-  ArrowDown,
-  ArrowDownToLine,
-  ArrowUp,
-  ArrowUpToLine,
-  CheckCircle2,
   FlipHorizontal,
   FlipVertical,
   Gamepad2,
   History,
-  LocateFixed,
-  RotateCcw,
   Settings2,
   ShieldAlert,
   Shuffle,
@@ -38,34 +31,29 @@ import {
   Sparkles,
   Sun,
   Wand2,
-  X,
 } from 'lucide-react';
 import { locale, polyTypeName, t, tText } from '../../i18n';
 import { memoIgnoringCallbacks } from '../memoIgnoringCallbacks';
-import { CommitTextInput, NumberInput } from './EditorFields';
+import { CommitTextInput, EditorColorInput, NumberInput } from './EditorFields';
 import {
   SCENERY_TINT_PRESETS,
-  SceneryColorTools,
   SceneryHazeTools,
-  SceneryGradientTools,
-  SceneryScaleTools,
-  SceneryVariationTools,
 } from './EditorSceneryTools';
 import { hexToRgb, rgbToHex } from '../colorTools';
+import { CourseControls } from './CourseControls';
 import { EditorChecksPanel } from './EditorChecksPanel';
-import { loadSoldatAssetImage } from '../../renderer/assetLoader';
+import { PolyFixerPanel } from './PolyFixerPanel';
+import { PolygonShapeControls } from './PolygonShapeControls';
 import { spawnTypeName } from '../../renderer/OverlayRenderer';
 import {
   AlignmentMode,
   alignSelection,
-  computePropQuadCenter,
   EditorDocumentSnapshot,
   emptySelection,
   PropDrawOrderDirection,
   rotateSelection,
   scaleSelection,
   computeSelectionExactBounds,
-  toggleWaypointConnection,
   translateSelection,
   updateMapHeader,
 } from '../EditorDocument';
@@ -117,10 +105,11 @@ export interface EditorValidationIssueUI {
   selection?: EditorSelection;
   focusBounds?: { left: number; right: number; top: number; bottom: number };
   focusPoint?: { x: number; y: number; radius?: number };
-  fix?: { kind: 'repair_normals' | 'delete_polygons'; polygons: number[] };
+  fix?: NonNullable<MapValidationIssue['fix']>;
 }
 
-interface EditorRightDockProps {
+export interface EditorRightDockProps {
+  tunnelPanel?: React.ReactNode;
   activeTab: RightDockTab;
   onChangeTab: (tab: RightDockTab) => void;
   snapshot: EditorDocumentSnapshot;
@@ -141,6 +130,7 @@ interface EditorRightDockProps {
   validationHintsEnabled: boolean;
   onToggleValidationHints: (enabled: boolean) => void;
   onFixValidationIssue: (issue: EditorValidationIssueUI) => void;
+  onRemoveUnusedScenery: () => void;
   playtest: SoldierPlaytestState | null;
   playtestTeam: 1 | 2 | 3 | 4;
   onChangePlaytestTeam: (team: 1 | 2 | 3 | 4) => void;
@@ -183,6 +173,7 @@ interface EditorRightDockProps {
 }
 
 const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
+  tunnelPanel,
   activeTab,
   onChangeTab,
   snapshot,
@@ -203,6 +194,7 @@ const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
   validationHintsEnabled,
   onToggleValidationHints,
   onFixValidationIssue,
+  onRemoveUnusedScenery,
   playtest,
   playtestTeam,
   onChangePlaytestTeam,
@@ -231,9 +223,7 @@ const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
   const [deltaX, setDeltaX] = useState(0);
   const [deltaY, setDeltaY] = useState(0);
   const [rotDegInput, setRotDegInput] = useState(15);
-  const [gradStartHex, setGradStartHex] = useState('#ffffff');
-  const [gradEndHex, setGradEndHex] = useState('#334155');
-  const [gradDir, setGradDir] = useState<'tb' | 'bt' | 'lr' | 'rl'>('tb');
+  const colors=usePolygonColorInspector(map,selection,selectionSummary,onCommitMutation);
   const [shapeW, setShapeW] = useState(128);
   const [shapeH, setShapeH] = useState(32);
 
@@ -250,92 +240,10 @@ const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
   const [islandGrass, setIslandGrass] = useState(true);
 
   const selectedPolys = selection.polygons.map((i) => map.polygons[i]).filter(Boolean);
-  const selectedProps = selection.props.map((i) => map.props[i]).filter(Boolean);
-  const selectedSpawns = selection.spawns.map((i) => map.spawnpoints[i]).filter(Boolean);
-  const selectedColliders = selection.colliders.map((i) => map.colliders[i]).filter(Boolean);
-  const selectedWaypoints = selection.waypoints.map((i) => map.waypoints[i]).filter(Boolean);
 
   const applyAlign = (mode: AlignmentMode) => {
     const nextMap = alignSelection(map, selection, mode);
     onCommitMutation(`Align selection (${mode})`, nextMap);
-  };
-
-  const applyLinearGradient = () => {
-    const startCol = hexToRgb(gradStartHex, 255);
-    const endCol = hexToRgb(gradEndHex, 255);
-    const targetMap = new Map<number, Set<0 | 1 | 2>>();
-    for (const pi of selection.polygons) {
-      targetMap.set(pi, new Set([0, 1, 2]));
-    }
-    for (const vr of selection.vertices) {
-      const s = targetMap.get(vr.polyIndex) ?? new Set<0 | 1 | 2>();
-      s.add(vr.vertexIndex);
-      targetMap.set(vr.polyIndex, s);
-    }
-    if (targetMap.size === 0 || !selectionSummary.bounds) return;
-
-    const b = selectionSummary.bounds;
-    const spanX = Math.max(1, b.right - b.left);
-    const spanY = Math.max(1, b.bottom - b.top);
-    const nextPolygons = [...map.polygons];
-
-    for (const [pi, vSet] of targetMap.entries()) {
-      const orig = nextPolygons[pi];
-      if (!orig) continue;
-      const nextVerts = orig.vertices.map((v, vi) => {
-        if (!vSet.has(vi as 0 | 1 | 2)) return v;
-        let k = 0;
-        if (gradDir === 'tb') k = (v.y - b.top) / spanY;
-        else if (gradDir === 'bt') k = 1 - (v.y - b.top) / spanY;
-        else if (gradDir === 'lr') k = (v.x - b.left) / spanX;
-        else k = 1 - (v.x - b.left) / spanX;
-        k = Math.max(0, Math.min(1, k));
-        return {
-          ...v,
-          color: {
-            r: Math.round(startCol.r + (endCol.r - startCol.r) * k),
-            g: Math.round(startCol.g + (endCol.g - startCol.g) * k),
-            b: Math.round(startCol.b + (endCol.b - startCol.b) * k),
-            a: v.color.a,
-          },
-        };
-      }) as [PmsVertex, PmsVertex, PmsVertex];
-      // Colour / texture-only edit: keeping `raw` keeps the file's collision normals (see prepareMapForSave)
-      nextPolygons[pi] = { ...orig, vertices: nextVerts };
-    }
-    onCommitMutation('Apply vertex color gradient', { ...map, polygons: nextPolygons });
-  };
-
-  const applyVertexColorToSelection = (nextColor: Partial<RgbaColor>) => {
-    const targetMap = new Map<number, Set<0 | 1 | 2>>();
-    for (const pi of selection.polygons) targetMap.set(pi, new Set([0, 1, 2]));
-    for (const vr of selection.vertices) {
-      const s = targetMap.get(vr.polyIndex) ?? new Set<0 | 1 | 2>();
-      s.add(vr.vertexIndex);
-      targetMap.set(vr.polyIndex, s);
-    }
-    if (targetMap.size === 0) return;
-
-    const nextPolygons = [...map.polygons];
-    for (const [pi, vSet] of targetMap.entries()) {
-      const orig = nextPolygons[pi];
-      if (!orig) continue;
-      const nextVerts = orig.vertices.map((v, vi) => {
-        if (!vSet.has(vi as 0 | 1 | 2)) return v;
-        return {
-          ...v,
-          color: {
-            r: nextColor.r ?? v.color.r,
-            g: nextColor.g ?? v.color.g,
-            b: nextColor.b ?? v.color.b,
-            a: nextColor.a ?? v.color.a,
-          },
-        };
-      }) as [PmsVertex, PmsVertex, PmsVertex];
-      // Colour / texture-only edit: keeping `raw` keeps the file's collision normals (see prepareMapForSave)
-      nextPolygons[pi] = { ...orig, vertices: nextVerts };
-    }
-    onCommitMutation('Set vertex color', { ...map, polygons: nextPolygons }, undefined, 'prop_vcolor');
   };
 
   const insertRectangleHelper = () => {
@@ -393,7 +301,7 @@ const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
             type="button"
             onClick={() => onChangeTab(id)}
             className={`py-2 px-1 flex flex-col items-center justify-center gap-0.5 border-b-2 transition-colors cursor-pointer ${
-              activeTab === id
+              (activeTab === id || (id === 'validation' && activeTab === 'poly_fixer'))
                 ? 'border-cyan-400 text-cyan-200 bg-cyan-500/10'
                 : 'border-transparent text-zinc-400 hover:text-zinc-200'
             }`}
@@ -409,9 +317,13 @@ const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
 
       {/* Tab Content */}
       <div className="flex-1 overflow-y-auto p-3 text-xs space-y-4">
-        {activeTab === 'properties' && (
+        {activeTab === 'properties' && activeTool === 'climb_tunnel' && tunnelPanel}
+        {activeTab === 'properties' && activeTool !== 'climb_tunnel' && (
           <>
             {/* 1. Active Tool Placement / Brush Settings */}
+            {activeTool === 'poly_shape' && <PanelCard title={t('Polygon shapes')}>
+              <PolygonShapeControls value={placement} onChange={onChangePlacement}/>
+            </PanelCard>}
             {(activeTool === 'poly_tri' ||
               activeTool === 'poly_strip' ||
               activeTool === 'poly_fan' ||
@@ -454,8 +366,7 @@ const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-zinc-400 text-[11px]">{t('Vertex color & alpha')}</span>
                   <div className="flex items-center gap-1.5">
-                    <input
-                      type="color"
+                    <EditorColorInput
                       value={rgbToHex(placement.polyColor)}
                       onChange={(e) =>
                         onChangePlacement({
@@ -483,39 +394,15 @@ const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
                   </div>
                 </div>
 
-                {activeTool === 'poly_shape' && (
-                  <div className="grid grid-cols-2 gap-1 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => onChangePlacement({ ...placement, polyShapeMode: 'polygon' })}
-                      className={`py-1 rounded text-[11px] border cursor-pointer ${
-                        placement.polyShapeMode === 'polygon'
-                          ? 'bg-cyan-500/20 text-cyan-200 border-cyan-500/40'
-                          : 'bg-zinc-900 text-zinc-400 border-zinc-800'
-                      }`}
-                    >
-                      {t('Closed Shape')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onChangePlacement({ ...placement, polyShapeMode: 'rect' })}
-                      className={`py-1 rounded text-[11px] border cursor-pointer ${
-                        placement.polyShapeMode === 'rect'
-                          ? 'bg-cyan-500/20 text-cyan-200 border-cyan-500/40'
-                          : 'bg-zinc-900 text-zinc-400 border-zinc-800'
-                      }`}
-                    >
-                      {t('Rectangle Drag')}
-                    </button>
-                  </div>
-                )}
-
                 {activeTool === 'poly_laser' && (
                   <div className="pt-1.5 border-t border-zinc-800/80 space-y-2">
                     <div className="text-[10px] font-semibold text-rose-300 flex items-center gap-1">
                       <Wand2 className="w-3 h-3" />
-                      <span>{t('Laser Freehand Contour [X]')}</span>
+                      <label>{t('Stroke mode')} <select className="bg-zinc-900 p-1" value={placement.strokeMode} onChange={e => onChangePlacement({...placement, strokeMode: e.target.value as 'outline' | 'course'})}>
+                        <option value="outline">{t('Solid outline')}</option><option value="course">{t('Platform route')}</option>
+                      </select></label>
                     </div>
+                    {placement.strokeMode === 'course' ? <CourseControls value={placement.course} onChange={course => onChangePlacement({...placement, course})}/> : <>
                     <label className="flex items-center justify-between gap-2">
                       <span className="text-zinc-400 text-[11px]">
                         {t('Detail tolerance: {d} u', { d: placement.laserDetail })}
@@ -562,7 +449,7 @@ const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
                         className="rounded border-zinc-700 bg-zinc-900 accent-rose-400"
                       />
                       <span>{t('Auto-shade 3D depth on stroke')}</span>
-                    </label>
+                    </label></>}
                   </div>
                 )}
 
@@ -810,15 +697,14 @@ const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
               <PanelCard
                 title={
                   activeTool === 'light'
-                    ? t('Vertex Light Baker [L]')
-                    : t('Vertex Color Brush [C]')
+                    ? t('Vertex Light Baker')
+                    : t('Vertex Color Brush')
                 }
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-zinc-400 text-[11px]">{t('Color & Alpha')}</span>
                   <div className="flex items-center gap-1.5">
-                    <input
-                      type="color"
+                    <EditorColorInput
                       value={rgbToHex(brush.color)}
                       onChange={(e) =>
                         onChangeBrush({ ...brush, color: hexToRgb(e.target.value, brush.color.a) })
@@ -954,7 +840,7 @@ const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
             )}
 
             {activeTool === 'scenery' && (
-              <PanelCard title={t('Scenery Studio [E]')}>
+              <PanelCard title={t('Scenery Studio')}>
                 {/* Edit & Stamp vs Stamp Always */}
                 <div className="grid grid-cols-2 gap-1">
                   <button
@@ -1207,8 +1093,7 @@ const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
                 <div className="pt-2 border-t border-zinc-800/80 space-y-1.5">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] text-zinc-400">{t('Colorize & Atmosphere')}</span>
-                    <input
-                      type="color"
+                    <EditorColorInput
                       value={rgbToHex(placement.sceneryTint)}
                       onChange={(e) =>
                         onChangePlacement({
@@ -1316,7 +1201,7 @@ const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
             )}
 
             {activeTool === 'playtest' && (
-              <PanelCard title={t('Live Soldier Playtest [J]')}>
+              <PanelCard title={t('Live Soldier Playtest')}>
                 <div className="flex items-center gap-2 text-[11px] text-emerald-300">
                   <Gamepad2 className="w-4 h-4 shrink-0" />
                   <span>{t('60 FPS Soldat movement, jetpack & polygon collision sandbox')}</span>
@@ -1404,7 +1289,7 @@ const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
             )}
 
             {activeTool === 'spawn' && (
-              <PanelCard title={t('Spawn / Item Placement [O]')}>
+              <PanelCard title={t('Spawn / Item Placement')}>
                 <label className="space-y-1 block">
                   <span className="text-zinc-400 text-[11px]">{t('Object type (0–16)')}</span>
                   <select
@@ -1425,7 +1310,7 @@ const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
             )}
 
             {activeTool === 'collider' && (
-              <PanelCard title={t('Collider Placement [K]')}>
+              <PanelCard title={t('Collider Placement')}>
                 <label className="flex items-center justify-between gap-2">
                   <span className="text-zinc-400 text-[11px]">{t('Default diameter')}</span>
                   <NumberInput
@@ -1445,7 +1330,7 @@ const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
             )}
 
             {activeTool === 'waypoint' && (
-              <PanelCard title={t('Waypoint Placement [W]')}>
+              <PanelCard title={t('Waypoint Placement')}>
                 <div className="grid grid-cols-2 gap-2">
                   <label className="space-y-1 block">
                     <span className="text-zinc-400 text-[11px]">{t('Bot path')}</span>
@@ -1669,920 +1554,11 @@ const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
               </PanelCard>
             )}
 
-            {/* 3. Selected Polygons / Vertices Inspector */}
-            {(selectedPolys.length > 0 || selection.vertices.length > 0) && (
-              <PanelCard
-                title={
-                  selectedPolys.length > 0
-                    ? t('Polygons ({count})', { count: selectedPolys.length })
-                    : t('Vertices ({count})', { count: selection.vertices.length })
-                }
-              >
-                {selectedPolys.length > 0 && (
-                  <>
-                    {/* Draw order: later polygons are drawn over earlier ones */}
-                    <div className="grid grid-cols-4 gap-1">
-                      {(
-                        [
-                          ['front', t('Bring to front'), <ArrowUpToLine key="f" className="w-3.5 h-3.5" />],
-                          ['forward', t('Step forward'), <ArrowUp key="u" className="w-3.5 h-3.5" />],
-                          ['backward', t('Step backward'), <ArrowDown key="d" className="w-3.5 h-3.5" />],
-                          ['back', t('Send to back'), <ArrowDownToLine key="b" className="w-3.5 h-3.5" />],
-                        ] as const
-                      ).map(([dir, title, icon]) => (
-                        <button
-                          key={dir}
-                          type="button"
-                          onClick={() => onPolygonDrawOrder(dir)}
-                          title={title}
-                          className="py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 flex items-center justify-center cursor-pointer"
-                        >
-                          {icon}
-                        </button>
-                      ))}
-                    </div>
-                    <label className="space-y-1 block">
-                      <span className="text-zinc-400 text-[11px]">{t('Polygon type (0–25)')}</span>
-                      <select
-                        value={selectedPolys.every((o) => o.polyType === selectedPolys[0].polyType) ? selectedPolys[0].polyType : ''}
-                        onChange={(e) => {
-                          const nextType = Number(e.target.value);
-                          const nextPolygons = [...map.polygons];
-                          for (const pi of selection.polygons) {
-                            const orig = nextPolygons[pi];
-                            if (!orig) continue;
-                            nextPolygons[pi] = rebuildPolygonGeometry(
-                              {
-                                ...orig,
-                                polyType: nextType,
-                                bounciness:
-                                  nextType === 18 && orig.bounciness <= 0 ? 1.5 : orig.bounciness,
-                                raw: undefined,
-                              },
-                              { enforceCw: false }
-                            );
-                          }
-                          onCommitMutation('Change polygon type', { ...map, polygons: nextPolygons });
-                        }}
-                        className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-zinc-100"
-                      >
-                        {!selectedPolys.every((o) => o.polyType === selectedPolys[0].polyType) && (
-                          <option value="" disabled>
-                            {t('— mixed —')}
-                          </option>
-                        )}
-                        {Object.values(POLY_TYPES).map((pt) => (
-                          <option key={pt.id} value={pt.id}>
-                            {pt.id}: {polyTypeName(pt)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-
-                    {selectedPolys.some((p) => p.polyType === 18) && (
-                      <label className="flex items-center justify-between gap-2">
-                        <span className="text-zinc-400 text-[11px]">{t('Bounciness')}</span>
-                        <NumberInput
-                          step={0.1}
-                          min={0}
-                          max={20}
-                          value={selectedPolys.find((p) => p.polyType === 18)?.bounciness ?? 1.5}
-                          onChange={(e) => {
-                            const val = Math.max(0, Number(e.target.value));
-                            const nextPolygons = [...map.polygons];
-                            for (const pi of selection.polygons) {
-                              const orig = nextPolygons[pi];
-                              if (!orig || orig.polyType !== 18) continue;
-                              nextPolygons[pi] = rebuildPolygonGeometry(
-                                { ...orig, bounciness: val, raw: undefined },
-                                { enforceCw: false }
-                              );
-                            }
-                            onCommitMutation('Set polygon bounciness', {
-                              ...map,
-                              polygons: nextPolygons,
-                            });
-                          }}
-                          className="w-24 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 font-mono text-zinc-100"
-                        />
-                      </label>
-                    )}
-                  </>
-                )}
-
-                {/* Vertex Color & Alpha */}
-                {(() => {
-                  const sampleVert =
-                    selectedPolys[0]?.vertices[0] ??
-                    (selection.vertices[0]
-                      ? map.polygons[selection.vertices[0].polyIndex]?.vertices[
-                          selection.vertices[0].vertexIndex
-                        ]
-                      : null);
-                  if (!sampleVert) return null;
-                  return (
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-zinc-400 text-[11px]">{t('Vertex color & alpha')}</span>
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          type="color"
-                          value={rgbToHex(sampleVert.color)}
-                          onChange={(e) => {
-                            const rgb = hexToRgb(e.target.value, sampleVert.color.a);
-                            applyVertexColorToSelection({ r: rgb.r, g: rgb.g, b: rgb.b });
-                          }}
-                          className="w-7 h-6 rounded bg-transparent cursor-pointer"
-                        />
-                        <NumberInput
-                          min={0}
-                          max={255}
-                          value={sampleVert.color.a}
-                          onChange={(e) =>
-                            applyVertexColorToSelection({
-                              a: Math.max(0, Math.min(255, Number(e.target.value))),
-                            })
-                          }
-                          className="w-16 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-1 font-mono text-zinc-100"
-                        />
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Linear Gradient */}
-                <div className="pt-2 border-t border-zinc-800/80 space-y-1.5">
-                  <div className="text-[10px] font-semibold text-zinc-400">
-                    {t('Linear Vertex Gradient')}
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="color"
-                      value={gradStartHex}
-                      onChange={(e) => setGradStartHex(e.target.value)}
-                      className="w-6 h-6 rounded bg-transparent cursor-pointer"
-                    />
-                    <span className="text-zinc-500">→</span>
-                    <input
-                      type="color"
-                      value={gradEndHex}
-                      onChange={(e) => setGradEndHex(e.target.value)}
-                      className="w-6 h-6 rounded bg-transparent cursor-pointer"
-                    />
-                    <select
-                      value={gradDir}
-                      onChange={(e) => setGradDir(e.target.value as 'tb' | 'bt' | 'lr' | 'rl')}
-                      className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-1 text-[11px] text-zinc-100"
-                    >
-                      <option value="tb">{t('Top → Bottom')}</option>
-                      <option value="bt">{t('Bottom → Top')}</option>
-                      <option value="lr">{t('Left → Right')}</option>
-                      <option value="rl">{t('Right → Left')}</option>
-                    </select>
-                    <button
-                      type="button"
-                      onClick={applyLinearGradient}
-                      className="px-2 py-1 rounded bg-cyan-600/25 hover:bg-cyan-600/40 border border-cyan-500/40 text-cyan-100 font-semibold cursor-pointer"
-                    >
-                      {t('Apply')}
-                    </button>
-                  </div>
-                </div>
-
-                {/* UV & Winding Tools */}
-                {selectedPolys.length > 0 && (
-                  <div className="pt-2 border-t border-zinc-800/80 space-y-1.5">
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <button
-                        type="button"
-                        onClick={onResetPolygonUv}
-                        className="py-1 px-2 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] cursor-pointer"
-                      >
-                        {t('World-align UVs')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={onFlipPolygonWinding}
-                        className="py-1 px-2 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] cursor-pointer"
-                      >
-                        {t('Make clockwise')}
-                      </button>
-                    </div>
-
-                    {selectedPolys.length === 1 && (
-                      <div className="space-y-1 pt-1">
-                        <div className="text-[10px] text-zinc-500">
-                          {t('Per-vertex UV coordinates')}
-                        </div>
-                        {selectedPolys[0].vertices.map((vert, vi) => (
-                          <div key={vi} className="grid grid-cols-5 items-center gap-1 font-mono text-[10px]">
-                            <span className="text-zinc-500">V{vi + 1}</span>
-                            <NumberInput
-                              step={0.05}
-                              value={Number(vert.u.toFixed(3))}
-                              onChange={(e) => {
-                                const pi = selection.polygons[0];
-                                const poly = map.polygons[pi];
-                                const nextVerts = [...poly.vertices] as [PmsVertex, PmsVertex, PmsVertex];
-                                nextVerts[vi] = { ...vert, u: Number(e.target.value) };
-                                const nextPolys = [...map.polygons];
-                                nextPolys[pi] = { ...poly, vertices: nextVerts }; // keeps the collision record
-                                onCommitMutation('Edit vertex UV', { ...map, polygons: nextPolys });
-                              }}
-                              className="col-span-2 bg-zinc-900 border border-zinc-700 rounded px-1 py-0.5 text-zinc-100"
-                            />
-                            <NumberInput
-                              step={0.05}
-                              value={Number(vert.v.toFixed(3))}
-                              onChange={(e) => {
-                                const pi = selection.polygons[0];
-                                const poly = map.polygons[pi];
-                                const nextVerts = [...poly.vertices] as [PmsVertex, PmsVertex, PmsVertex];
-                                nextVerts[vi] = { ...vert, v: Number(e.target.value) };
-                                const nextPolys = [...map.polygons];
-                                nextPolys[pi] = { ...poly, vertices: nextVerts }; // keeps the collision record
-                                onCommitMutation('Edit vertex UV', { ...map, polygons: nextPolys });
-                              }}
-                              className="col-span-2 bg-zinc-900 border border-zinc-700 rounded px-1 py-0.5 text-zinc-100"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </PanelCard>
-            )}
-
-            {/* 4. Selected Sceneries (Props) Inspector */}
-            {selectedProps.length > 0 && (
-              <PanelCard title={t('Sceneries ({count})', { count: selectedProps.length })}>
-                {/* Draw Order */}
-                <div className="grid grid-cols-4 gap-1">
-                  <button
-                    type="button"
-                    onClick={() => onPropDrawOrder('front')}
-                    title={t('Bring to front')}
-                    className="py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 flex items-center justify-center cursor-pointer"
-                  >
-                    <ArrowUpToLine className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onPropDrawOrder('forward')}
-                    title={t('Step forward')}
-                    className="py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 flex items-center justify-center cursor-pointer"
-                  >
-                    <ArrowUp className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onPropDrawOrder('backward')}
-                    title={t('Step backward')}
-                    className="py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 flex items-center justify-center cursor-pointer"
-                  >
-                    <ArrowDown className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onPropDrawOrder('back')}
-                    title={t('Send to back')}
-                    className="py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 flex items-center justify-center cursor-pointer"
-                  >
-                    <ArrowDownToLine className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                {/* Scenery File */}
-                <label className="space-y-1 block">
-                  <span className="text-zinc-400 text-[11px]">{t('Image file')}</span>
-                  <CommitTextInput
-                    list="sms-editor-sceneries"
-                    value={map.scenery[selectedProps[0].style - 1]?.filename ?? ''}
-                    onChange={(e) => {
-                      const val = e.target.value.trim();
-                      if (!val) return;
-                      const ensured = ensureSceneryEntry(map.scenery, val);
-                      const nextProps = [...map.props];
-                      for (const idx of selection.props) {
-                        const orig = nextProps[idx];
-                        if (!orig) continue;
-                        const { raw: _raw, ...rest } = orig;
-                        nextProps[idx] = { ...rest, style: ensured.style };
-                      }
-                      onCommitMutation('Change scenery image', {
-                        ...map,
-                        scenery: ensured.scenery,
-                        props: nextProps,
-                      });
-                    }}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 font-mono text-zinc-100"
-                  />
-                </label>
-
-                {/* Layer Level 0 / 1 / 2 */}
-                <div className="grid grid-cols-3 gap-1">
-                  {(
-                    [
-                      [0, t('Back (0)')],
-                      [1, t('Mid (1)')],
-                      [2, t('Front (2)')],
-                    ] as const
-                  ).map(([lvl, lbl]) => (
-                    <button
-                      key={lvl}
-                      type="button"
-                      onClick={() => {
-                        const nextProps = [...map.props];
-                        for (const idx of selection.props) {
-                          const orig = nextProps[idx];
-                          if (!orig) continue;
-                          const { raw: _raw, ...rest } = orig;
-                          nextProps[idx] = { ...rest, level: lvl };
-                        }
-                        onCommitMutation('Change scenery layer', { ...map, props: nextProps });
-                      }}
-                      className={`py-1 rounded text-[11px] border cursor-pointer ${
-                        selectedProps[0].level === lvl
-                          ? 'bg-cyan-500/20 text-cyan-200 border-cyan-500/40'
-                          : 'bg-zinc-900 text-zinc-400 border-zinc-800'
-                      }`}
-                    >
-                      {lbl}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Stretched World Dimensions (Single or Multi Prop) */}
-                {selectedProps.length === 1 && (
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between text-[10px] text-zinc-400">
-                      <span>{t('Stretched size (W × H u)')}</span>
-                      <span className="font-mono text-zinc-500">
-                        {selectedProps[0].width}×{selectedProps[0].height} px
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <NumberInput
-                        min={2}
-                        step={1}
-                        value={Math.max(
-                          1,
-                          Math.round(Math.abs(selectedProps[0].width * selectedProps[0].scaleX))
-                        )}
-                        onChange={(e) => {
-                          const targetW = Math.max(2, Number(e.target.value) || 2);
-                          const idx = selection.props[0];
-                          const p = map.props[idx];
-                          if (!p) return;
-                          const baseW = Math.max(1, p.width);
-                          const signX = p.scaleX < 0 ? -1 : 1;
-                          const nextSx = (targetW / baseW) * signX;
-                          const oldCenter = computePropQuadCenter(p);
-                          const { raw: _raw, ...rest } = p;
-                          const updated: PmsProp = { ...rest, scaleX: nextSx };
-                          const newCenter = computePropQuadCenter(updated);
-                          const nextProps = [...map.props];
-                          nextProps[idx] = {
-                            ...updated,
-                            x: p.x + (oldCenter.x - newCenter.x),
-                            y: p.y + (oldCenter.y - newCenter.y),
-                          };
-                          onCommitMutation(
-                            'Stretch scenery',
-                            { ...map, props: nextProps },
-                            undefined,
-                            'prop_stretch_w'
-                          );
-                        }}
-                        className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 font-mono text-zinc-100"
-                      />
-                      <span className="text-zinc-500">×</span>
-                      <NumberInput
-                        min={2}
-                        step={1}
-                        value={Math.max(
-                          1,
-                          Math.round(Math.abs(selectedProps[0].height * selectedProps[0].scaleY))
-                        )}
-                        onChange={(e) => {
-                          const targetH = Math.max(2, Number(e.target.value) || 2);
-                          const idx = selection.props[0];
-                          const p = map.props[idx];
-                          if (!p) return;
-                          const baseH = Math.max(1, p.height);
-                          const signY = p.scaleY < 0 ? -1 : 1;
-                          const nextSy = (targetH / baseH) * signY;
-                          const oldCenter = computePropQuadCenter(p);
-                          const { raw: _raw, ...rest } = p;
-                          const updated: PmsProp = { ...rest, scaleY: nextSy };
-                          const newCenter = computePropQuadCenter(updated);
-                          const nextProps = [...map.props];
-                          nextProps[idx] = {
-                            ...updated,
-                            x: p.x + (oldCenter.x - newCenter.x),
-                            y: p.y + (oldCenter.y - newCenter.y),
-                          };
-                          onCommitMutation(
-                            'Stretch scenery',
-                            { ...map, props: nextProps },
-                            undefined,
-                            'prop_stretch_h'
-                          );
-                        }}
-                        className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 font-mono text-zinc-100"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <SceneryScaleTools map={map} indices={selection.props} onCommit={onCommitMutation} />
-
-                {/* Rotation & Opacity Sliders */}
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-zinc-400 w-14 shrink-0">
-                      {t('Rotation (°)')}
-                    </span>
-                    <input
-                      type="range"
-                      min={-180}
-                      max={180}
-                      step={1}
-                      value={Math.max(
-                        -180,
-                        Math.min(180, Math.round((-selectedProps[0].rotation * 180) / Math.PI))
-                      )}
-                      onChange={(e) => {
-                        const deg = Number(e.target.value) || 0;
-                        const rad = (-deg * Math.PI) / 180;
-                        const nextProps = [...map.props];
-                        for (const idx of selection.props) {
-                          const p = nextProps[idx];
-                          if (!p) continue;
-                          const oldCenter = computePropQuadCenter(p);
-                          const { raw: _raw, ...rest } = p;
-                          const updated: PmsProp = { ...rest, rotation: rad };
-                          const newCenter = computePropQuadCenter(updated);
-                          nextProps[idx] = {
-                            ...updated,
-                            x: p.x + (oldCenter.x - newCenter.x),
-                            y: p.y + (oldCenter.y - newCenter.y),
-                          };
-                        }
-                        onCommitMutation(
-                          'Set scenery rotation',
-                          { ...map, props: nextProps },
-                          undefined,
-                          'prop_rot'
-                        );
-                      }}
-                      className="flex-1 accent-cyan-400"
-                    />
-                    <NumberInput
-                      step={1}
-                      value={Number(((-selectedProps[0].rotation * 180) / Math.PI).toFixed(1))}
-                      onChange={(e) => {
-                        const deg = Number(e.target.value) || 0;
-                        const rad = (-deg * Math.PI) / 180;
-                        const nextProps = [...map.props];
-                        for (const idx of selection.props) {
-                          const p = nextProps[idx];
-                          if (!p) continue;
-                          const oldCenter = computePropQuadCenter(p);
-                          const { raw: _raw, ...rest } = p;
-                          const updated: PmsProp = { ...rest, rotation: rad };
-                          const newCenter = computePropQuadCenter(updated);
-                          nextProps[idx] = {
-                            ...updated,
-                            x: p.x + (oldCenter.x - newCenter.x),
-                            y: p.y + (oldCenter.y - newCenter.y),
-                          };
-                        }
-                        onCommitMutation('Set scenery rotation', { ...map, props: nextProps });
-                      }}
-                      className="w-16 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 font-mono text-[11px] text-zinc-100"
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-zinc-400 w-14 shrink-0">
-                      {t('Opacity ({pct}%)', {
-                        pct: Math.round((selectedProps[0].alpha / 255) * 100),
-                      })}
-                    </span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={255}
-                      value={selectedProps[0].alpha}
-                      onChange={(e) => {
-                        const a = Math.max(0, Math.min(255, Math.round(Number(e.target.value))));
-                        const nextProps = [...map.props];
-                        for (const idx of selection.props) {
-                          const p = nextProps[idx];
-                          if (!p) continue;
-                          const { raw: _raw, ...rest } = p;
-                          nextProps[idx] = { ...rest, alpha: a };
-                        }
-                        onCommitMutation(
-                          'Set scenery opacity',
-                          { ...map, props: nextProps },
-                          undefined,
-                          'prop_alpha'
-                        );
-                      }}
-                      className="flex-1 accent-cyan-400"
-                    />
-                    <NumberInput
-                      min={0}
-                      max={255}
-                      value={selectedProps[0].alpha}
-                      onChange={(e) => {
-                        const a = Math.max(0, Math.min(255, Math.round(Number(e.target.value))));
-                        const nextProps = [...map.props];
-                        for (const idx of selection.props) {
-                          const p = nextProps[idx];
-                          if (!p) continue;
-                          const { raw: _raw, ...rest } = p;
-                          nextProps[idx] = { ...rest, alpha: a };
-                        }
-                        onCommitMutation('Set scenery opacity', { ...map, props: nextProps });
-                      }}
-                      className="w-16 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 font-mono text-[11px] text-zinc-100"
-                    />
-                  </div>
-                </div>
-
-                {/* Flip X / Flip Y & Reset Image Size */}
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const nextProps = [...map.props];
-                      for (const idx of selection.props) {
-                        const p = nextProps[idx];
-                        if (!p) continue;
-                        const oldCenter = computePropQuadCenter(p);
-                        const { raw: _raw, ...rest } = p;
-                        const flipped: PmsProp = { ...rest, scaleX: -p.scaleX };
-                        const newCenter = computePropQuadCenter(flipped);
-                        nextProps[idx] = {
-                          ...flipped,
-                          x: p.x + (oldCenter.x - newCenter.x),
-                          y: p.y + (oldCenter.y - newCenter.y),
-                        };
-                      }
-                      onCommitMutation('Flip scenery X', { ...map, props: nextProps });
-                    }}
-                    className="flex-1 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] cursor-pointer"
-                  >
-                    {t('Flip X')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const nextProps = [...map.props];
-                      for (const idx of selection.props) {
-                        const p = nextProps[idx];
-                        if (!p) continue;
-                        const oldCenter = computePropQuadCenter(p);
-                        const { raw: _raw, ...rest } = p;
-                        const flipped: PmsProp = { ...rest, scaleY: -p.scaleY };
-                        const newCenter = computePropQuadCenter(flipped);
-                        nextProps[idx] = {
-                          ...flipped,
-                          x: p.x + (oldCenter.x - newCenter.x),
-                          y: p.y + (oldCenter.y - newCenter.y),
-                        };
-                      }
-                      onCommitMutation('Flip scenery Y', { ...map, props: nextProps });
-                    }}
-                    className="flex-1 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] cursor-pointer"
-                  >
-                    {t('Flip Y')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const nextProps = [...map.props];
-                      let changed = false;
-                      for (const idx of selection.props) {
-                        const p = nextProps[idx];
-                        const scName = map.scenery[p?.style - 1]?.filename;
-                        if (!p || !scName) continue;
-                        const img = await loadSoldatAssetImage(
-                          'scenery-gfx',
-                          scName,
-                          true,
-                          preferClassicBmp
-                        );
-                        if (img && img.width > 0 && img.height > 0) {
-                          const { raw: _raw, ...rest } = p;
-                          nextProps[idx] = { ...rest, width: img.width, height: img.height };
-                          changed = true;
-                        }
-                      }
-                      if (changed) {
-                        onCommitMutation('Reset scenery image size', { ...map, props: nextProps });
-                      }
-                    }}
-                    title={t('Reset PMS width & height to image dimensions')}
-                    className="p-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 cursor-pointer"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                {/* Colorize & Atmosphere Presets */}
-                <div className="pt-2 border-t border-zinc-800/80 space-y-1.5">
-                  <SceneryColorTools map={map} indices={selection.props} onCommit={onCommitMutation} />
-                  <SceneryGradientTools map={map} indices={selection.props} onCommit={onCommitMutation} />
-                  <SceneryVariationTools map={map} indices={selection.props} onCommit={onCommitMutation} />
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const p = selectedProps[0];
-                      const scFile = map.scenery[p.style - 1]?.filename ?? placement.sceneryFilename;
-                      onChangePlacement({
-                        ...placement,
-                        sceneryFilename: scFile,
-                        sceneryLevel: (p.level === 0 || p.level === 1 || p.level === 2
-                          ? p.level
-                          : 1) as 0 | 1 | 2,
-                        sceneryScaleX: p.scaleX,
-                        sceneryScaleY: p.scaleY,
-                        sceneryRotationDeg: Number(((-p.rotation * 180) / Math.PI).toFixed(1)),
-                        sceneryAlpha: p.alpha,
-                        sceneryTint: { ...p.color, a: 255 },
-                      });
-                    }}
-                    className="w-full py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[10px] font-medium cursor-pointer"
-                  >
-                    {t('Copy Style to Scenery Stamp [E]')}
-                  </button>
-                </div>
-              </PanelCard>
-            )}
-
-            {/* 5. Selected Spawns Inspector */}
-            {selectedSpawns.length > 0 && (
-              <PanelCard title={t('Spawn Points ({count})', { count: selectedSpawns.length })}>
-                <label className="space-y-1 block">
-                  <span className="text-zinc-400 text-[11px]">{t('Spawn / Item type (0–16)')}</span>
-                  <select
-                    value={selectedSpawns.every((o) => o.team === selectedSpawns[0].team) ? selectedSpawns[0].team : ''}
-                    onChange={(e) => {
-                      const nextTeam = Number(e.target.value);
-                      const nextSpawns = [...map.spawnpoints];
-                      for (const idx of selection.spawns) {
-                        const sp = nextSpawns[idx];
-                        if (!sp) continue;
-                        const { raw: _raw, ...rest } = sp;
-                        nextSpawns[idx] = { ...rest, team: nextTeam };
-                      }
-                      onCommitMutation('Change spawn type', { ...map, spawnpoints: nextSpawns });
-                    }}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-zinc-100"
-                  >
-                    {!selectedSpawns.every((o) => o.team === selectedSpawns[0].team) && (
-                      <option value="" disabled>
-                        {t('— mixed —')}
-                      </option>
-                    )}
-                    {Object.values(SPAWN_TYPES).map((sp) => (
-                      <option key={sp.team} value={sp.team}>
-                        {sp.team}: {spawnTypeName(sp)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                {selectedSpawns.length === 1 && (
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="space-y-0.5 block">
-                      <span className="text-[10px] text-zinc-400">X</span>
-                      <NumberInput
-                        value={selectedSpawns[0].x}
-                        onChange={(e) => {
-                          const idx = selection.spawns[0];
-                          const nextSpawns = [...map.spawnpoints];
-                          const { raw: _raw, ...rest } = nextSpawns[idx];
-                          nextSpawns[idx] = { ...rest, x: Math.round(Number(e.target.value)) };
-                          onCommitMutation('Move spawn point', { ...map, spawnpoints: nextSpawns });
-                        }}
-                        className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 font-mono text-zinc-100"
-                      />
-                    </label>
-                    <label className="space-y-0.5 block">
-                      <span className="text-[10px] text-zinc-400">Y</span>
-                      <NumberInput
-                        value={selectedSpawns[0].y}
-                        onChange={(e) => {
-                          const idx = selection.spawns[0];
-                          const nextSpawns = [...map.spawnpoints];
-                          const { raw: _raw, ...rest } = nextSpawns[idx];
-                          nextSpawns[idx] = { ...rest, y: Math.round(Number(e.target.value)) };
-                          onCommitMutation('Move spawn point', { ...map, spawnpoints: nextSpawns });
-                        }}
-                        className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 font-mono text-zinc-100"
-                      />
-                    </label>
-                  </div>
-                )}
-              </PanelCard>
-            )}
-
-            {/* 6. Selected Colliders Inspector */}
-            {selectedColliders.length > 0 && (
-              <PanelCard title={t('Colliders ({count})', { count: selectedColliders.length })}>
-                <label className="flex items-center justify-between gap-2">
-                  <span className="text-zinc-400 text-[11px]">{t('Diameter (PMS radius)')}</span>
-                  <NumberInput
-                    min={2}
-                    max={2000}
-                    value={Math.round(selectedColliders[0].radius)}
-                    onChange={(e) => {
-                      const d = Math.max(2, Number(e.target.value));
-                      const nextCols = [...map.colliders];
-                      for (const idx of selection.colliders) {
-                        const col = nextCols[idx];
-                        if (!col) continue;
-                        const { raw: _raw, ...rest } = col;
-                        nextCols[idx] = { ...rest, radius: d };
-                      }
-                      onCommitMutation('Resize collider', { ...map, colliders: nextCols });
-                    }}
-                    className="w-24 bg-zinc-900 border border-zinc-700 rounded px-2 py-1 font-mono text-zinc-100"
-                  />
-                </label>
-                <div className="bg-zinc-900/70 rounded p-2 text-[10px] font-mono text-zinc-400 space-y-0.5">
-                  <div>
-                    {t('Player collision radius (d/2):')}{' '}
-                    <span className="text-cyan-300">
-                      {(selectedColliders[0].radius * 0.5).toFixed(1)} u
-                    </span>
-                  </div>
-                  <div>
-                    {t('Bullet collision radius (d/1.7):')}{' '}
-                    <span className="text-amber-300">
-                      {(selectedColliders[0].radius / 1.7).toFixed(1)} u
-                    </span>
-                  </div>
-                </div>
-              </PanelCard>
-            )}
-
-            {/* 7. Selected Waypoints Inspector */}
-            {selectedWaypoints.length > 0 && (
-              <PanelCard title={t('Bot Waypoints ({count})', { count: selectedWaypoints.length })}>
-                <div className="grid grid-cols-2 gap-2">
-                  <label className="space-y-0.5 block">
-                    <span className="text-[10px] text-zinc-400">{t('Bot path')}</span>
-                    <select
-                      value={selectedWaypoints.every((o) => o.pathNum === selectedWaypoints[0].pathNum) ? selectedWaypoints[0].pathNum : ''}
-                      onChange={(e) => {
-                        const pn = Number(e.target.value);
-                        const nextWps = [...map.waypoints];
-                        for (const idx of selection.waypoints) {
-                          const wp = nextWps[idx];
-                          if (!wp) continue;
-                          const { raw: _raw, ...rest } = wp;
-                          nextWps[idx] = { ...rest, pathNum: pn };
-                        }
-                        onCommitMutation('Change waypoint path', { ...map, waypoints: nextWps });
-                      }}
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-zinc-100"
-                    >
-                      {!selectedWaypoints.every((o) => o.pathNum === selectedWaypoints[0].pathNum) && (
-                        <option value="" disabled>
-                          {t('— mixed —')}
-                        </option>
-                      )}
-                      <option value={1}>{t('Path 1 (Alpha)')}</option>
-                      <option value={2}>{t('Path 2 (Bravo)')}</option>
-                    </select>
-                  </label>
-                  <label className="space-y-0.5 block">
-                    <span className="text-[10px] text-zinc-400">{t('Special action')}</span>
-                    <select
-                      value={selectedWaypoints.every((o) => o.action === selectedWaypoints[0].action) ? selectedWaypoints[0].action : ''}
-                      onChange={(e) => {
-                        const act = Number(e.target.value);
-                        const nextWps = [...map.waypoints];
-                        for (const idx of selection.waypoints) {
-                          const wp = nextWps[idx];
-                          if (!wp) continue;
-                          const { raw: _raw, ...rest } = wp;
-                          nextWps[idx] = { ...rest, action: act };
-                        }
-                        onCommitMutation('Change waypoint action', { ...map, waypoints: nextWps });
-                      }}
-                      className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-zinc-100"
-                    >
-                      {!selectedWaypoints.every((o) => o.action === selectedWaypoints[0].action) && (
-                        <option value="" disabled>
-                          {t('— mixed —')}
-                        </option>
-                      )}
-                      {Object.entries(WAYPOINT_ACTION_NAMES_EN).map(([id, name]) => (
-                        <option key={id} value={Number(id)}>
-                          {id}: {t(name)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                {/* Movement Flags */}
-                <div className="grid grid-cols-3 gap-1.5 pt-1">
-                  {(
-                    [
-                      ['left', t('Left')],
-                      ['right', t('Right')],
-                      ['up', t('Jump / Up')],
-                      ['down', t('Crouch')],
-                      ['jetpack', t('Jetpack')],
-                    ] as const
-                  ).map(([flag, label]) => (
-                    <label
-                      key={flag}
-                      className="flex items-center gap-1.5 text-[11px] text-zinc-300 cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={Boolean(selectedWaypoints[0][flag])}
-                        onChange={(e) => {
-                          const val = e.target.checked;
-                          const nextWps = [...map.waypoints];
-                          for (const idx of selection.waypoints) {
-                            const wp = nextWps[idx];
-                            if (!wp) continue;
-                            const { raw: _raw, ...rest } = wp;
-                            nextWps[idx] = { ...rest, [flag]: val };
-                          }
-                          onCommitMutation(`Set waypoint ${flag}`, { ...map, waypoints: nextWps });
-                        }}
-                        className="rounded border-zinc-700 bg-zinc-900 accent-cyan-400"
-                      />
-                      <span>{label}</span>
-                    </label>
-                  ))}
-                </div>
-
-                {/* Outgoing Connections */}
-                {selectedWaypoints.length === 1 && (
-                  <div className="pt-1.5 border-t border-zinc-800/80 space-y-1">
-                    <div className="text-[10px] text-zinc-400">
-                      {t('Connections ({count}/20) — Shift+Click in [W] tool to link', {
-                        count: selectedWaypoints[0].connections.length,
-                      })}
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {selectedWaypoints[0].connections.map((connOneBased) => (
-                        <span
-                          key={connOneBased}
-                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-700 font-mono text-[10px] text-amber-200"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const targetWp = map.waypoints[connOneBased - 1];
-                              if (targetWp) {
-                                onFocusBounds({
-                                  left: targetWp.x - 60,
-                                  right: targetWp.x + 60,
-                                  top: targetWp.y - 60,
-                                  bottom: targetWp.y + 60,
-                                });
-                              }
-                            }}
-                            className="hover:underline cursor-pointer"
-                          >
-                            → #{connOneBased}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const nextMap = toggleWaypointConnection(
-                                map,
-                                selection.waypoints[0],
-                                connOneBased - 1,
-                                false
-                              );
-                              onCommitMutation('Disconnect waypoint', nextMap);
-                            }}
-                            className="text-zinc-500 hover:text-red-300 cursor-pointer"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </PanelCard>
-            )}
+            <PolygonInspector snapshot={snapshot} colors={colors} onCommitMutation={onCommitMutation}
+              onPolygonDrawOrder={onPolygonDrawOrder} onResetPolygonUv={onResetPolygonUv} onFlipPolygonWinding={onFlipPolygonWinding}/>
+            <SceneryInspector snapshot={snapshot} placement={placement} onChangePlacement={onChangePlacement}
+              preferClassicBmp={preferClassicBmp} onPropDrawOrder={onPropDrawOrder} onCommitMutation={onCommitMutation}/>
+            <EntityInspector snapshot={snapshot} onFocusBounds={onFocusBounds} onCommitMutation={onCommitMutation}/>
 
             {selectionSummary.totalObjects === 0 && selection.vertices.length === 0 && (
               <div className="text-center text-zinc-500 text-[11px] py-6">
@@ -2638,8 +1614,7 @@ const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
                 <span className="text-zinc-400 text-[11px] block">{t('Sky background gradient')}</span>
                 <div className="flex items-center gap-2">
                   <label className="flex-1 flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded p-1.5">
-                    <input
-                      type="color"
+                    <EditorColorInput
                       value={rgbToHex(map.bgColorTop)}
                       onChange={(e) =>
                         onUpdateHeader({ bgColorTop: hexToRgb(e.target.value, 255) }, 'header_sky_top')
@@ -2659,8 +1634,7 @@ const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
                     ⇄
                   </button>
                   <label className="flex-1 flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded p-1.5">
-                    <input
-                      type="color"
+                    <EditorColorInput
                       value={rgbToHex(map.bgColorBtm)}
                       onChange={(e) =>
                         onUpdateHeader({ bgColorBtm: hexToRgb(e.target.value, 255) }, 'header_sky_bottom')
@@ -2762,8 +1736,14 @@ const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
           </div>
         )}
 
+        {activeTab === 'poly_fixer' && (
+          <PolyFixerPanel key={snapshot.draftId} map={map} onCommit={onCommitMutation} onSelect={onUpdateSelection}
+            onFrame={onFocusBounds} onMark={onSetValidationFocus}/>
+        )}
         {activeTab === 'validation' && (
           <EditorChecksPanel
+            onOpenPolyFixer={() => onChangeTab('poly_fixer')}
+            onRemoveUnusedScenery={onRemoveUnusedScenery}
             issues={validationIssues}
             pending={validationPending}
             hintsEnabled={validationHintsEnabled}
@@ -2830,13 +1810,6 @@ const EditorRightDockPanel: React.FC<EditorRightDockProps> = ({
     </aside>
   );
 };
-
-const PanelCard: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <div className="bg-zinc-950/75 border border-zinc-800/90 rounded-lg p-2.5 space-y-2.5">
-    <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">{title}</div>
-    {children}
-  </div>
-);
 
 // Skips the many re-renders caused by pointer movement (see memoIgnoringCallbacks)
 export const EditorRightDock = memoIgnoringCallbacks(EditorRightDockPanel);

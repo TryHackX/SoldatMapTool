@@ -2,6 +2,8 @@ import type { PlDictionary } from './types';
 
 // Map browser: list / grid, search, category sidebar, prefix studio, error fallback, map data loading
 export const BROWSER_PL: PlDictionary = {
+  'draft map name':'nazwa mapy sugeruje wersję roboczą',
+  'uses scenery with a draft name':'używa scenerii o nazwie roboczej',
   // Search cheat sheet (MapBrowserPanel) — the example tokens stay as they are
   'more than 300 sceneries (also polys, colliders, spawns, w, h, kb)':
     'więcej niż 300 scenerii (także polys, colliders, spawns, w, h, kb)',
@@ -26,7 +28,7 @@ export const BROWSER_PL: PlDictionary = {
   'Add to pack (Shift+click = range)': 'Dodaj do paczki (Shift+Klik = zakres)',
   'Missing graphics files: {n}': 'Brakuje {n} plików graficznych!',
   'Missing assets: {n}': 'Brakuje {n} assetów',
-  'Found {n} maps with an identical CRC32 checksum': 'Wykryto {n} map o identycznej sumie CRC32',
+  'Found {n} copies with matching map and artwork content': 'Wykryto {n} kopii o zgodnej zawartości mapy i grafik',
   "The map exceeds Soldat engine limits (e.g. > 500 sceneries) and won't load in game":
     'Mapa przekracza limity silnika Soldat (np. > 500 scenerii) i nie wczyta się w grze',
   'The PMS file is partially damaged': 'Plik PMS jest częściowo uszkodzony',
@@ -62,7 +64,7 @@ export const BROWSER_PL: PlDictionary = {
   'Custom maps': 'Mapy Customowe',
   'Default (vanilla)': 'Domyślne (Vanilla)',
   'Missing files': 'Brakujące pliki',
-  'CRC32 duplicates': 'Duplikaty CRC32',
+  'Verified duplicates': 'Potwierdzone duplikaty',
   "Won't load in game": 'Nie wczytają się w grze',
   Favorites: 'Ulubione',
   'Selected for pack': 'Wybrane do paczki',

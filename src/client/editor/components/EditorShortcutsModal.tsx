@@ -1,3 +1,4 @@
+import { allowedKeys, assignKey, defaultKeys, saveToolKeys, useToolKeys } from '../shortcutBindings';
 import React from 'react';
 import { Keyboard, X } from 'lucide-react';
 import { t } from '../../i18n';
@@ -8,8 +9,8 @@ const GROUPS: ReadonlyArray<{ titleEn: string; rows: ReadonlyArray<[string, stri
   {
     titleEn: 'File & history',
     rows: [
-      ['Ctrl+S', 'Save (again to the same file after the first save)'],
-      ['Ctrl+Shift+S', 'Save as…'],
+      ['Ctrl+S', 'Save the project or current PMS map'],
+      ['Ctrl+Shift+S', 'Export .pms'],
       ['Ctrl+Z / Ctrl+Y', 'Undo / Redo'],
       ['Ctrl+K', 'Command palette'],
       ['?  /  F1', 'This list'],
@@ -23,6 +24,7 @@ const GROUPS: ReadonlyArray<{ titleEn: string; rows: ReadonlyArray<[string, stri
       ['Ctrl+A', 'Select all'],
       ['Ctrl+Shift+A', 'Select similar (same image, type, path…)'],
       ['Ctrl+I', 'Invert selection'],
+      ['Backspace', 'Remove last drawing point'],
       ['Esc', 'Cancel the drawing or clear the selection'],
     ],
   },
@@ -46,7 +48,7 @@ const GROUPS: ReadonlyArray<{ titleEn: string; rows: ReadonlyArray<[string, stri
       ['Space+drag, middle button', 'Pan'],
       ['Shift+F', 'Zoom to the selection'],
       ['Home', 'Zoom to the whole map'],
-      ['Tab', 'Hide / show the side panels'],
+      ['F4', 'Hide / show the side panels'],
       ['G', 'Snap to grid on / off'],
     ],
   },
@@ -55,6 +57,7 @@ const GROUPS: ReadonlyArray<{ titleEn: string; rows: ReadonlyArray<[string, stri
 /** Every editor shortcut in one place (opened with ? or F1) */
 export const EditorShortcutsModal: React.FC<{ open: boolean; onClose: () => void }> = ({ open, onClose }) => {
   const backdropProps = useModalDismiss(open, onClose);
+  const keys = useToolKeys();
   if (!open) return null;
   const kbd = (k: string) => (
     <kbd className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-zinc-950 border border-zinc-700 text-zinc-200 whitespace-nowrap">
@@ -62,7 +65,7 @@ export const EditorShortcutsModal: React.FC<{ open: boolean; onClose: () => void
     </kbd>
   );
   return (
-    <div {...backdropProps} className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+    <div {...backdropProps} aria-label={t('Keyboard shortcuts')} className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="w-full max-w-4xl max-h-[85vh] overflow-y-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl">
         <div className="px-5 py-3 border-b border-zinc-800 flex items-center justify-between sticky top-0 bg-zinc-900">
           <h2 className="text-sm font-bold text-zinc-100 flex items-center gap-2">
@@ -76,12 +79,17 @@ export const EditorShortcutsModal: React.FC<{ open: boolean; onClose: () => void
         <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-5 text-xs">
           <section className="space-y-1.5">
             <h3 className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">{t('Tools')}</h3>
+            <p className="text-zinc-400">{t('Choosing an assigned letter swaps the two tools.')}</p>
             {EDITOR_TOOLS.map((tool) => (
               <div key={tool.id} className="flex items-center justify-between gap-3">
                 <span className="text-zinc-300 truncate">{t(tool.labelEn)}</span>
-                {kbd(tool.shortcut)}
+                <select aria-label={t(tool.labelEn)} className="bg-zinc-950 border border-zinc-700 rounded px-2 py-0.5 font-mono"
+                  value={keys[tool.id]} onChange={e => saveToolKeys(assignKey(keys, tool.id, e.target.value))}>
+                  {allowedKeys.map(key => <option key={key}>{key}</option>)}
+                </select>
               </div>
             ))}
+            <button className="text-cyan-300" onClick={() => saveToolKeys(defaultKeys)}>{t('Restore default keys')}</button>
           </section>
           {GROUPS.map((g) => (
             <section key={g.titleEn} className="space-y-1.5">

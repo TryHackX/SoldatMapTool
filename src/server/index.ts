@@ -1,4 +1,16 @@
+import { diskPathKey } from './diskPath';
+import { exportGuardedMap } from './wallProtectionExport';
+import { WALL_PLAN_VERSION } from '../shared/wallProtection';
+import { installLocalRestart } from './localRestart';
+import { createAdminRouter } from './adminRouter';
+import { createArchiveJobs } from './archiveJobs';
+import { createLibrarySimilarityRouter } from './librarySimilarityJobs';
 import express from 'express';
+import { loadClimbProfile } from './courseProfile';
+import { collectExperimentData } from './climbExperimentData';
+import { climbFamilies, describeCollections } from './climbCollections';
+import { loadAuditLabels, reviewSample } from './climbReview';
+import { REVIEW_MODES, type ReviewMode } from '../shared/climbReview';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -10,7 +22,9 @@ import { AssetCategory } from './assetResolver';
 import { decodeBmpToRgba } from './bmpDecoder';
 import { SoldatMapEditorService } from './editorService';
 import { isBufferBmpMagic, OverwritePolicy, SoldatMapWorkshop, WorkshopError } from './mapFixerOptimizer';
-import { GeneratedOutputRegistry } from './safeFileWriter';
+import { GeneratedOutputRegistry, writeFileAtomic } from './safeFileWriter';
+import { readJsonStoreFile } from './jsonStoreFile';
+import { ExportDownloads } from './exportDownloads';
 import { buildPackPreview, executePackBuild } from './packBuilder';
 import {
   addSessionTile,
@@ -64,6 +78,7 @@ installFileLogger(path.join(DATA_DIR, 'logs'));
 fs.mkdirSync(THUMB_DIR, { recursive: true });
 fs.mkdirSync(EXPORTS_PACKS_DIR, { recursive: true });
 fs.mkdirSync(EXPORTS_SCREENS_DIR, { recursive: true });
+const downloads = new ExportDownloads([EXPORTS_PACKS_DIR, EXPORTS_SCREENS_DIR], path.join(DATA_DIR, 'runtime', 'export-download.key'));
 
 interface AppConfig {
   soldatPath: string;
@@ -72,49 +87,33 @@ interface AppConfig {
 }
 
 function loadConfig(): AppConfig {
-  if (fs.existsSync(CONFIG_FILE)) {
-    try {
-      const parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
-      let extraSources: ExtraMapSource[] = [];
+  const parsed = readJsonStoreFile(CONFIG_FILE) as Partial<AppConfig> & {extraMapDirs?: unknown[]} | null;
+  const sources = Array.isArray(parsed?.extraSources) ? parsed.extraSources :
+    Array.isArray(parsed?.extraMapDirs) ? parsed.extraMapDirs.map((p, i) => ({path:p, id:'extra_' + i})) : [];
+  return {
+    soldatPath: typeof parsed?.soldatPath === 'string' && parsed.soldatPath.trim() || DEFAULT_SOLDAT_PATH,
+    extraSources: normalizeSources(sources),
+    customRules: sanitizeCustomRules(parsed?.customRules),
+  };
+}
 
-      if (Array.isArray(parsed.extraSources)) {
-        extraSources = parsed.extraSources;
-      } else if (Array.isArray(parsed.extraMapDirs)) {
-        // Migrate v1 extraMapDirs -> v2 ExtraMapSource[]
-        extraSources = parsed.extraMapDirs
-          .map((d: unknown, idx: number) => {
-            const p = String(d || '').trim();
-            if (!p) return null;
-            return {
-              id: `extra_${idx}`,
-              path: p,
-              label: path.basename(p) || `Archive #${idx + 1}`,
-              recursive: true,
-              enabled: true,
-            };
-          })
-          .filter((x: ExtraMapSource | null): x is ExtraMapSource => Boolean(x));
-      }
-
-      return {
-        soldatPath: typeof parsed.soldatPath === 'string' && parsed.soldatPath.trim()
-          ? parsed.soldatPath.trim()
-          : DEFAULT_SOLDAT_PATH,
-        extraSources,
-        customRules: sanitizeCustomRules(parsed.customRules),
-      };
-    } catch {
-      // Fallback
-    }
-  }
-  return { soldatPath: DEFAULT_SOLDAT_PATH, extraSources: [], customRules: [] };
+function normalizeSources(sources: unknown[]): ExtraMapSource[] {
+  const used = new Set(['soldat','soldat_dl']);
+  return sources.flatMap((source, i) => {
+    if (!source || typeof source !== 'object' || !('path' in source) || typeof source.path !== 'string' || !source.path.trim()) return [];
+    const fullPath = path.resolve(source.path.trim());
+    const info = source as Partial<ExtraMapSource>;
+    let id = typeof info.id === 'string' && /^[\w-]{1,64}$/.test(info.id) ? info.id : 'extra_' + i;
+    for (let n = 1; used.has(id); n++) id = 'extra_' + i + '_' + n;
+    used.add(id);
+    const label = typeof info.label === 'string' && info.label.trim() || path.basename(fullPath) || `Folder #${i + 1}`;
+    return [{id, path: fullPath, label, recursive: info.recursive !== false, enabled: info.enabled !== false}];
+  });
 }
 
 function saveConfig(cfg: AppConfig): void {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  const tmp = `${CONFIG_FILE}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2), 'utf-8');
-  fs.renameSync(tmp, CONFIG_FILE);
+  writeFileAtomic(CONFIG_FILE, Buffer.from(JSON.stringify(cfg, null, 2)));
 }
 
 let appConfig = loadConfig();
@@ -161,14 +160,14 @@ app.use((req, res, next) => {
     return;
   }
   const origin = req.headers.origin;
-  if (origin && origin !== 'null') {
+  if (origin !== undefined) {
     let originHost = '';
     try {
-      originHost = new URL(origin).hostname.toLowerCase();
+      originHost = new URL(origin).host.toLowerCase();
     } catch {
       originHost = '';
     }
-    if (!LOOPBACK_HOSTNAMES.has(originHost)) {
+    if (originHost !== hostHeader) {
       res.status(403).json({ error: t('A request from a foreign site was blocked.') });
       return;
     }
@@ -176,15 +175,96 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '50mb' }));
-// After the body parser: handlers (and their async work) see the language chosen in the UI
 app.use(i18nMiddleware);
+app.use('/api/admin', createAdminRouter(path.join(DATA_DIR, 'admin')));
+app.use(express.json({ limit: '50mb' }));
+app.use('/api/archive-cleaner',createArchiveJobs(path.join(CACHE_DIR,'archive-cleaner'),path.join(WORKSPACE_ROOT,'exports','clean-archives'),()=>appConfig.soldatPath,
+  async(mapsPath,job)=>{
+    const existing=appConfig.extraSources.find(s=>diskPathKey(s.path)===diskPathKey(mapsPath));
+    if(existing?.enabled)return existing.id;
+    const source:ExtraMapSource=existing?{...existing,enabled:true}:{id:'archive_'+job.id,path:mapsPath,
+      label:path.basename(job.source)+' · '+job.id.slice(0,8),recursive:false,enabled:true};
+    const extraSources=existing?appConfig.extraSources.map(s=>s===existing?source:s):[...appConfig.extraSources,source];
+    const next={...appConfig,extraSources};
+    saveConfig(next);appConfig=next;
+    scanner.updateConfig(next.soldatPath,extraSources);workshop.invalidateCaches();
+    await scanner.scanAsync(true);
+    return source.id;
+  }));
+app.use('/api/library/similar',createLibrarySimilarityRouter(scanner));
 
 function sendError(res: express.Response, err: unknown, fallbackStatus = 500): void {
   const status = err instanceof WorkshopError ? err.status : fallbackStatus;
   if (status >= 500) console.error('[Soldat Map Studio] Błąd API:', err);
   res.status(status).json({ error: err instanceof Error ? err.message : String(err) });
 }
+
+const climbAuditLabels = loadAuditLabels(path.join(DATA_DIR, 'climb-mode-review.json'));
+
+function profileEntries() {
+  return scanner.getAllEntries().map(e => {
+    const info = userData.get(e.id);
+    return info ? { ...e, ...info } : e;
+  });
+}
+
+app.get('/api/editor/climb-review', (_req, res) => {
+  if (!scanner.isIndexReady()) { res.status(503).json({ error: 'Map index is loading' }); return; }
+  res.json(reviewSample(profileEntries(), climbAuditLabels));
+});
+
+app.post('/api/editor/climb-review/:mapId', (req, res) => {
+  if (!scanner.isIndexReady()) { res.status(503).json({ error: 'Map index is loading' }); return; }
+  const e = scanner.getMapEntry(req.params.mapId), label = req.body?.mode;
+  if (!e) { res.status(404).json({ error: 'Map not found' }); return; }
+  if (req.body?.crc32 !== e.crc32 || req.body?.fileSize !== e.fileSize) {
+    res.status(409).json({ error: 'Map changed since review' }); return;
+  }
+  if (label !== null && !REVIEW_MODES.includes(label as ReviewMode)) {
+    res.status(400).json({ error: 'Invalid mode' }); return;
+  }
+  const existing = userData.get(e.id)?.tags ?? [];
+  const modeTags = existing.filter(t => /^mode:/i.test(t) && REVIEW_MODES.includes(t.slice(5).trim().toLowerCase() as ReviewMode));
+  if (label && existing.length - modeTags.length >= 20) { res.status(409).json({ error: 'Tag limit reached' }); return; }
+  userData.update(e.id, { removeTags: modeTags, addTags: label ? ['mode:' + label] : [] });
+  res.json(reviewSample(profileEntries(), climbAuditLabels));
+});
+
+app.get('/api/editor/climb-collections', (_req, res) => {
+  if (!scanner.isIndexReady()) { res.status(503).json({ error: 'Map index is loading' }); return; }
+  res.json(describeCollections(climbFamilies(profileEntries(), climbAuditLabels)));
+});
+
+app.get('/api/editor/climb-profile', async (req, res) => {
+  if (!scanner.isIndexReady()) {
+    res.status(503).json({ error: 'Map index is loading' });
+    return;
+  }
+  const collection = req.query.collection ?? 'all', fold = req.query.fold ?? 'all';
+  if (typeof collection !== 'string' || collection.length > 256 ||
+      (fold !== 'all' && fold !== 'reference' && fold !== 'holdout')) {
+    res.status(400).json({ error: 'Invalid library selection' });
+    return;
+  }
+  try { res.json(await loadClimbProfile(profileEntries(), collection, fold, climbAuditLabels)); }
+  catch (err) { sendError(res, err); }
+});
+
+app.post('/api/editor/climb-experiment', async (req,res)=>{
+  if (!scanner.isIndexReady()) {res.status(503).json({error:'Map index is loading'});return;}
+  const collection=req.body?.collection;
+  if(typeof collection!=='string' || !collection.length || collection.length>256) {
+    res.status(400).json({error:'Invalid library selection'});return;
+  }
+  const controller=new AbortController();
+  res.on('close',()=>controller.abort());
+  try {
+    const families=climbFamilies(profileEntries(),climbAuditLabels);
+    if(!families.some(f=>f.keys.has(collection))) {res.status(404).json({error:'Collection unavailable'});return;}
+    const result=await collectExperimentData(families,collection,controller.signal);
+    if(!controller.signal.aborted) res.set('Cache-Control','no-store').json(result);
+  }catch(err){if(!controller.signal.aborted) sendError(res,err);}
+});
 
 // 1. Config, Prefix Rules & Scanning Endpoints
 app.get('/api/config', (_req, res) => {
@@ -210,34 +290,10 @@ app.post('/api/config', async (req, res) => {
       return;
     }
 
-    let extraSources = appConfig.extraSources;
-    if (Array.isArray(req.body?.extraSources)) {
-      // Ids end up in map ids ("<sourceId>:<path>"): they must be unique and never "soldat"/"soldat_dl"
-      const usedIds = new Set<string>(['soldat', 'soldat_dl']);
-      extraSources = req.body.extraSources
-        .map((s: Partial<ExtraMapSource>, idx: number) => {
-          const p = String(s?.path || '').trim();
-          if (!p) return null;
-          let id =
-            typeof s.id === 'string' && /^[\w-]{1,64}$/.test(s.id)
-              ? s.id
-              : `extra_${crypto.randomUUID().slice(0, 8)}_${idx}`;
-          while (usedIds.has(id)) id = `extra_${crypto.randomUUID().slice(0, 8)}_${idx}`;
-          usedIds.add(id);
-          const absPath = path.resolve(p);
-          return {
-            id,
-            path: absPath,
-            label: String(s.label || path.basename(absPath) || `Folder #${idx + 1}`).trim(),
-            recursive: s.recursive !== false,
-            enabled: s.enabled !== false,
-          };
-        })
-        .filter((x: ExtraMapSource | null): x is ExtraMapSource => Boolean(x));
-    }
-
-    appConfig = { ...appConfig, soldatPath, extraSources };
-    saveConfig(appConfig);
+    const extraSources = Array.isArray(req.body?.extraSources) ? normalizeSources(req.body.extraSources) : appConfig.extraSources;
+    const next = { ...appConfig, soldatPath, extraSources };
+    saveConfig(next);
+    appConfig = next;
     scanner.updateConfig(soldatPath, extraSources);
     workshop.invalidateCaches();
 
@@ -258,10 +314,16 @@ app.get('/api/prefix-rules', (_req, res) => {
 app.post('/api/prefix-rules', (req, res) => {
   try {
     const rules = sanitizeCustomRules(req.body?.customRules);
-    // Classify first: only persist rules that are proven to work
+    const previous = appConfig;
+    const next = { ...previous, customRules: rules };
     const meta = scanner.updateCustomRules(rules);
-    appConfig = { ...appConfig, customRules: rules };
-    saveConfig(appConfig);
+    try {
+      saveConfig(next);
+    } catch (error) {
+      scanner.updateCustomRules(previous.customRules);
+      throw error;
+    }
+    appConfig = next;
     res.json(meta);
   } catch (err) {
     sendError(res, err, 400);
@@ -357,6 +419,9 @@ app.get('/api/maps/:mapId/raw', (req, res) => {
   }
   res.setHeader('Content-Type', 'application/octet-stream');
   res.setHeader('Cache-Control', 'no-cache');
+  const record=scanner.getMapEntry(mapId);
+  const pkg=record?scanner.getResolver().packageRootForMap(fullPath,record.sourceId):undefined;
+  if(pkg)res.setHeader('X-Soldat-Asset-Scope',scanner.getResolver().packageRenderKey(pkg));
   res.sendFile(fullPath, { dotfiles: 'allow' });
 });
 
@@ -399,11 +464,13 @@ app.get('/api/assets', async (req, res) => {
     return;
   }
 
-  const entry = scanner
-    .getResolver()
-    .findBestRenderFile(category as AssetCategory, name, preferClassicBmp);
+  const mapId = req.query.mapId;
+  const map=typeof mapId==='string'?scanner.getMapEntry(mapId):null;
+  if(mapId!==undefined&&!map){res.status(404).end();return;}
+  const resolver=scanner.getResolver(),pkg=map?resolver.packageRootForMap(map.fullPath,map.sourceId):undefined;
+  const entry = resolver.findBestRenderFile(category as AssetCategory,name,preferClassicBmp,pkg);
 
-  if (!entry || !fs.existsSync(entry.fullPath)) {
+  if (!entry || (pkg && !/\.(?:bmp|png|gif|jpe?g|webp|tga|dds)$/i.test(entry.diskName)) || !fs.existsSync(entry.fullPath)) {
     res.status(404).end();
     return;
   }
@@ -468,14 +535,14 @@ app.get('/api/assets', async (req, res) => {
 
 // 4. Cached Map Thumbnails
 app.get('/api/thumbnails/:crc32', (req, res) => {
-  const safeCrc = String(req.params.crc32).replace(/[^0-9a-fA-F_-]/g, '');
+  const safeCrc = scanner.thumbnailKey(req.params.crc32,req.query.mapId===undefined?undefined:String(req.query.mapId));
   const thumbPath = path.join(THUMB_DIR, `${safeCrc}.webp`);
-  if (!safeCrc || !fs.existsSync(thumbPath)) {
+  if (!safeCrc || (req.query.scope!==undefined&&safeCrc.split('-')[1]!==req.query.scope) || !fs.existsSync(thumbPath)) {
     res.status(404).end();
     return;
   }
   res.setHeader('Content-Type', 'image/webp');
-  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.setHeader('Cache-Control', safeCrc.includes('-')?'no-cache':'public, max-age=86400');
   res.sendFile(thumbPath, { dotfiles: 'allow' });
 });
 
@@ -484,11 +551,12 @@ app.post(
   express.raw({ type: ['image/webp', 'image/png', 'application/octet-stream'], limit: '5mb' }),
   async (req, res) => {
     try {
-      const safeCrc = String(req.params.crc32).replace(/[^0-9a-fA-F_-]/g, '');
+      const safeCrc = scanner.thumbnailKey(req.params.crc32,req.query.mapId===undefined?undefined:String(req.query.mapId));
       if (!safeCrc) {
         res.status(400).json({ error: 'Invalid thumbnail id' });
         return;
       }
+      if(req.query.scope!==undefined && safeCrc.split('-')[1]!==req.query.scope){res.status(409).end();return;}
       const thumbPath = path.join(THUMB_DIR, `${safeCrc}.webp`);
       const buf = req.body as Buffer;
       if (Buffer.isBuffer(buf) && buf.length > 0) {
@@ -635,7 +703,7 @@ app.post('/api/packs/build', async (req, res) => {
         result.format !== 'folder' &&
         fs.existsSync(result.outputPath) &&
         fs.statSync(result.outputPath).isFile()
-          ? `/api/exports/download?path=${encodeURIComponent(result.outputPath)}`
+          ? downloads.link(result.outputPath)
           : null,
     });
   } catch (err) {
@@ -739,7 +807,7 @@ app.post('/api/packs/extract-archive', async (req, res) => {
         ? path.join(destDir, 'maps')
         : destDir;
       const already = appConfig.extraSources.some(
-        (s) => path.resolve(s.path).toLowerCase() === path.resolve(mapsSub).toLowerCase()
+        (s) => diskPathKey(s.path) === diskPathKey(mapsSub)
       );
       if (!already) {
         const nextSources: ExtraMapSource[] = [
@@ -804,13 +872,13 @@ app.post(
         return;
       }
       const outPath = path.join(targetDir, safeName);
-      fs.writeFileSync(outPath, buf);
+      writeFileAtomic(outPath, buf);
 
       res.json({
         outputPath: outPath,
         fileName: safeName,
         sizeBytes: buf.length,
-        downloadUrl: `/api/exports/download?path=${encodeURIComponent(outPath)}`,
+        downloadUrl: downloads.link(outPath),
       });
     } catch (err) {
       sendError(res, err);
@@ -861,7 +929,7 @@ app.post('/api/screenshots/tile-session/:sessionId/finalize', async (req, res) =
     const result = await finalizeTileSession(sessionId, targetDir, fileName, subfolder);
     res.json({
       ...result,
-      downloadUrl: `/api/exports/download?path=${encodeURIComponent(result.outputPath)}`,
+      downloadUrl: downloads.link(result.outputPath),
     });
   } catch (err) {
     sendError(res, err);
@@ -874,22 +942,27 @@ app.delete('/api/screenshots/tile-session/:sessionId', (req, res) => {
 });
 
 // Only finished exports (packs / screenshots) may be downloaded through the browser
-const DOWNLOADABLE_EXTENSIONS = new Set(['.zip', '.smap', '.png', '.jpg', '.jpeg', '.webp']);
-
 app.get('/api/exports/download', (req, res) => {
-  const filePath = path.resolve(String(req.query.path || ''));
-  if (!DOWNLOADABLE_EXTENSIONS.has(path.extname(filePath).toLowerCase())) {
-    res.status(403).json({ error: t('This file type cannot be downloaded.') });
-    return;
+  try {
+    const file = downloads.resolve(String(req.query.path || ''),req.query.token);
+    if (!file) { res.status(403).json({error:t('This file type cannot be downloaded.')}); return; }
+    res.download(file, path.basename(file), {dotfiles:'allow'});
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') res.status(404).json({error:t('File does not exist.')});
+    else sendError(res,error);
   }
-  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
-    res.status(404).json({ error: t('File does not exist.') });
-    return;
-  }
-  res.download(filePath, path.basename(filePath), { dotfiles: 'allow' });
 });
 
 // 7. Map Workshop Endpoints: Soldat 1.7.1 Scenery Fixer (_f.pms) & Layer Optimizer (_o.pms)
+app.get('/api/workshop/wall-protection', (_req,res)=>res.json({version:WALL_PLAN_VERSION}));
+app.post('/api/workshop/wall-protection/:mapId', async (req,res)=>{
+  const file = scanner.getMapFilePath(req.params.mapId);
+  if (!file) { res.status(404).json({error:'Map not found'}); return; }
+  try {
+    res.json(await exportGuardedMap(path.join(WORKSPACE_ROOT,'exports','guarded-maps'),file,req.body));
+  } catch (error) { sendError(res,error,400); }
+});
+
 app.get('/api/workshop/fix-analyze/:mapId', async (req, res) => {
   try {
     const maxLen = Number(req.query.maxLen || 24);
@@ -1077,6 +1150,9 @@ app.post('/api/workshop/optimize-session/:sessionId/commit', async (req, res) =>
       typeof req.body?.expectedDerivedBaseName === 'string'
         ? {
             derivedBaseName: String(req.body.expectedDerivedBaseName),
+            sourceCrc32: req.body.expectedSourceCrc32,
+            sourceGraphicsKey: req.body.expectedSourceGraphicsKey,
+            tileCount: req.body.expectedTileCount,
             propFixes: Array.isArray(req.body?.expectedPropFixes) ? req.body.expectedPropFixes : [],
           }
         : undefined;
@@ -1098,9 +1174,9 @@ app.delete('/api/workshop/optimize-session/:sessionId', (req, res) => {
 });
 
 // 8. Map Editor: Asset Catalog, Safe Save, Drafts & Prefabs
-app.get('/api/editor/assets', (_req, res) => {
+app.get('/api/editor/assets', (req, res) => {
   try {
-    res.json(editorService.listAssets());
+    res.json(editorService.listAssets(typeof req.query.mapId === 'string' ? req.query.mapId : undefined));
   } catch (err) {
     sendError(res, err);
   }
@@ -1159,6 +1235,9 @@ app.get('/api/editor/drafts/:draftId', (req, res) => {
 app.post('/api/editor/drafts/:draftId', (req, res) => {
   try {
     const summary = editorService.saveDraft(req.params.draftId, {
+      tunnels: req.body?.tunnels,
+      sketch: req.body?.sketch,
+      projectFile: req.body?.projectFile === true,
       sourceMapId: typeof req.body?.sourceMapId === 'string' ? req.body.sourceMapId : null,
       baseName: String(req.body?.baseName || 'untitled'),
       pmsBase64: String(req.body?.pmsBase64 || ''),
@@ -1170,8 +1249,12 @@ app.post('/api/editor/drafts/:draftId', (req, res) => {
 });
 
 app.delete('/api/editor/drafts/:draftId', (req, res) => {
-  editorService.deleteDraft(req.params.draftId);
-  res.json({ ok: true });
+  try {
+    editorService.deleteDraft(req.params.draftId);
+    res.json({ ok: true });
+  } catch (err) {
+    sendError(res, err, 500);
+  }
 });
 
 app.get('/api/editor/prefabs', (_req, res) => {
@@ -1233,6 +1316,8 @@ app.post('/api/system/pick-file', (req, res) => {
   void answerPick(res, pickPathDialog('file', filter));
 });
 
+const enableRestart = installLocalRestart(app, DATA_DIR, PORT);
+
 // Unknown API routes answer JSON (instead of the SPA index.html fallback)
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: t('Unknown API endpoint.') });
@@ -1250,6 +1335,8 @@ if (fs.existsSync(clientDist)) {
 
 const server = app.listen(PORT, '127.0.0.1', () => {
   console.log(`[Soldat Map Studio v${APP_VERSION}] Server running on http://127.0.0.1:${PORT}`);
+  enableRestart(server);
+  process.send?.('ready');
   cleanupOrphanedTileSessions(CACHE_DIR);
   workshop.cleanupLeftoverSessions();
   initialScanPromise = scanner.scanAsync(true);

@@ -79,7 +79,7 @@ function polishPluralIndex(n: number): 0 | 1 | 2 {
  * (e.g. a formatted number).
  */
 export function tp(n: number, one: string, other: string, vars?: Vars): string {
-  const all: Vars = { n, ...vars };
+  const all: Vars = { n, count: n, ...vars };
   if (lang === 'pl') {
     const forms = PL[`${one}|${other}`];
     if (Array.isArray(forms)) return fill(forms[polishPluralIndex(n)], all);

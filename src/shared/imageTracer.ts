@@ -27,26 +27,22 @@ function perpDistToSegment(p: Point2D, a: Point2D, b: Point2D): number {
  */
 export function simplifyPolylineRdp(points: ReadonlyArray<Point2D>, epsilon: number): Point2D[] {
   if (points.length <= 2 || epsilon <= 0) return points.map((p) => ({ x: p.x, y: p.y }));
-  let maxDist = 0;
-  let splitIdx = 0;
-  const first = points[0];
-  const last = points[points.length - 1];
-  for (let i = 1; i < points.length - 1; i++) {
-    const d = perpDistToSegment(points[i], first, last);
-    if (d > maxDist) {
-      maxDist = d;
-      splitIdx = i;
+  const keep = new Uint8Array(points.length);
+  keep[0] = keep[points.length - 1] = 1;
+  const segments: [number, number][] = [[0, points.length - 1]];
+  while (segments.length) {
+    const [first, last] = segments.pop()!;
+    let farthest = -1, maxDist = epsilon;
+    for (let i = first + 1; i < last; i++) {
+      const distance = perpDistToSegment(points[i], points[first], points[last]);
+      if (distance > maxDist) { maxDist = distance; farthest = i; }
+    }
+    if (farthest !== -1) {
+      keep[farthest] = 1;
+      segments.push([first, farthest], [farthest, last]);
     }
   }
-  if (maxDist > epsilon && splitIdx > 0) {
-    const left = simplifyPolylineRdp(points.slice(0, splitIdx + 1), epsilon);
-    const right = simplifyPolylineRdp(points.slice(splitIdx), epsilon);
-    return [...left.slice(0, -1), ...right];
-  }
-  return [
-    { x: first.x, y: first.y },
-    { x: last.x, y: last.y },
-  ];
+  return points.filter((_, i) => keep[i]).map(p => ({x:p.x, y:p.y}));
 }
 
 /**
@@ -231,7 +227,6 @@ export function freehandLaserToPolygons(
 
   const out: PmsPolygon[] = [];
   for (const tri of tris) {
-    if (Math.abs(polygonSignedArea2(tri[0], tri[1], tri[2])) < 2.0) continue;
     const poly = createPolygonFromPoints(tri, {
       polyType: options?.polyType ?? 0,
       bounciness: options?.bounciness ?? 1,

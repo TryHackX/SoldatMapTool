@@ -3,6 +3,7 @@ import path from 'path';
 import { PackBuildOptions, PackPreset } from '../shared/apiTypes';
 import { t } from './i18n';
 import { readJsonStoreFile } from './jsonStoreFile';
+import { writeFileAtomic } from './safeFileWriter';
 
 const MAX_PRESETS = 50;
 
@@ -30,27 +31,26 @@ export class PackPresetStore {
     if (!name) throw new Error(t('Enter a preset name.'));
     const preset: PackPreset = { name, options: sanitizePresetOptions(rawOptions), updatedAt: Date.now() };
     const idx = this.presets.findIndex((p) => p.name.toLowerCase() === name.toLowerCase());
-    if (idx >= 0) this.presets[idx] = preset;
+    const next = this.presets.slice();
+    if (idx >= 0) next[idx] = preset;
     else {
       if (this.presets.length >= MAX_PRESETS) throw new Error(t('You can save at most {max} presets.', { max: MAX_PRESETS }));
-      this.presets.push(preset);
+      next.push(preset);
     }
-    this.persist();
+    this.persist(next);
     return this.list();
   }
 
   public remove(rawName: unknown): PackPreset[] {
     const name = sanitizePresetName(rawName).toLowerCase();
-    this.presets = this.presets.filter((p) => p.name.toLowerCase() !== name);
-    this.persist();
+    this.persist(this.presets.filter((p) => p.name.toLowerCase() !== name));
     return this.list();
   }
 
-  private persist(): void {
+  private persist(next: PackPreset[]): void {
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    const tmp = `${this.filePath}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify({ version: 1, presets: this.presets }, null, 2), 'utf-8');
-    fs.renameSync(tmp, this.filePath);
+    writeFileAtomic(this.filePath, Buffer.from(JSON.stringify({ version: 1, presets: next }, null, 2)));
+    this.presets = next;
   }
 }
 

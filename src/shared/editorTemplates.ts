@@ -43,7 +43,7 @@ export const EDITOR_MAP_TEMPLATES: ReadonlyArray<EditorMapTemplateMeta> = [
   },
 ];
 
-function makeQuadPolys(
+export function makeQuadPolys(
   left: number,
   top: number,
   right: number,

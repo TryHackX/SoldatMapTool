@@ -1,11 +1,14 @@
+import { diskPathKey } from './diskPath';
 import fs from 'fs';
 import path from 'path';
+import { createHash } from 'node:crypto';
 import { AssetStatus, ExtraMapSource, ResolvedAssetInfo } from '../shared/apiTypes';
 
 export interface DirFileEntry {
   diskName: string;
   fullPath: string;
   size: number;
+  mtimeMs?: number;
   sourcePriority: number; // 0 = main Soldat dir, 1 = Soldat downloads/, 2+ = extra archive roots
 }
 
@@ -25,6 +28,8 @@ export class SoldatAssetResolver {
   private readonlyPngBmpStem = new Set<string>(); // e.g. "textures/ananas" (for .bmp <-> .png vanilla parity)
 
   private dirIndexes = new Map<string, Map<string, DirFileEntry>>();
+  private packageIndexes = new Map<string, Map<string, Map<string, DirFileEntry>>>();
+  private packageKeys = new Map<string,string>();
 
   constructor(soldatRoot: string, extraSources: ExtraMapSource[] = []) {
     this.soldatRoot = soldatRoot;
@@ -46,6 +51,8 @@ export class SoldatAssetResolver {
     this.readonlyExact.clear();
     this.readonlyPngBmpStem.clear();
     this.dirIndexes.clear();
+    this.packageIndexes.clear();
+    this.packageKeys.clear();
 
     const roPath = path.join(this.soldatRoot, 'readonly.txt');
     if (fs.existsSync(roPath)) {
@@ -95,13 +102,13 @@ export class SoldatAssetResolver {
 
     // Index sibling/root textures & scenery-gfx from any extra map archive folders (priority 2+)
     // e.g. if user adds D:\SoldatArchive\maps or D:\SoldatArchive, check both D:\SoldatArchive\scenery-gfx and parent!
-    const checkedRoots = new Set<string>([path.resolve(this.soldatRoot).toLowerCase()]);
+    const checkedRoots = new Set<string>([diskPathKey(this.soldatRoot)]);
     let prio = 2;
     for (const extra of this.extraSources) {
       if (!extra.enabled || !extra.path) continue;
       const candidateRoots = [path.resolve(extra.path), path.resolve(extra.path, '..')];
       for (const candRoot of candidateRoots) {
-        const normKey = candRoot.toLowerCase();
+        const normKey = diskPathKey(candRoot);
         if (checkedRoots.has(normKey)) continue;
         const hasTex = fs.existsSync(path.join(candRoot, 'textures'));
         const hasScen = fs.existsSync(path.join(candRoot, 'scenery-gfx'));
@@ -120,11 +127,11 @@ export class SoldatAssetResolver {
     }
   }
 
-  private indexDirectoryIntoCategory(categoryKey: string, absDir: string, priority: number): void {
-    let map = this.dirIndexes.get(categoryKey);
+  private indexDirectoryIntoCategory(categoryKey: string, absDir: string, priority: number, indexes=this.dirIndexes): void {
+    let map = indexes.get(categoryKey);
     if (!map) {
       map = new Map<string, DirFileEntry>();
-      this.dirIndexes.set(categoryKey, map);
+      indexes.set(categoryKey, map);
     }
     if (!fs.existsSync(absDir)) return;
 
@@ -133,16 +140,19 @@ export class SoldatAssetResolver {
       for (const entry of entries) {
         if (!entry.isFile()) continue;
         const lower = entry.name.toLowerCase();
-        if (map.has(lower)) continue; // Higher-priority root already registered this filename
+        const prior = map.get(lower);
+        if (prior && prior.sourcePriority < priority) continue;
 
         const fullPath = path.join(absDir, entry.name);
-        let size = 0;
+        let size = 0, mtimeMs = 0;
         try {
-          size = fs.statSync(fullPath).size;
+          const meta=fs.statSync(fullPath);size=meta.size;mtimeMs=meta.mtimeMs;
         } catch {
           size = 0;
         }
-        map.set(lower, { diskName: entry.name, fullPath, size, sourcePriority: priority });
+        const record={diskName:entry.name,fullPath,size,mtimeMs,sourcePriority:priority};
+        if(!map.has(lower))map.set(lower,record);
+        map.set('\0'+entry.name,record);
       }
     } catch {
       // Ignore unreadable dir
@@ -152,6 +162,45 @@ export class SoldatAssetResolver {
   public isVanillaMap(mapFileName: string): boolean {
     const norm = `maps/${mapFileName.toLowerCase()}`;
     return this.readonlyExact.has(norm);
+  }
+
+  public packageRootForMap(file:string,sourceId:string) {
+    if(sourceId==='soldat')return undefined;
+    const folder=path.dirname(file);
+    return path.basename(folder).toLowerCase()==='maps'?path.dirname(folder):folder;
+  }
+
+  private packageDirectories(root:string) {
+    const key=diskPathKey(root);
+    let index=this.packageIndexes.get(key);
+    if(index)return index;
+    index=new Map();
+    for(const category of ['scenery-gfx','textures','textures/edges']){
+      let folder:string|undefined=root;
+      for(const component of category.split('/')){
+        try {
+          const dirs=fs.readdirSync(folder,{withFileTypes:true}).filter(e=>e.isDirectory()&&e.name.toLowerCase()===component);
+          const name=dirs.find(e=>e.name===component)?.name??(dirs.length===1?dirs[0].name:undefined);
+          if(!name){folder=undefined;break;}
+          folder=path.join(folder,name);
+        }catch{folder=undefined;break;}
+      }
+      if(folder)this.indexDirectoryIntoCategory(category,folder,2,index);
+    }
+    this.packageIndexes.set(key,index);
+    return index;
+  }
+
+  /** Short opaque key for decoded/GPU assets and thumbnails; re-scanning changed package images invalidates it. */
+  public packageRenderKey(root:string) {
+    const key=diskPathKey(root),cached=this.packageKeys.get(key);if(cached)return cached;
+    const hash=createHash('sha256').update(key);
+    for(const [cat,files] of this.packageDirectories(root)){
+      const metadata=[...files].filter(([k])=>k.startsWith('\0')).map(([,f])=>[cat,f.diskName,f.size,f.mtimeMs]);
+      metadata.sort((a,b)=>String(a[1])<String(b[1])?-1:String(a[1])>String(b[1])?1:0);
+      hash.update(JSON.stringify(metadata));
+    }
+    const id=hash.digest('hex').slice(0,24);this.packageKeys.set(key,id);return id;
   }
 
   public isVanillaAsset(category: 'textures' | 'textures/edges' | 'scenery-gfx', filename: string): boolean {
@@ -175,11 +224,12 @@ export class SoldatAssetResolver {
   public resolveMapAsset(
     category: 'textures' | 'scenery-gfx',
     rawRefName: string,
-    usedCount: number
+    usedCount: number,
+    packageRoot?: string
   ): ResolvedAssetInfo {
     const referencedName = rawRefName.trim().replace(/\\/g, '/');
     if (!referencedName) {
-      const def = category === 'textures' ? this.findBestRenderFile('textures', 'default.bmp') : null;
+      const def = category === 'textures' ? this.findBestRenderFile('textures', 'default.bmp',false,packageRoot) : null;
       return {
         category,
         referencedName: '',
@@ -192,27 +242,37 @@ export class SoldatAssetResolver {
       };
     }
 
-    const dirMap = this.dirIndexes.get(category) ?? new Map<string, DirFileEntry>();
     const lowerRef = referencedName.toLowerCase();
     const ext = path.posix.extname(lowerRef);
     const stemLower = ext ? lowerRef.slice(0, -ext.length) : lowerRef;
     const pngLower = `${stemLower}.png`;
+    const local=packageRoot?this.packageDirectories(packageRoot):undefined;
+    const localFiles=local?.get(category);
+    const useLocal=localFiles?.has(lowerRef)||localFiles?.has(pngLower);
+    const dirMap=(useLocal?localFiles:this.dirIndexes.get(category)) ?? new Map<string,DirFileEntry>();
 
-    const exactOrCaseEntry = dirMap.get(lowerRef) ?? null;
-    const pngEntry = pngLower !== lowerRef ? (dirMap.get(pngLower) ?? null) : null;
+    const exactOrCaseEntry = dirMap.get('\0'+referencedName)??dirMap.get(lowerRef) ?? null;
+    const pngEntry = pngLower !== lowerRef ? (dirMap.get('\0'+referencedName.slice(0,referencedName.length-ext.length)+'.png')??dirMap.get(pngLower) ?? null) : null;
 
-    const isVanilla = this.isVanillaAsset(category, referencedName);
+    const isVanilla = !useLocal && (exactOrCaseEntry?.sourcePriority ?? 0) < 2 &&
+      (pngEntry?.sourcePriority ?? 0) < 2 && this.isVanillaAsset(category, referencedName);
 
     let edgeDiskName: string | null = null;
     let edgeFullPath: string | null = null;
+    let edgeFileSize = 0;
+    let edgeIsVanilla = false;
     if (category === 'textures') {
-      const edgeMap = this.dirIndexes.get('textures/edges');
+      const localEdges = local?.get('textures/edges');
+      const edgeMap = localEdges?.has(lowerRef) || localEdges?.has(pngLower) ? localEdges : this.dirIndexes.get('textures/edges');
       if (edgeMap) {
-        const edgeOrig = edgeMap.get(lowerRef);
-        const edgePng = edgeMap.get(pngLower);
-        const chosenEdge = edgeOrig ?? edgePng ?? null;
+        const edgeOrig = edgeMap.get('\0'+referencedName) ?? edgeMap.get(lowerRef);
+        const edgePng = pngLower === lowerRef ? edgeOrig :
+          edgeMap.get('\0'+path.posix.parse(referencedName).name+'.png') ?? edgeMap.get(pngLower);
+        const chosenEdge = edgePng ?? edgeOrig;
         edgeDiskName = chosenEdge?.diskName ?? null;
         edgeFullPath = chosenEdge?.fullPath ?? null;
+        edgeFileSize = chosenEdge?.size ?? 0;
+        edgeIsVanilla = !!chosenEdge && chosenEdge.sourcePriority < 2 && this.isVanillaAsset('textures/edges', chosenEdge.diskName);
       }
     }
 
@@ -226,6 +286,8 @@ export class SoldatAssetResolver {
         pngOverrideFullPath: null,
         edgeDiskName,
         edgeFullPath,
+        edgeFileSize,
+        edgeIsVanilla,
         isVanilla,
         status: isVanilla ? 'vanilla' : 'missing',
         usedCount,
@@ -263,8 +325,11 @@ export class SoldatAssetResolver {
       diskFullPath: primaryEntry.fullPath,
       pngOverrideDiskName: pngCompanion,
       pngOverrideFullPath: pngCompanionPath,
+      pngOverrideFileSize: pngCompanion ? pngEntry?.size : undefined,
       edgeDiskName,
       edgeFullPath,
+      edgeFileSize,
+      edgeIsVanilla,
       isVanilla,
       status,
       usedCount,
@@ -279,34 +344,50 @@ export class SoldatAssetResolver {
   public findBestRenderFile(
     category: AssetCategory,
     rawFilename: string,
-    preferClassicBmp = false
+    preferClassicBmp = false,
+    packageRoot?:string
   ): DirFileEntry | null {
     const clean = rawFilename.trim().replace(/\\/g, '/');
     if (!clean) return null;
-
-    const dirMap = this.dirIndexes.get(category);
-    if (!dirMap) return null;
 
     const lower = clean.toLowerCase();
     const ext = path.posix.extname(lower);
     const stem = ext ? lower.slice(0, -ext.length) : lower;
     const pngCandidate = `${stem}.png`;
     const bmpCandidate = `${stem}.bmp`;
+    const originalStem=ext?clean.slice(0,-ext.length):clean;
+    const candidates=preferClassicBmp?[originalStem+'.bmp',clean,originalStem+'.png']:[originalStem+'.png',clean,originalStem+'.bmp'];
+    const ordered=candidates.map(n=>n.toLowerCase()===lower?clean:n);
+    const lookup = (files?: Map<string,DirFileEntry>) => {
+      if (files) for (const name of ordered) {
+        const hit = files.get('\0'+name) ?? files.get(name.toLowerCase());
+        if (hit) return hit;
+      }
+      return null;
+    };
+    if(packageRoot){
+      const hit = lookup(this.packageDirectories(packageRoot).get(category));
+      if (hit) return hit;
+      if((category==='textures'||category==='textures/edges')&&stem!=='default'){
+        // First try the named game/shared image. A folder-specific default is used only when
+        // the name is absent everywhere, so it cannot hide an ordinary game asset.
+        const global=this.dirIndexes.get(category);
+        const found=[lower,pngCandidate,bmpCandidate].some(n=>global?.has(n));
+        if(!found)return this.findBestRenderFile(category,'default.bmp',preferClassicBmp,packageRoot);
+      }
+    }
+    const dirMap = this.dirIndexes.get(category);
+    if (!dirMap) return null;
 
     if (preferClassicBmp) {
       // Check mods/classic first if available, then exact .bmp on disk, then fallback to .png
       const classicDir = this.dirIndexes.get(`mods/classic/${category}`);
-      if (classicDir?.has(bmpCandidate)) return classicDir.get(bmpCandidate)!;
-      if (classicDir?.has(lower)) return classicDir.get(lower)!;
-      if (dirMap.has(bmpCandidate)) return dirMap.get(bmpCandidate)!;
-      if (dirMap.has(lower)) return dirMap.get(lower)!;
-      if (dirMap.has(pngCandidate)) return dirMap.get(pngCandidate)!;
-    } else {
-      // Default OpenSoldat / Steam 1.7 HD order: .png override first, then exact extension
-      if (dirMap.has(pngCandidate)) return dirMap.get(pngCandidate)!;
-      if (dirMap.has(lower)) return dirMap.get(lower)!;
-      if (dirMap.has(bmpCandidate)) return dirMap.get(bmpCandidate)!;
+      const stockClassic = classicDir?.get('\0'+(bmpCandidate === lower ? clean : originalStem+'.bmp'))
+        ?? classicDir?.get(bmpCandidate) ?? classicDir?.get('\0'+clean) ?? classicDir?.get(lower);
+      if(stockClassic)return stockClassic;
     }
+    const hit = lookup(dirMap);
+    if (hit) return hit;
 
     // Fallback for classic textures/objects or weapons-gfx
     if (category === 'textures/objects') {
@@ -333,14 +414,19 @@ export class SoldatAssetResolver {
   ): DirFileEntry | null {
     const dirMap = this.dirIndexes.get(category);
     if (!dirMap) return null;
-    return dirMap.get(diskName.toLowerCase()) ?? null;
+    return dirMap.get('\0'+diskName) ?? dirMap.get(diskName.toLowerCase()) ?? null;
   }
 
   public listCategoryEntries(
-    category: 'textures' | 'textures/edges' | 'scenery-gfx'
+    category: 'textures' | 'textures/edges' | 'scenery-gfx',
+    packageRoot?: string
   ): DirFileEntry[] {
-    const dirMap = this.dirIndexes.get(category);
-    if (!dirMap) return [];
-    return Array.from(dirMap.values());
+    const entries = new Map<string, DirFileEntry>();
+    const directories = [this.dirIndexes.get(category)];
+    if (packageRoot) directories.push(this.packageDirectories(packageRoot).get(category));
+    for (const files of directories) {
+      if (files) for (const file of files.values()) entries.set(file.diskName, file);
+    }
+    return [...entries.values()];
   }
 }

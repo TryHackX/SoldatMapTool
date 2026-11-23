@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+.studio-icon > i { display: none; }
+.studio-icons-loaded .studio-icon > svg { display: none; }
+.studio-icons-loaded .studio-icon > i { display: block; font: normal 1rem/1 StudioIcons; }
+
 @layer base {
   :root {
     font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;

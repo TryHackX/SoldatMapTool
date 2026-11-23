@@ -1,6 +1,7 @@
 import { PmsMapData } from '@shared/pmsParser';
 import { t, tText } from '../i18n';
 import { loadSoldatObjectSprites } from './assetLoader';
+import { mapAssetSource, thumbnailUrl } from './mapAssetSource';
 import { renderMapOverlays } from './OverlayRenderer';
 import { SoldatWebGLRenderer } from './SoldatWebGLRenderer';
 import { DEFAULT_RENDER_LAYERS, FullSizeExportSettings } from './types';
@@ -146,10 +147,10 @@ export async function generateFullSizeScreenshot(
 
   const glCanvas = document.createElement('canvas');
   const glRenderer = new SoldatWebGLRenderer(glCanvas);
-  const sprites = hasAnyOverlayEnabled(settings.layers) ? await loadSoldatObjectSprites() : null;
 
   let tileSessionId: string | null = null;
   try {
+    const sprites = hasAnyOverlayEnabled(settings.layers) ? await loadSoldatObjectSprites() : null;
     const loaded = await glRenderer.loadMap(map, { preferClassicBmp: settings.layers.preferClassicBmp });
     if (!loaded) {
       throw new Error(t('Could not load the map onto the GPU (WebGL2 context lost).'));
@@ -477,14 +478,14 @@ export async function generateAndCacheThumbnail(
     sharedThumbRenderer.render({ left, right, top, bottom }, DEFAULT_RENDER_LAYERS);
 
     const blob = await canvasToBlob(canvas, 'image/webp', 0.82);
-    const hexCrc = (crc32 >>> 0).toString(16);
-    const saveRes = await fetch(`/api/thumbnails/${hexCrc}`, {
+    const source=mapAssetSource(map),url=thumbnailUrl(crc32,source?.mapId,source?.key);
+    const saveRes = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'image/webp' },
       body: blob,
     });
     if (saveRes.ok) {
-      return `/api/thumbnails/${hexCrc}`;
+      return url;
     }
     return URL.createObjectURL(blob);
   } catch {

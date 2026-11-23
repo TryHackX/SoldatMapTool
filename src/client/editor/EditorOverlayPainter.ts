@@ -1,6 +1,10 @@
 import { earClipTriangulate } from '@shared/pmsCompiler';
 import { computePropCorners, PmsBounds, PmsMapData } from '@shared/pmsParser';
 import { SoldierPlaytestState } from './soldierPlaytest';
+import type { tunnelGateAt } from '@shared/tunnelSectionGates';
+import { t } from '../i18n';
+import { sectionWidthMask } from './sectionWidthMask';
+import type { TunnelTrialResult } from './tunnelTrial';
 import {
   EditorBlueprintOverlay,
   EditorSelection,
@@ -23,8 +27,22 @@ export interface EditorOverlayRenderState {
   marqueeBox: { x1: number; y1: number; x2: number; y2: number } | null;
   lassoPoints: Array<{ x: number; y: number }> | null;
   laserPoints: Array<{ x: number; y: number }> | null;
-  laserPreviewContour: Array<{ x: number; y: number }> | null;
+  laserPreview: PmsMapData['polygons'];
   draftPoints: Array<{ x: number; y: number }>;
+  closedDraft?: boolean;
+  closeLaser?: boolean;
+  tunnelSection?: {
+    knots: readonly {x:number;y:number}[];
+    index: number;
+    handle: {x:number;y:number};
+    triangles: readonly PmsMapData['polygons'][number][];
+    originalTriangles?: readonly PmsMapData['polygons'][number][];
+    preview: boolean;
+    invalid: boolean;
+    trial?: TunnelTrialResult;
+    stop?: {x:number;y:number};
+    gates?: readonly ReturnType<typeof tunnelGateAt>[];
+  };
   brushRadius: number | null;
   symmetryAxisX: number | null;
   validationFocus: { x: number; y: number; radius?: number } | null;
@@ -634,7 +652,7 @@ export function renderEditorOverlay(
 
   // 12. Polygon Creation Draft Preview
   if (state.draftPoints.length > 0) {
-    const pts = state.cursorWorld
+    const pts = state.cursorWorld && !state.closedDraft
       ? [...state.draftPoints, state.cursorWorld]
       : state.draftPoints;
 
@@ -791,30 +809,25 @@ export function renderEditorOverlay(
   // 16b. Laser Polygon Drawing Beam & Triangulation Preview
   if (state.laserPoints && state.laserPoints.length >= 2) {
     ctx.save();
-    if (state.laserPreviewContour && state.laserPreviewContour.length >= 3) {
-      const tris = earClipTriangulate(state.laserPreviewContour);
+    const tunnel=state.activeTool==='climb_tunnel';
+    if (state.laserPreview.length) {
       ctx.fillStyle = 'rgba(244, 63, 94, 0.18)';
       ctx.strokeStyle = 'rgba(251, 113, 133, 0.45)';
       ctx.lineWidth = 1;
-      for (const [a, b, c] of tris) {
+      for (const { vertices: [a, b, c] } of state.laserPreview) {
+        if (tunnel) ctx.fillStyle=`rgba(${a.color.r},${a.color.g},${a.color.b},0.85)`;
         ctx.beginPath();
         ctx.moveTo(sx(a.x), sy(a.y));
         ctx.lineTo(sx(b.x), sy(b.y));
         ctx.lineTo(sx(c.x), sy(c.y));
         ctx.closePath();
         ctx.fill();
-        ctx.stroke();
-      }
-      ctx.fillStyle = '#fda4af';
-      for (const pt of state.laserPreviewContour) {
-        ctx.beginPath();
-        ctx.arc(sx(pt.x), sy(pt.y), 3, 0, Math.PI * 2);
-        ctx.fill();
+        if (!tunnel) ctx.stroke();
       }
     }
 
     // Outer laser glow + core beam
-    ctx.strokeStyle = 'rgba(244, 63, 94, 0.38)';
+    ctx.strokeStyle = tunnel ? 'rgba(15,23,42,.45)' : 'rgba(244, 63, 94, 0.38)';
     ctx.lineWidth = 6;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -823,12 +836,100 @@ export function renderEditorOverlay(
     for (let i = 1; i < state.laserPoints.length; i++) {
       ctx.lineTo(sx(state.laserPoints[i].x), sy(state.laserPoints[i].y));
     }
-    ctx.closePath();
+    if (!tunnel && state.closeLaser) ctx.closePath();
     ctx.stroke();
+    ctx.strokeStyle = tunnel ? '#67e8f9' : '#fb7185';
+    ctx.lineWidth = tunnel ? 1.5 : 2;
+    if(tunnel) ctx.setLineDash([6,4]);
+    ctx.stroke();
+    if(tunnel && state.laserPoints.length<150) {
+      ctx.setLineDash([]);
+      ctx.fillStyle='#0f172a';
+      for(const p of state.laserPoints) {
+        ctx.beginPath();
+        ctx.arc(sx(p.x),sy(p.y),3,0,Math.PI*2);
+        ctx.fill();
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
 
-    ctx.strokeStyle = '#fb7185';
-    ctx.lineWidth = 2;
+  if (state.tunnelSection) {
+    const {knots,index,handle,triangles,originalTriangles,preview,invalid}=state.tunnelSection;
+    ctx.save();
+    if (originalTriangles) {
+      const mask = sectionWidthMask(map, originalTriangles, triangles);
+      if (mask) {
+        ctx.globalAlpha = 0.88;
+        ctx.drawImage(mask.canvas, sx(mask.left), sy(mask.top), (mask.right-mask.left)*pxPerX, (mask.bottom-mask.top)*pxPerY);
+        ctx.globalAlpha = 1;
+      }
+    } else {
+      ctx.fillStyle=invalid ? 'rgba(251,113,133,.2)' : preview ? 'rgba(110,231,183,.36)' : 'rgba(103,232,249,.16)';
+      ctx.beginPath();
+      for (const {vertices:[a,b,c]} of triangles) {
+        ctx.moveTo(sx(a.x),sy(a.y)); ctx.lineTo(sx(b.x),sy(b.y)); ctx.lineTo(sx(c.x),sy(c.y)); ctx.closePath();
+      }
+      ctx.fill();
+    }
+    const trial = state.tunnelSection.trial;
+    if (trial?.trace.length) {
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = trial.reached ? '#a7f3d0' : '#ffcf86';
+      ctx.beginPath();
+      trial.trace.forEach((p, i) => i ? ctx.lineTo(sx(p.x), sy(p.y)) : ctx.moveTo(sx(p.x), sy(p.y)));
+      ctx.stroke();
+    }
+    const at=(i:number)=>i===index ? handle : knots[i];
+    ctx.strokeStyle='rgba(165,243,252,.8)';
+    ctx.lineWidth=1;
+    ctx.setLineDash([4,4]);
+    ctx.beginPath();
+    knots.forEach((_,i)=>{const p=at(i); if (i) ctx.lineTo(sx(p.x),sy(p.y)); else ctx.moveTo(sx(p.x),sy(p.y));});
     ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle=invalid ? '#fb7185' : '#67e8f9';
+    ctx.lineWidth=2;
+    ctx.beginPath();
+    for (let i=index-1;i<=index+1;i++) {
+      const p=at(i);
+      if (i===index-1) ctx.moveTo(sx(p.x),sy(p.y)); else ctx.lineTo(sx(p.x),sy(p.y));
+    }
+    ctx.stroke();
+    knots.forEach((_,i)=>{
+      const p=at(i);
+      ctx.beginPath();
+      ctx.arc(sx(p.x),sy(p.y),i===index ? 6 : 3.5,0,Math.PI*2);
+      ctx.fillStyle=i===index?'#fef3c7':i===0||i===knots.length-1?'#64748b':'#155e75';
+      ctx.fill();ctx.stroke();
+    });
+    const stop = state.tunnelSection.stop;
+    if (stop) {
+      const x = sx(stop.x), y = sy(stop.y);
+      ctx.beginPath(); ctx.arc(x,y,8,0,Math.PI*2);
+      ctx.strokeStyle = '#18181b'; ctx.lineWidth = 5; ctx.stroke();
+      ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 2.5; ctx.stroke();
+      ctx.fillStyle = '#fbbf24'; ctx.fillRect(x-2,y-2,4,4);
+    }
+    state.tunnelSection.gates?.forEach(({center,tangent}, i) => {
+      const x = sx(center.x), y = sy(center.y);
+      const dx = tangent.x * pxPerX, dy = tangent.y * pxPerY;
+      const length = Math.hypot(dx,dy) || 1;
+      const nx = -dy / length * 12, ny = dx / length * 12;
+      const colour = i === 0 ? '#a7f3d0' : '#fde68a';
+      ctx.beginPath();
+      ctx.moveTo(x-nx,y-ny); ctx.lineTo(x+nx,y+ny);
+      ctx.strokeStyle = '#18181b'; ctx.lineWidth = 5; ctx.stroke();
+      ctx.strokeStyle = colour; ctx.lineWidth = 2.5; ctx.stroke();
+      const label = i === 0 ? t('Section entrance') : t('Section exit');
+      ctx.font = '600 11px system-ui';
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#18181b';
+      ctx.strokeText(label,x,y-17);
+      ctx.fillStyle = colour; ctx.fillText(label,x,y-17);
+    });
     ctx.restore();
   }
 

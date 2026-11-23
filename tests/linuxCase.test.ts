@@ -1,3 +1,4 @@
+import { diskPathKey } from '../src/server/diskPath';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
@@ -9,6 +10,11 @@ import { computeCaseMismatches, renameCaseMismatches } from '../src/server/libra
 import { executePackBuild } from '../src/server/packBuilder';
 import { SoldatMapScanner } from '../src/server/soldatScanner';
 import { buildSyntheticPms } from './helpers';
+
+test('physical map identities distinguish case on Linux and fold it on Windows', () => {
+  assert.notEqual(diskPathKey('maps/Arena.pms', 'linux'), diskPathKey('maps/arena.pms', 'linux'));
+  assert.equal(diskPathKey('maps/Arena.pms', 'win32'), diskPathKey('maps/arena.pms', 'win32'));
+});
 
 /** Soldat folder with the given maps and scenery files (scanned) */
 async function soldatWith(maps: Record<string, string[]>, sceneryFiles: string[]) {
@@ -100,4 +106,18 @@ test('case report: a file every map spells one way is renamed, one spelled sever
     computeCaseMismatches(env.scanner).files.map((f) => f.diskName),
     ['palm.png']
   );
+});
+
+test('Linux zip keeps two spellings from a single map for both the classic and HD file', async t=>{
+  const env=await soldatWith({ctf_palms:['Palm.bmp','palm.bmp']},['palm.bmp','PALM.png']);
+  t.after(()=>{env.scanner['sqliteCache'].close();fs.rmSync(env.base,{recursive:true,force:true});});
+  const pack=await executePackBuild(packOptions(['ctf_palms'],true),env.scanner,path.join(env.base,'exports'));
+  const files=new AdmZip(pack.outputPath).getEntries().map(f=>f.entryName).filter(n=>n.startsWith('scenery-gfx/')).sort();
+  assert.deepEqual(files,['scenery-gfx/Palm.bmp','scenery-gfx/Palm.png','scenery-gfx/palm.bmp','scenery-gfx/palm.png']);
+  const outRoot=path.join(env.base,'nested','exports');
+  const folder=await executePackBuild({...packOptions(['ctf_palms'],false),outputFormat:'folder',packName:'..'},env.scanner,outRoot);
+  assert.equal(path.dirname(folder.outputPath),outRoot,'pack name must resolve to a child of the selected output folder');
+  const second=await executePackBuild({...packOptions(['ctf_palms'],false),outputFormat:'folder',packName:'...zip'},env.scanner,outRoot);
+  assert.equal(path.dirname(second.outputPath),outRoot);
+  assert.notEqual(second.outputPath,folder.outputPath,'a repeated export must not inherit stale files');
 });

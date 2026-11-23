@@ -44,14 +44,6 @@ export const DEFAULT_RENDER_LAYERS: RenderLayerVisibility = {
   showGrid: false,
 };
 
-export interface CameraViewport {
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
-  zoom: number; // screen pixels per 1.0 Soldat world unit (1.0 = 100% native view!)
-}
-
 export interface FullSizeExportSettings {
   scale: number;                      // 1.0 = 100% Full Size View, 0.5 = 50%, 2.0 = 200%
   boundsMode: 'poly' | 'full';        // 'poly' = polygon bounds, 'full' = polygons + scenery + spawns

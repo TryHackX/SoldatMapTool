@@ -1,5 +1,111 @@
 # Changelog
 
+## 2.8.0 — 2026-11-24
+
+### Generatory map i narzędzia climb (nowość)
+- **Nowa mapa → Z map wzorcowych:** osobna, edytowalna mapa z jednej do ośmiu lokalnych map PMS (mapa zaznaczona
+  w bibliotece, mapy dodane po nazwie lub tagu albo próbka wyników filtra).
+  - **Połącz fragmenty wzorców** dopasowuje otwarcia, łączy odcinki i przenosi scenerie oraz kolory materiałów;
+  - **Zachowaj układ przejść** zmienia sylwetkę pierwszej mapy, ale zostawia połączenia waypointów;
+  - niebo, tekstura terenu i paleta mogą pochodzić z różnych wzorców.
+- **Nowa mapa → Trasy i areny:** platformowa trasa na czas (Spokojna, Na czas lub Trudna, z profilem skoków
+  zmierzonym na Twoich lokalnych mapach climb), CTF, Trenchwars i arena symetryczna. Podgląd rysuje symulowany
+  przejazd od spawnu Alpha do flagi Bravo z czasem liczonym przy 60 tickach na sekundę.
+- **Nowa mapa → Tunel climb:**
+  - własna trasa od startu do flagi, gotowy kształt (**Spirala**, **Pagórki**, sprawdzone trasy) albo **Generuj
+    trasę** z kierunku, długości, trudności i ziarna;
+  - szerokość, paleta skał, proporcje materiałów, przeszkody i **układ komór** (wnęki, galerie, szyby, lód, miejsca
+    odpoczynku) zmieniasz na żywym podglądzie;
+  - **Przejazd pilota** symuluje żołnierza i pokazuje tor ruchu, czas albo miejsce, w którym się zatrzymał.
+- **Nowa mapa → Climb na czas:** trasa pod zadany czas, np. 1:00. Studio sprawdza warianty odcinków i podaje czas
+  ciągłego przejazdu od spawnu Alpha do flagi Bravo.
+- **Narzędzie Tunel (T)** rysuje tunel bezpośrednio na mapie:
+  - dla każdego odcinka: przesunięcie zakrętu, wysokość lądowania, odbicie i lokalna szerokość, sprawdzenie odcinka
+    lub całej trasy oraz przebudowa;
+  - **Porównaj warianty** zestawia od dwóch do czterech wariantów między tymi samymi bramkami;
+  - **Wszystkie międzyczasy** pokazuje czasy odcinków jednego ciągłego przejazdu, a **Planowanie czasu trasy**
+    przesuwa trasę w stronę docelowego czasu;
+  - każda zmiana to jeden krok cofania.
+- **Styl z biblioteki i porównanie:** odstępy, wzniesienie, szerokość lądowisk, odbicie, odsłonięte krawędzie
+  i paliwo jetpacka ulubionych map, wybranego tagu albo źródła, porównane po medianie i skrajnych percentylach.
+- **Biblioteka ruchów climb:** pięć małych map treningowych ze zmierzonymi zakresami rozbiegu, prędkości
+  i lądowania. Po zatrzymanym przejeździe **Sprawdź poprawki od startu** mierzy alternatywne lokalne poprawki na
+  całej trasie.
+- **Porównaj z przejazdami graczy:** zapis własnych przejazdów (wersja gry, czas, meta albo miejsce zatrzymania,
+  międzyczasy) dla dokładnie tej trasy. Eksport i import JSON przenosi je między przeglądarkami.
+- **Laser → Tryb rysowania „Trasa z platform”** zamienia narysowaną linię w trasę ze skokami, śmiertelnymi
+  pułapkami, raniącym podłożem i platformami odbijającymi, w proporcjach z Twojego profilu climb.
+- Symulacja to szacunek dla wygenerowanej trasy w drodze do flagi. Ręcznie zmienione trasy, powrót z flagą i czasy
+  w grze nadal wymagają testu w grze.
+
+### Edytor map
+- **Kształty (B):** prostokąt, dowolny obrys, rampa i kolec. Przeciągnij od podstawy do czubka albo między
+  narożnikami; kierunek wynika z gestu lub wybierasz go z listy.
+- **Poly Fixer** wyszukuje styki punktowe zwykłego podłoża (narożnik na krawędzi, styk narożników), pokazuje każdy
+  na mapie z powiększeniem i nakłada wierzchołek na sąsiedni trójkąt do 2 jednostek w głąb. Naprawa pojedynczo albo
+  wszystkich naraz, z cofaniem przez Ctrl+Z. Sprawdzanie mapy zgłasza też szczeliny węższe od żołnierza.
+- **Projekty `.smaproj`** przechowują mapę razem z narysowaną trasą, ustawieniami generatora i profilem skoków;
+  **Eksportuj .pms** zapisuje grywalną mapę. Szkice odzyskiwania zapisują te same dane.
+- **Własne klawisze narzędzi** (F1 lub ?): wybór zajętej litery zamienia klawisze obu narzędzi, a jednym przyciskiem
+  wracasz do domyślnych. **F4** chowa i pokazuje panele boczne.
+- **Usuń nieużywane wpisy scenerii** porządkuje tabelę scenerii mapy (z cofaniem).
+- **Skopiuj styl do stempla scenerii** oraz Backspace cofający ostatni punkt rysunku.
+- Opcjonalne ikony Font Awesome Solid na pasku narzędzi (paczkę instaluje się w administracji lokalnej); domyślnie
+  zostają ikony Lucide.
+- Operacja, która przekroczyłaby limit 5000 poligonów, zostaje zablokowana z komunikatem.
+- Przy zapisie można ograniczyć długość nazwy pliku (patrz niżej).
+
+### Warsztat map
+- **Zabezpiecz ściany:** przezroczyste pasy Deadly wewnątrz grubych ścian (domyślnie szerokość 1 i odstęp
+  2 jednostek od powierzchni dostępnej dla gracza):
+  - dla całej mapy, tylko dla zamalowanego obszaru albo wzdłuż narysowanego pasa (Shift + przeciągnięcie daje
+    prosty pas);
+  - różowy pędzel wyklucza obszar, zielony go przywraca, a w miejscu przecięcia decyduje ostatnia kreska;
+  - podgląd pokazuje mapę z teksturami i licznik poligonów (limit 5000), a wynik trafia do osobnego PMS
+    w `exports/guarded-maps/`, także dla całej listy map;
+  - opcjonalnie uzupełnia brakujące sektory kolizji wewnątrz ścian wzdłuż ręcznego pasa.
+- **Limit długości nazwy pliku** przed `.pms`: 16 znaków (zgodność ze starszymi narzędziami serwerowymi), 24 albo
+  32, z przyciskiem **Zaproponuj krótką nazwę**. Działa w warsztacie i przy zapisie w edytorze.
+- Bezpieczniejszy zapis `_o` i `_a`: Studio czeka na przesłanie wszystkich warstw, sprawdza ich liczbę z podglądem,
+  nie nadpisuje grafiki należącej do innej mapy ani zmienionej ręcznie i zgłasza scenerię, której nie da się
+  odczytać.
+
+### Biblioteka, porządki i paczki
+- **Podobne mapy:** porównanie zaznaczonych map po sylwetce terenu i grafikach scenerii. Wyszukuje wersje robocze,
+  przemianowane kopie i bliskie duplikaty, także w porównaniu z resztą biblioteki.
+- **Potwierdzone duplikaty** zamiast samego CRC32: kopia musi mieć zgodną zawartość mapy i grafik.
+- Nowe filtry wyszukiwania: `is:draft` (robocza nazwa mapy, np. wip, beta, test, szkic) i `is:draft-scenery`
+  (sceneria o roboczej nazwie).
+- **Czyste archiwum** (Porządki → Czyste archiwum, także z warsztatu map):
+  - zweryfikowana, przenośna kopia całej kolekcji, np. archiwum SMA razem z mapami zainstalowanymi w grze;
+  - zasoby są szukane w ich oryginalnych paczkach i deduplikowane po SHA-256, a odwołania w PMS przepisywane;
+  - mapy z brakami dostają raport `missing/<mapa>.txt`; raporty CSV obejmują mapy do sprawdzenia, wersje i daty
+    map oraz odzyskiwanie brakujących grafik;
+  - wynik trafia do `exports/clean-archives/`, a poradnik jest w pliku `CZYSTE-ARCHIWUM.md`.
+- **Paczki serwerowe:**
+  - **Usuń nieużywane wpisy scenerii z pakowanych map** czyści tabelę scenerii w kopii PMS i pomija nieużywane
+    grafiki;
+  - mapy z brakami mogą trafić do paczki z wykazem braków w `missing/<mapa>.txt`;
+  - przed spakowaniem Studio sprawdza, czy mapa nie zmieniła się na dysku od ostatniego skanowania.
+- Rozpakowywanie pobranych archiwów wykrywa różne pliki trafiające pod tę samą nazwę, a po błędzie przywraca
+  poprzednie pliki.
+
+### Administracja lokalna i uruchamianie
+- Przy pierwszym starcie przeglądarka otwiera zakładanie lokalnego konta administratora (login i hasło od 12 znaków).
+  Panel jest pod `/admin` i w Ustawieniach, a Studio nadal działa tylko na tym komputerze.
+- `npm start` i skrypty startowe uruchamiają serwer pod nadzorcą:
+  - **Restart Soldat Map Studio.bat** (Windows) i `restart.sh` (Linux) restartują działający serwer, a przed
+    restartem interfejs jest przebudowywany, jeśli zmieniły się jego źródła;
+  - `node scripts/restart.mjs --reset-admin` resetuje zapomniane konto administratora i zostawia kopię starego
+    pliku.
+- Linki do pobierania paczek i zrzutów map są podpisane lokalnym kluczem.
+
+### Pod spodem
+- Nowe biblioteki `clipper-lib` i `earcut` (operacje na wielokątach i triangulacja).
+- Skrypty jakości `npm run quality:climb`, `quality:courses` i `quality:history` oraz pomiar klatek edytora
+  w `scripts/editor-frames.html`.
+- 353 testy automatyczne.
+
 ## 2.7.0 — 2026-11-02
 
 ### Edytor map (nowość)

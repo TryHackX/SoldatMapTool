@@ -4,7 +4,6 @@ import {
   freehandLaserToPolygons,
   previewLaserContour,
   traceImageToPolygons,
-  untangleClosedContour,
 } from '../src/shared/imageTracer.js';
 import { polygonSignedArea2 } from '../src/shared/pmsCompiler.js';
 import { computePropCorners, PmsMapData, PmsProp } from '../src/shared/pmsParser.js';

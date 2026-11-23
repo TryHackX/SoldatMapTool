@@ -20,6 +20,7 @@ import {
   PmsBounds,
   soldatCrc32,
 } from '../shared/pmsParser';
+import { readStudioProjectData } from '../shared/studioProjectData';
 import { t } from './i18n';
 import {
   BackupSession,
@@ -28,6 +29,7 @@ import {
   writeFileAtomic,
 } from './safeFileWriter';
 import { SoldatMapScanner } from './soldatScanner';
+import { diskPathKey } from './diskPath';
 
 const ALLOWED_IMAGE_EXT = new Set(['.bmp', '.png', '.jpg', '.jpeg', '.gif', '.tga']);
 const WINDOWS_RESERVED_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
@@ -83,9 +85,12 @@ export class SoldatMapEditorService {
     this.prefabsFile = path.join(this.dataDir, 'editor-prefabs.json');
   }
 
-  public listAssets(): EditorAssetCatalogResponse {
+  public listAssets(mapId?: string): EditorAssetCatalogResponse {
     const resolver = this.scanner.getResolver();
-    const edgeEntries = resolver.listCategoryEntries('textures/edges');
+    const map = mapId ? this.scanner.getMapEntry(mapId) : undefined;
+    if (mapId && !map) throw new WorkshopError(t('Map not found: {id}', { id: mapId }), 404);
+    const root = map ? resolver.packageRootForMap(map.fullPath, map.sourceId) : undefined;
+    const edgeEntries = resolver.listCategoryEntries('textures/edges', root);
     const edgeStems = new Set<string>();
     for (const e of edgeEntries) {
       const ext = path.extname(e.diskName).toLowerCase();
@@ -94,12 +99,12 @@ export class SoldatMapEditorService {
     }
 
     const buildList = (category: 'textures' | 'scenery-gfx'): EditorAssetItem[] => {
-      const rawEntries = resolver.listCategoryEntries(category);
+      const rawEntries = resolver.listCategoryEntries(category, root);
       const out: EditorAssetItem[] = [];
       for (const item of rawEntries) {
         const ext = path.extname(item.diskName).toLowerCase();
         if (!ALLOWED_IMAGE_EXT.has(ext)) continue;
-        const isVanilla = resolver.isVanillaAsset(category, item.diskName);
+        const isVanilla = item.sourcePriority < 2 && resolver.isVanillaAsset(category, item.diskName);
         let hasEdge: boolean | undefined;
         if (category === 'textures') {
           const stem = item.diskName.slice(0, -ext.length).toLowerCase();
@@ -152,7 +157,7 @@ export class SoldatMapEditorService {
 
     const srcPath = req.sourceMapId ? this.scanner.getMapFilePath(req.sourceMapId) : null;
     const isSameAsSource = Boolean(
-      srcPath && path.resolve(srcPath).toLowerCase() === path.resolve(outputPath).toLowerCase()
+      srcPath && diskPathKey(srcPath) === diskPathKey(outputPath)
     );
 
     const exists = fs.existsSync(outputPath);
@@ -197,6 +202,7 @@ export class SoldatMapEditorService {
     let parsed;
     try {
       parsed = parsePmsFull(bytes);
+      if (parsed.parseWarnings.length) throw new Error(parsed.parseWarnings.join(' · '));
     } catch (err) {
       throw new WorkshopError(
         t('Refusing to save invalid PMS binary: {error}', {
@@ -315,8 +321,12 @@ export class SoldatMapEditorService {
       throw new WorkshopError(t('Draft not found: {id}', { id }), 404);
     }
     const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    const metadata = readStudioProjectData(raw.tunnels, raw.sketch, raw.assetMapId);
+    if (!metadata) throw new WorkshopError(t('The tunnel editing data in this project is invalid.'), 400);
     return {
+      ...metadata,
       draftId: String(raw.draftId),
+      ...(raw.projectFile === true ? { projectFile: true } : {}),
       sourceMapId: raw.sourceMapId ?? null,
       baseName: String(raw.baseName || 'untitled'),
       title: String(raw.title || ''),
@@ -330,7 +340,7 @@ export class SoldatMapEditorService {
 
   public saveDraft(
     draftId: string,
-    body: { sourceMapId?: string | null; baseName: string; pmsBase64: string }
+    body: { sourceMapId?: string | null; baseName: string; pmsBase64: string; tunnels?: unknown; sketch?: unknown; projectFile?: boolean; assetMapId?: unknown }
   ): EditorDraftSummary {
     const id = sanitizeSafeToken(draftId);
     const bytes = Buffer.from(String(body.pmsBase64 || ''), 'base64');
@@ -339,8 +349,10 @@ export class SoldatMapEditorService {
     }
     const parsed = parsePmsFull(bytes);
 
+    const metadata = readStudioProjectData(body.tunnels, body.sketch, body.assetMapId);
+    if (!metadata) throw new WorkshopError(t('The tunnel editing data in this project is invalid.'), 400);
     fs.mkdirSync(this.draftsDir, { recursive: true });
-    const payload: EditorDraftPayload = {
+    const summary: EditorDraftSummary = {
       draftId: id,
       sourceMapId: body.sourceMapId ?? null,
       baseName: String(body.baseName || 'untitled').slice(0, 64),
@@ -349,6 +361,9 @@ export class SoldatMapEditorService {
       polygonCount: parsed.polygons.length,
       propCount: parsed.props.length,
       fileSize: bytes.byteLength,
+    };
+    const payload: EditorDraftPayload = {
+      ...summary, ...metadata, ...(body.projectFile === true ? { projectFile: true } : {}),
       pmsBase64: bytes.toString('base64'),
     };
     const filePath = path.join(this.draftsDir, `${id}.json`);
@@ -364,18 +379,13 @@ export class SoldatMapEditorService {
       }
     }
 
-    const { pmsBase64: _b64, ...summary } = payload;
     return summary;
   }
 
   public deleteDraft(draftId: string): void {
     const id = sanitizeSafeToken(draftId);
     const filePath = path.join(this.draftsDir, `${id}.json`);
-    try {
-      fs.rmSync(filePath, { force: true });
-    } catch {
-      // Ignore
-    }
+    fs.rmSync(filePath, { force: true });
   }
 
   // ---------------------------------------------------------------------------

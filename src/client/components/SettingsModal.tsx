@@ -106,6 +106,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         <div className="p-5 space-y-4 overflow-y-auto text-xs">
+          <a href="/admin" target="_blank" rel="noopener" className="inline-block text-cyan-300 hover:underline">{t('Local administration')} ↗</a>
           <div>
             {/* Always bilingual, so the setting is easy to find whatever language is active */}
             <label className="flex items-center gap-1.5 font-semibold text-zinc-200 mb-1.5">

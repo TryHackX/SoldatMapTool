@@ -42,6 +42,7 @@ import {
 } from './utils/mapCache';
 import {
   Archive,
+  Columns2,
   FilePlus2,
   FolderOpen,
   Package,
@@ -55,6 +56,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { EditorDraftRecoveryBanner } from './editor/components/EditorDraftRecoveryBanner';
+import { ProjectFilePicker } from './editor/components/ProjectFilePicker';
 import type { EditorValidationIssueUI } from './editor/components/EditorRightDock';
 import { isSelectionEmpty } from './editor/EditorDocument';
 import { useDeferredValidation } from './editor/useDeferredValidation';
@@ -70,6 +72,8 @@ const EditorImageTraceModal = lazy(() =>
 const EditorLeftDock = lazy(() =>
   import('./editor/components/EditorLeftDock').then((m) => ({ default: m.EditorLeftDock }))
 );
+const TunnelDock = lazy(()=>import('./editor/components/TunnelComposer').then(m=>({default:m.TunnelDock})));
+const TunnelWorkspaceDock = lazy(()=>import('./editor/components/TunnelWorkspaceDock').then(m=>({default:m.TunnelWorkspaceDock})));
 const EditorNewMapModal = lazy(() =>
   import('./editor/components/EditorNewMapModal').then((m) => ({ default: m.EditorNewMapModal }))
 );
@@ -102,6 +106,7 @@ const EditorRightDock = lazy(() =>
 const MapWorkshopModal = lazy(() =>
   import('./components/MapWorkshopModal').then((m) => ({ default: m.MapWorkshopModal }))
 );
+const MapSimilarityModal = lazy(() => import('./components/MapSimilarityModal').then(m => ({ default: m.MapSimilarityModal })));
 const PackBuilderModal = lazy(() =>
   import('./components/PackBuilderModal').then((m) => ({ default: m.PackBuilderModal }))
 );
@@ -344,7 +349,7 @@ export const App: React.FC = () => {
   }>({ open: false, batch: false });
   const [workshopModalState, setWorkshopModalState] = useState<{
     open: boolean;
-    tab: 'fix' | 'optimize';
+    tab: 'fix' | 'optimize' | 'walls';
   }>({ open: false, tab: 'fix' });
   const [livePreviewMap, setLivePreviewMap] = useState<{
     forMapId: string;
@@ -353,6 +358,7 @@ export const App: React.FC = () => {
     layerQuality?: number;
   } | null>(null);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [similarityOpen, setSimilarityOpen] = useState(false);
   const [libraryToolsState, setLibraryToolsState] = useState<{ open: boolean; tab: LibraryToolsTab }>({
     open: false,
     tab: 'duplicates',
@@ -891,6 +897,7 @@ export const App: React.FC = () => {
       : null;
 
   const workshopMounted = useMountedAfterFirstOpen(workshopModalState.open);
+  const similarityMounted = useMountedAfterFirstOpen(similarityOpen);
   const prefixStudioMounted = useMountedAfterFirstOpen(prefixStudioState.open);
   const packModalMounted = useMountedAfterFirstOpen(packModalOpen);
   const screenshotMounted = useMountedAfterFirstOpen(screenshotModalState.open);
@@ -903,6 +910,9 @@ export const App: React.FC = () => {
     onMetaUpdated: applyMetaUpdate,
     onSavedToLibrary: selectMapById,
   });
+
+  const projectInput=useRef<HTMLInputElement>(null);
+  const openProjectPicker=()=>projectInput.current?.click();
 
   const handleEditCurrentMap = useCallback(() => {
     const targetData = loadedMap?.data;
@@ -955,6 +965,15 @@ export const App: React.FC = () => {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden">
+      <ProjectFilePicker ref={projectInput} onError={message=>{
+        if (editor.isOpen) editor.notify('error',message); else setScanError(message);
+      }} onOpen={({baseName,map})=>{
+        if (!editor.closeEditor()) {
+          if (!window.confirm(t('Discard unsaved changes and open {name}?',{name:baseName}))) return;
+          editor.closeEditor(true);
+        }
+        editor.openMapInEditor({map,initialBaseName:baseName,projectFile:true});
+      }}/>
       {/* Top Application Header Bar (or Editor Top Bar when editing) */}
       {editor.isOpen && editor.snapshot ? (
         <Suspense fallback={<div className="h-11 shrink-0 bg-zinc-900/95 border-b border-zinc-800" />}>
@@ -970,10 +989,13 @@ export const App: React.FC = () => {
           onUndo={editor.undo}
           onRedo={editor.redo}
           onOpenNewMap={() => editor.setNewMapModalOpen(true)}
+          onOpenProject={openProjectPicker}
+          onSaveProject={()=>void editor.saveProject()}
           onOpenSave={() => editor.setSaveModalOpen(true)}
           onOpenSymmetry={() => editor.setSymmetryModalOpen(true)}
           onOpenImageTrace={() => editor.setImageTraceModalOpen(true)}
-          onOpenValidation={() => editor.setRightTab('validation')}
+          onOpenValidation={() => { editor.setPanelsHidden(false); editor.setRightTab('validation'); }}
+          onOpenPolyFixer={() => { editor.setPanelsHidden(false); editor.setRightTab('poly_fixer'); }}
           onOpenCommandPalette={() => editor.setCommandPaletteOpen(true)}
           onExitEditor={(force) => {
             editor.closeEditor(force);
@@ -1059,13 +1081,20 @@ export const App: React.FC = () => {
           <button
             type="button"
             onClick={() => editor.setNewMapModalOpen(true)}
-            title={t('Create a new .pms map from a starter template')}
+            title={t('Build a climb tunnel, generate a course or choose a starter template')}
             className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-emerald-500/35 text-xs font-semibold text-emerald-200 flex items-center gap-1.5 cursor-pointer"
           >
             <FilePlus2 className="w-3.5 h-3.5 text-emerald-400" />
             <span className="hidden lg:inline">{t('New map')}</span>
           </button>
 
+          <button
+            type="button"
+            onClick={openProjectPicker}
+            title={t('Open project file')} aria-label={t('Open project file')}
+            className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800">
+            <FolderOpen className="mr-1 inline h-3.5 w-3.5" /><span className="hidden xl:inline">{t('Open project file')}</span>
+          </button>
           <button
             type="button"
             onClick={handleEditCurrentMap}
@@ -1080,14 +1109,17 @@ export const App: React.FC = () => {
           <button
             type="button"
             onClick={() => setWorkshopModalState({ open: true, tab: 'fix' })}
-            disabled={!activeMapDetails}
-            title={t(
-              'Soldat Map Workshop: automatic scenery repair after the move to 1.7.1 (_f.pms) and Optimize Sceneries layer merging (_o.pms)'
-            )}
+            disabled={!activeMapDetails && !packMapIds.size && !totalFiltered}
+            title={t('Scenery repair, optimization and wall protection')}
             className="px-2.5 py-1.5 rounded-lg bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/40 text-xs font-semibold text-amber-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
           >
             <Wrench className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden lg:inline">{t('Workshop _f / _o')}</span>
+            <span className="hidden lg:inline">{t('PMS Map Workshop')}</span>
+          </button>
+          <button type="button" onClick={() => setSimilarityOpen(true)} disabled={!meta || (!totalFiltered && !packMapIds.size && !activeMapId)}
+            title={t('Find similar to selected')} aria-label={t('Find similar to selected')}
+            className="flex items-center gap-1.5 rounded-lg border border-zinc-800 bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-zinc-200 hover:bg-zinc-800 disabled:opacity-40">
+            <Columns2 size={14} className="text-emerald-400"/><span className="hidden 2xl:inline">{t('Similar maps')}</span>
           </button>
 
           <button
@@ -1108,10 +1140,9 @@ export const App: React.FC = () => {
 
           <button
             type="button"
-            onClick={() => setLibraryToolsState({ open: true, tab: 'duplicates' })}
-            disabled={!meta || isBgScanning}
+            onClick={() => setLibraryToolsState({ open: true, tab: meta && !isBgScanning ? 'duplicates' : 'archive' })}
             title={t(
-              'Clean-up: duplicate maps (identical CRC32), unused scenery files and letter case in file names (Linux)'
+              'Clean a map archive, find duplicate maps and unused sceneries, or fix filename case for Linux'
             )}
             className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs text-zinc-300 flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
           >
@@ -1328,6 +1359,7 @@ export const App: React.FC = () => {
               onAddAllFilteredToPack={handleAddAllFilteredToPack}
               onRemoveFilteredFromPack={handleRemoveFilteredFromPack}
               onOpenBatchScreenshot={() => setScreenshotModalState({ open: true, batch: true })}
+              onOpenSimilar={() => setSimilarityOpen(true)}
               searchQuery={searchQuery}
               onChangeSearchQuery={setSearchQuery}
               sortField={sortField}
@@ -1406,6 +1438,13 @@ export const App: React.FC = () => {
           <div className={editor.panelsHidden ? 'hidden' : 'contents'}>
           <Suspense fallback={null}>
           <EditorRightDock
+            tunnelPanel={editor.activeTool==='climb_tunnel' ? <TunnelWorkspaceDock workspace={editor.tunnelWorkspace}
+              map={editor.snapshot.map} locked={editor.locks.polygons} focus={editor.focusWorldRect}>
+              <TunnelDock key={editor.snapshot.draftId}
+              settings={editor.tunnelSettings} setSettings={editor.setTunnelSettings} method={editor.tunnelMethod}
+              setMethod={editor.setTunnelMethod} path={editor.tunnelPath} setPath={editor.setTunnelPath} draft={editor.tunnelDraft}
+              onExample={editor.useTunnelExample} onApply={editor.applyTunnel} locked={editor.locks.polygons} contextMap={editor.snapshot.map}/>
+              </TunnelWorkspaceDock> : null}
             activeTab={editor.rightTab}
             onChangeTab={editor.setRightTab}
             snapshot={editor.snapshot}
@@ -1426,6 +1465,7 @@ export const App: React.FC = () => {
             validationHintsEnabled={validationHints}
             onToggleValidationHints={setValidationHints}
             onFixValidationIssue={(issue) => issue.fix && editor.applyValidationFix(issue.fix)}
+            onRemoveUnusedScenery={editor.removeUnusedScenery}
             playtest={editor.playtest}
             playtestTeam={editor.playtestTeam}
             onChangePlaytestTeam={(tm) => {
@@ -1512,10 +1552,24 @@ export const App: React.FC = () => {
       {/* Modals */}
       <ErrorBoundary overlay fallbackTitle={t('Could not load the application window (e.g. after an update) — refresh the page')}>
       <Suspense fallback={null}>
+      {similarityMounted && <MapSimilarityModal open={similarityOpen} onClose={() => setSimilarityOpen(false)}
+        ids={packListArray} query={baseQueryRequest} totalFiltered={totalFiltered}
+        activeId={activeMapId} activeName={activeMapDetails?.baseName} onOpenMap={id => {
+          selectMapById(id);
+          setSimilarityOpen(false);
+        }}/>}
       {workshopMounted && (
       <MapWorkshopModal
         open={workshopModalState.open}
         initialTab={workshopModalState.tab}
+        onOpenArchiveCleaner={() => {
+          setWorkshopModalState(s => ({ ...s, open: false }));
+          setLibraryToolsState({ open: true, tab: 'archive' });
+        }}
+        onOpenSimilar={() => {
+          setWorkshopModalState(s => ({ ...s, open: false }));
+          setSimilarityOpen(true);
+        }}
         onClose={() => setWorkshopModalState((s) => ({ ...s, open: false }))}
         currentMapEntry={activeMapDetails}
         currentMapData={activeMapData}
@@ -1589,6 +1643,7 @@ export const App: React.FC = () => {
       <LibraryToolsModal
         open={libraryToolsState.open}
         initialTab={libraryToolsState.tab}
+        libraryReady={!!meta && !isBgScanning}
         onClose={() => setLibraryToolsState((st) => ({ ...st, open: false }))}
         onMetaUpdated={applyMetaUpdate}
       />
@@ -1601,14 +1656,16 @@ export const App: React.FC = () => {
         open={editor.newMapModalOpen}
         onClose={() => editor.setNewMapModalOpen(false)}
         availableTextures={(editor.assetCatalog?.textures ?? []).map((tx) => tx.name)}
+        referenceMap={activeMapDetails}
         hasUnsavedChanges={editor.isOpen && editor.isDirty}
-        onCreateMap={({ map, initialBaseName }) => {
+        onCreateMap={({ map, initialBaseName, tunnel, fullRun }) => {
           // The user confirmed in the dialog: close the old document (its draft goes too) before the new one
           if (editor.isOpen) editor.closeEditor(true);
-          editor.openMapInEditor({
-            map,
-            initialBaseName,
-          });
+          editor.openMapInEditor({map,initialBaseName,startDirty:true,fullRun});
+          if (tunnel) {
+            editor.setActiveTool('climb_tunnel');
+            if (!map.polygons.length) requestAnimationFrame(()=>editor.focusWorldRect({left:-1100,right:1100,top:-650,bottom:650}));
+          }
         }}
       />
       )}
@@ -1694,17 +1751,19 @@ export const App: React.FC = () => {
         }
         onOpenSave={() => editor.setSaveModalOpen(true)}
         onOpenNewMap={() => editor.setNewMapModalOpen(true)}
-        onSelectRightTab={editor.setRightTab}
+        onSelectRightTab={(tab) => { editor.setPanelsHidden(false); editor.setRightTab(tab); }}
         extraActions={[
+          {id:'remove_unused_scenery',label:t('Remove unused scenery entries'),category:t('Scenery'),run:editor.removeUnusedScenery},
           { id: 'sel_similar', label: t('Select similar objects'), category: t('Edit'), shortcut: 'Ctrl+Shift+A', run: editor.selectSimilar },
           { id: 'sel_invert', label: t('Invert selection'), category: t('Edit'), shortcut: 'Ctrl+I', run: editor.invertSelection },
           { id: 'view_frame_sel', label: t('Zoom to the selection'), category: t('View'), shortcut: 'Shift+F', run: editor.frameSelection },
           { id: 'view_frame_map', label: t('Zoom to the whole map'), category: t('View'), shortcut: 'Home', run: editor.frameMap },
-          { id: 'view_panels', label: t('Hide / show the side panels'), category: t('View'), shortcut: 'Tab', run: () => editor.setPanelsHidden((v) => !v) },
+          { id: 'view_panels', label: t('Hide / show the side panels'), category: t('View'), shortcut: 'F4', run: () => editor.setPanelsHidden((v) => !v) },
           { id: 'help_shortcuts', label: t('Keyboard shortcuts'), category: t('Help'), shortcut: '?', run: () => editor.setShortcutsOpen(true) },
           { id: 'order_poly_front', label: t('Polygons to the front'), category: t('Edit'), shortcut: 'Shift+PgUp', run: () => editor.handlePolygonDrawOrder('front') },
           { id: 'order_poly_back', label: t('Polygons to the back'), category: t('Edit'), shortcut: 'Shift+PgDn', run: () => editor.handlePolygonDrawOrder('back') },
-          { id: 'act_quick_save', label: t('Save again (same file)'), category: t('File'), shortcut: 'Ctrl+S', run: () => void editor.quickSave() },
+          { id: 'act_save_project', label: t('Save project'), category: t('File'), shortcut: editor.snapshot?.projectFile || editor.snapshot?.map.editorTunnels?.length || editor.snapshot?.map.editorSketch ? 'Ctrl+S' : undefined, run: () => void editor.saveProject() },
+          { id: 'act_open_project', label: t('Open project file'), category: t('File'), run: () => projectInput.current?.click() },
         ]}
       />
       )}

@@ -1,6 +1,9 @@
+import { toolGlyphs } from '../toolIcons';
+import { useToolKeys } from '../shortcutBindings';
 import React from 'react';
 import {
   Bot,
+  Mountain,
   CircleDot,
   Copy,
   Flag,
@@ -27,7 +30,6 @@ import { EditorToolId } from '../types';
 
 export interface EditorToolDescriptor {
   id: EditorToolId;
-  shortcut: string;
   labelEn: string;
   hintEn: string;
   group: 'select' | 'polygon' | 'appearance' | 'entity' | 'measure';
@@ -36,8 +38,14 @@ export interface EditorToolDescriptor {
 
 export const EDITOR_TOOLS: ReadonlyArray<EditorToolDescriptor> = [
   {
+    id: 'climb_tunnel',
+    labelEn: 'Build climb tunnel',
+    hintEn: 'Draw the centre of your tunnel, then adjust its walls and obstacles in Properties.',
+    group: 'polygon',
+    icon: <Mountain className="w-4 h-4" />,
+  },
+  {
     id: 'select',
-    shortcut: 'V',
     labelEn: 'Select & Transform',
     hintEn: 'Click or drag box to select • Repeat click to cycle overlapping objects • Drag gizmo handles to move/rotate/scale',
     group: 'select',
@@ -45,7 +53,6 @@ export const EDITOR_TOOLS: ReadonlyArray<EditorToolDescriptor> = [
   },
   {
     id: 'lasso',
-    shortcut: 'Q',
     labelEn: 'Freehand Lasso',
     hintEn: 'Draw freehand lasso to select • Shift adds • Alt removes',
     group: 'select',
@@ -53,7 +60,6 @@ export const EDITOR_TOOLS: ReadonlyArray<EditorToolDescriptor> = [
   },
   {
     id: 'vertex',
-    shortcut: 'A',
     labelEn: 'Vertex Edit',
     hintEn: 'Select & drag vertices (welded shared vertices move together) • Double-click an edge to split triangle',
     group: 'select',
@@ -61,7 +67,6 @@ export const EDITOR_TOOLS: ReadonlyArray<EditorToolDescriptor> = [
   },
   {
     id: 'poly_tri',
-    shortcut: 'P',
     labelEn: 'Polygon: Triangle',
     hintEn: 'Click 3 points to create a clockwise triangle • Right-click or Esc cancels draft',
     group: 'polygon',
@@ -69,7 +74,6 @@ export const EDITOR_TOOLS: ReadonlyArray<EditorToolDescriptor> = [
   },
   {
     id: 'poly_strip',
-    shortcut: 'S',
     labelEn: 'Polygon: Strip',
     hintEn: 'Click 3 points, then each click extends a connected triangle strip • Right-click or Esc ends strip',
     group: 'polygon',
@@ -77,7 +81,6 @@ export const EDITOR_TOOLS: ReadonlyArray<EditorToolDescriptor> = [
   },
   {
     id: 'poly_fan',
-    shortcut: 'F',
     labelEn: 'Polygon: Fan',
     hintEn: 'First click sets hub vertex, subsequent clicks fan triangles around hub • Right-click or Esc ends fan',
     group: 'polygon',
@@ -85,15 +88,13 @@ export const EDITOR_TOOLS: ReadonlyArray<EditorToolDescriptor> = [
   },
   {
     id: 'poly_shape',
-    shortcut: 'B',
-    labelEn: 'Polygon: Shape / Rect',
-    hintEn: 'Click outline points & press Enter / click start point to auto-triangulate (or switch to Rectangle drag in Properties)',
+    labelEn: 'Polygon shapes',
+    hintEn: 'Choose Box, Free, Ramp or Spike in Properties.',
     group: 'polygon',
     icon: <Pentagon className="w-4 h-4" />,
   },
   {
     id: 'poly_laser',
-    shortcut: 'X',
     labelEn: 'Polygon: Laser Draw',
     hintEn: 'Draw a freehand laser stroke just like lasso selection to auto-simplify & triangulate into clockwise polygons',
     group: 'polygon',
@@ -101,7 +102,6 @@ export const EDITOR_TOOLS: ReadonlyArray<EditorToolDescriptor> = [
   },
   {
     id: 'color_brush',
-    shortcut: 'C',
     labelEn: 'Vertex Color Brush',
     hintEn: 'Drag to paint vertex & scenery colors/alpha • Alt+Click to sample color (eyedropper) • [ / ] changes radius',
     group: 'appearance',
@@ -109,7 +109,6 @@ export const EDITOR_TOOLS: ReadonlyArray<EditorToolDescriptor> = [
   },
   {
     id: 'light',
-    shortcut: 'L',
     labelEn: 'Vertex Light Baker',
     hintEn: 'Click or drag to bake radial falloff lighting onto polygon vertices & sceneries',
     group: 'appearance',
@@ -117,7 +116,6 @@ export const EDITOR_TOOLS: ReadonlyArray<EditorToolDescriptor> = [
   },
   {
     id: 'uv',
-    shortcut: 'U',
     labelEn: 'Texture UV Tool',
     hintEn: 'Drag polygon to pan texture UV • Shift+Drag to scale UV • Alt+Drag to rotate UV',
     group: 'appearance',
@@ -125,7 +123,6 @@ export const EDITOR_TOOLS: ReadonlyArray<EditorToolDescriptor> = [
   },
   {
     id: 'scenery',
-    shortcut: 'E',
     labelEn: 'Scenery Studio',
     hintEn: 'Click empty space (or Ctrl+Click) to stamp, drag to draw it at any size (Shift: free stretch) • Alt+Wheel scales, Alt+Shift+Wheel turns • Click a scenery to select & move it • Alt+Click samples',
     group: 'entity',
@@ -133,7 +130,6 @@ export const EDITOR_TOOLS: ReadonlyArray<EditorToolDescriptor> = [
   },
   {
     id: 'spawn',
-    shortcut: 'O',
     labelEn: 'Place Spawn / Flag / Bonus',
     hintEn: 'Choose spawn or item type in Properties, then click on the map to place',
     group: 'entity',
@@ -141,7 +137,6 @@ export const EDITOR_TOOLS: ReadonlyArray<EditorToolDescriptor> = [
   },
   {
     id: 'collider',
-    shortcut: 'K',
     labelEn: 'Place Collider',
     hintEn: 'Click to place circular collider and drag to set diameter (player radius = d/2, bullet = d/1.7)',
     group: 'entity',
@@ -149,7 +144,6 @@ export const EDITOR_TOOLS: ReadonlyArray<EditorToolDescriptor> = [
   },
   {
     id: 'waypoint',
-    shortcut: 'W',
     labelEn: 'Bot Waypoints',
     hintEn: 'Click to place or select waypoint • Shift+Click another waypoint to connect/disconnect • Alt+Shift+Click for 2-way link',
     group: 'entity',
@@ -157,7 +151,6 @@ export const EDITOR_TOOLS: ReadonlyArray<EditorToolDescriptor> = [
   },
   {
     id: 'ruler',
-    shortcut: 'M',
     labelEn: 'Distance Ruler',
     hintEn: 'Click and drag to measure distance & angle in Soldat world units',
     group: 'measure',
@@ -165,7 +158,6 @@ export const EDITOR_TOOLS: ReadonlyArray<EditorToolDescriptor> = [
   },
   {
     id: 'playtest',
-    shortcut: 'J',
     labelEn: 'Playtest Soldier',
     hintEn: 'Live 60 FPS Soldat movement & jetpack sandbox • WASD/Arrows move & jump • Space/Shift jetpack • Click anywhere to teleport',
     group: 'measure',
@@ -194,10 +186,11 @@ export const EditorToolRail: React.FC<EditorToolRailProps> = ({
   onDuplicate,
   onDelete,
 }) => {
+  const keys = useToolKeys();
   let prevGroup: string | null = null;
 
   return (
-    <aside className="w-11 shrink-0 bg-zinc-950 border-r border-zinc-800/90 py-2 flex flex-col items-center justify-between select-none overflow-y-auto">
+    <aside className="w-[52px] shrink-0 bg-zinc-950 border-r border-zinc-800/90 py-2 flex flex-col items-center justify-between select-none overflow-y-auto">
       <div className="flex flex-col items-center gap-1">
         {EDITOR_TOOLS.map((tool) => {
           const showSep = prevGroup !== null && prevGroup !== tool.group;
@@ -209,19 +202,21 @@ export const EditorToolRail: React.FC<EditorToolRailProps> = ({
               <button
                 type="button"
                 onClick={() => onSelectTool(tool.id)}
-                aria-label={`${t(tool.labelEn)} (${tool.shortcut})`}
+                aria-label={`${t(tool.labelEn)} (${keys[tool.id]})`}
                 aria-pressed={active}
-                title={`${t(tool.labelEn)} [${tool.shortcut}]\n${t(tool.hintEn)}`}
-                className={`relative w-8 h-8 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+                title={`${t(tool.labelEn)} [${keys[tool.id]}]\n${t(tool.hintEn)}`}
+                className={`relative rounded-lg flex flex-col items-center justify-center transition-colors cursor-pointer ${tool.id === 'climb_tunnel' || tool.id === 'poly_shape' ? 'w-11 h-10 gap-0.5' : 'w-8 h-8'} ${
                   active
                     ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-400/50 shadow-sm shadow-cyan-950'
                     : 'text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/80 border border-transparent'
                 }`}
               >
-                {tool.icon}
-                <span className="absolute right-0.5 bottom-0 text-[8px] font-mono opacity-65">
-                  {tool.shortcut}
+                <span aria-hidden="true" className="studio-icon">
+                  {tool.icon}<i>{String.fromCodePoint(toolGlyphs[tool.id])}</i>
                 </span>
+                {tool.id === 'climb_tunnel' || tool.id === 'poly_shape' ? (
+                  <span className="text-[9px] font-semibold leading-none">{t(tool.id === 'climb_tunnel' ? 'Tunnel' : 'Shapes')}</span>
+                ) : <span className="absolute right-0.5 bottom-0 text-[8px] font-mono opacity-65">{keys[tool.id]}</span>}
               </button>
             </React.Fragment>
           );

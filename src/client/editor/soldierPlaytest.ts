@@ -1,5 +1,7 @@
 import { PmsMapData } from '@shared/pmsParser';
-import { SOLDIER_COLLISION } from '@shared/soldatConstants';
+import { reboundImpulse } from '@shared/climbPhysics';
+import { SOLDIER_COLLISION, doesPolyCollideSoldier } from '@shared/soldatConstants';
+export { doesPolyCollideSoldier } from '@shared/soldatConstants';
 import { EditorSpatialIndex } from './spatialIndex';
 
 export interface PlaytestInputState {
@@ -45,25 +47,6 @@ const MAX_FALL_SPEED = 8.5;
 // Hard cap after bounces so a bouncy polygon can never launch the soldier through a ceiling
 const MAX_SPEED_AFTER_BOUNCE = 12;
 
-export function doesPolyCollideSoldier(
-  polyType: number,
-  team: 1 | 2 | 3 | 4,
-  carryingFlag: boolean
-): boolean {
-  if (polyType === 1 || polyType === 3 || polyType === 23 || polyType === 24 || polyType === 25) {
-    return false;
-  }
-  if (polyType === 10 || polyType === 12 || polyType === 14 || polyType === 16) {
-    return false;
-  }
-  if (polyType === 11) return team === 1;
-  if (polyType === 13) return team === 2;
-  if (polyType === 15) return team === 3;
-  if (polyType === 17) return team === 4;
-  if (polyType === 21) return carryingFlag;
-  if (polyType === 22) return !carryingFlag;
-  return true;
-}
 
 export function createSoldierPlaytestState(
   x: number,
@@ -76,7 +59,7 @@ export function createSoldierPlaytestState(
     typeof teamOrOpts === 'object' ? (teamOrOpts.team ?? 1) : teamOrOpts;
   const carryingFlag: boolean =
     typeof teamOrOpts === 'object' ? Boolean(teamOrOpts.carryingFlag) : carryingFlagArg;
-  const maxJet = Math.max(0, map.startJetGame > 0 ? map.startJetGame : 120);
+  const maxJet = Math.max(0, map.startJetGame);
   return {
     active: true,
     x,
@@ -294,10 +277,9 @@ export function stepSoldierPlaytest(
           const vn = vx * nx + vy * ny;
           if (vn < 0) {
             if (poly.polyType === 18) {
-              // Restitution from the polygon's bounciness (the speed cap below stops runaway launches)
-              const bounce = Math.max(0.2, Math.min(1.6, poly.bounciness || 1));
-              vx -= (1 + bounce) * vn * nx;
-              vy -= (1 + bounce) * vn * ny;
+              const impulse = reboundImpulse(vx, vy, poly.bounciness);
+              vx += impulse * nx;
+              vy += impulse * ny;
               const speed = Math.hypot(vx, vy);
               if (speed > MAX_SPEED_AFTER_BOUNCE) {
                 vx *= MAX_SPEED_AFTER_BOUNCE / speed;

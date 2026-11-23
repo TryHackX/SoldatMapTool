@@ -511,8 +511,8 @@ export const PackBuilderModal: React.FC<PackBuilderModalProps> = ({
                   <PackOptionCheckbox
                     checked={excludeUnusedScenery}
                     onChange={setExcludeUnusedScenery}
-                    label={t('Skip unused (“dead”) sceneries from the .pms header')}
-                    hint={t('Removes junk left behind by PolyWorks / MapMaker')}
+                    label={t('Remove unused scenery entries from packed maps')}
+                    hint={t('Rewrites the scenery table in the packed PMS and skips the unused graphics.')}
                   />
                   <PackOptionCheckbox
                     checked={fixLinuxCase}
@@ -678,6 +678,7 @@ export const PackBuilderModal: React.FC<PackBuilderModalProps> = ({
                     <AlertTriangle className="w-4 h-4 shrink-0" />
                     {t('Warning: missing files detected on disk ({count})', { count: preview.missingWarningsCount })}
                   </div>
+                  <p className="mb-1 text-[11px] text-amber-100">{t('The pack includes these maps with a file list in missing/<map>.txt.')}</p>
                   <div className="space-y-0.5 text-[11px] font-mono text-amber-200/90">
                     {preview.missingWarnings.map((w, i) => (
                       <div key={i}>

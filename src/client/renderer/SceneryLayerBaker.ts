@@ -13,6 +13,7 @@ import { t, tp } from '../i18n';
 import { clearSoldatAssetCache, clearVirtualAssets, registerVirtualAsset } from './assetLoader';
 import { SoldatWebGLRenderer } from './SoldatWebGLRenderer';
 import { RenderLayerVisibility } from './types';
+import { setMapAssetSource } from './mapAssetSource';
 
 const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 
@@ -302,6 +303,9 @@ export async function checkOptimizeTarget(
  */
 /** The map as the plan sees it: with the 1.7.1 size fixes applied when the plan was made with `fixFirst` */
 export function applyPlanPropFixes(mapData: PmsMapData, plan: MapOptimizePlanResponse): PmsMapData {
+  if (plan.sourceCrc32 !== undefined && plan.sourceCrc32 !== mapData.crc32) {
+    throw new Error(t('The map or its sceneries changed since the plan was prepared — prepare the preview or plan again.'));
+  }
   if (!plan.appliedPropFixes?.length) return mapData;
   return cloneMapWithPropFixes(
     mapData,
@@ -316,7 +320,8 @@ export async function bakeSceneryTiles(
   onProgress?: (progress0to1: number, statusText: string) => void,
   signal?: AbortSignal
 ): Promise<Array<BakedSceneryTileUpload & { png: Uint8Array<ArrayBuffer> }>> {
-  const mapData = applyPlanPropFixes(sourceMap, plan);
+  const mapData = { ...applyPlanPropFixes(sourceMap, plan) };
+  if (plan.sourceGraphicsKey) setMapAssetSource(mapData,plan.mapId,plan.sourceGraphicsKey);
   const supersample = Math.max(1, Math.min(4, Math.round(options.supersample || 2)));
   const maxTilePx = options.maxTilePx === 4096 ? 4096 : 2048;
   const bandTexels = 2 * TILE_OVERLAP_WORLD * supersample;
@@ -356,6 +361,7 @@ export async function bakeSceneryTiles(
       const applied = await glRenderer.loadMap(mapData, {
         preferClassicBmp: options.preferClassicBmp,
         skipGeometry: true,
+        requireSceneryImages: true,
         propFilter: (_p, idx) => allowedSet.has(idx),
       });
       if (!applied) {
@@ -520,6 +526,39 @@ const FIDELITY_ZOOM = 2.25;
 const FIDELITY_WINDOW_PX = 1024;
 const FIDELITY_MAX_WINDOWS = 24;
 
+/** Sample the occupied rectangles directly. Two distant props must not allocate a grid across the empty map. */
+export function sampleFidelityWindows(areas: {left:number; right:number; top:number; bottom:number}[]) {
+  const span = FIDELITY_WINDOW_PX / FIDELITY_ZOOM;
+  let total = 0;
+  const grids = [];
+  const seen = new Set<string>();
+  for (const area of areas) {
+    const columns = Math.ceil((area.right - area.left) / span);
+    const rows = Math.ceil((area.bottom - area.top) / span);
+    if (columns <= 0 || rows <= 0) continue;
+    const end = total + columns * rows;
+    if (!Number.isSafeInteger(end)) return [];
+    const key = [area.left, area.right, area.top, area.bottom].join(',');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    grids.push({area, columns, start:total, end});
+    total = end;
+  }
+  const count = Math.min(FIDELITY_MAX_WINDOWS, total);
+  const windows = [];
+  let gridIndex = 0;
+  for (let i = 0; i < count; i++) {
+    const index = count === 1 ? 0 : Math.round((i / (count - 1)) * (total - 1));
+    while (index >= grids[gridIndex].end) gridIndex++;
+    const {area,columns,start} = grids[gridIndex];
+    const local = index - start;
+    const left = area.left + (local % columns) * span;
+    const top = area.top + Math.floor(local / columns) * span;
+    windows.push({left,top,width:Math.min(span,area.right-left),height:Math.min(span,area.bottom-top)});
+  }
+  return windows;
+}
+
 /**
  * Renders original and candidate maps with all layers at in-game 1080p scale over the merged areas and
  * compares them pixel by pixel. Large maps are sampled with evenly spread windows.
@@ -531,19 +570,10 @@ export async function measureFidelity(
   preferClassicBmp: boolean,
   signal?: AbortSignal
 ): Promise<FidelityReport | null> {
-  const span = FIDELITY_WINDOW_PX / FIDELITY_ZOOM;
-  const windows: Array<{ left: number; top: number; width: number; height: number }> = [];
-  for (const g of plan.groups) {
-    const wb = g.worldBounds;
-    for (let y = wb.top; y < wb.bottom; y += span) {
-      for (let x = wb.left; x < wb.right; x += span) {
-        windows.push({ left: x, top: y, width: Math.min(span, wb.right - x), height: Math.min(span, wb.bottom - y) });
-      }
-    }
-  }
-  if (windows.length === 0) return null;
-  const step = Math.max(1, windows.length / FIDELITY_MAX_WINDOWS);
-  const sampled = windows.filter((_, i) => Math.floor(i % step) === 0).slice(0, FIDELITY_MAX_WINDOWS);
+  signal?.throwIfAborted();
+  const areas = plan.groups.flatMap(group => group.propIndices.map(index => computePropAabb(original.props[index])));
+  const sampled = sampleFidelityWindows(areas);
+  if (!sampled.length) return null;
 
   const layers: RenderLayerVisibility = {
     showBackground: true,
@@ -572,8 +602,9 @@ export async function measureFidelity(
     return new SoldatWebGLRenderer(c, { transparentCanvas: true });
   };
   const rOrig = makeRenderer();
-  const rCand = makeRenderer();
+  let rCand: SoldatWebGLRenderer | undefined;
   try {
+    rCand = makeRenderer();
     if (!(await rOrig.loadMap(original, { preferClassicBmp })) || !(await rCand.loadMap(candidate, { preferClassicBmp }))) {
       return null;
     }
@@ -619,7 +650,7 @@ export async function measureFidelity(
     };
   } finally {
     rOrig.destroy(true);
-    rCand.destroy(true);
+    rCand?.destroy(true);
   }
 }
 
@@ -754,6 +785,9 @@ export async function executeSceneryOptimization(
         overwritePolicy: commit?.overwritePolicy,
         skipRescan: commit?.skipRescan,
         expectedDerivedBaseName: plan.derivedBaseName,
+        expectedSourceCrc32: plan.sourceCrc32,
+        expectedSourceGraphicsKey: plan.sourceGraphicsKey,
+        expectedTileCount: tiles.length,
         expectedPropFixes: plan.appliedPropFixes ?? [],
       },
       signal

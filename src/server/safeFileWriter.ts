@@ -1,3 +1,4 @@
+import { diskPathKey } from './diskPath';
 import fs from 'fs';
 import path from 'path';
 import { soldatCrc32 } from '../shared/pmsParser';
@@ -22,6 +23,7 @@ export interface GeneratedOutputRecord {
   sourceMapId: string;
   createdAt: number;
   documentId?: string; // editor saves: the document that wrote the file
+  artworkSha256?: Record<string,string>; // exact output paths created by this optimization
 }
 
 /**
@@ -52,7 +54,7 @@ export class BackupSession {
 
   constructor(private readonly backupsRoot: string) {}
 
-  public preserve(filePath: string): void {
+  public preserve(filePath: string): string | undefined {
     if (!fs.existsSync(filePath)) return;
     if (!this.dir) {
       const stamp = new Date().toISOString().replace(/[:T]/g, '-').replace(/\..+$/, '');
@@ -69,6 +71,7 @@ export class BackupSession {
     }
     fs.copyFileSync(filePath, target);
     this.saved.push(target);
+    return target;
   }
 
   public get directory(): string | null {
@@ -121,7 +124,7 @@ export class GeneratedOutputRegistry {
     bytes: Uint8Array,
     rec: Omit<GeneratedOutputRecord, 'crc32' | 'createdAt'>
   ): void {
-    this.getMap()[path.resolve(outputPath).toLowerCase()] = {
+    this.getMap()[diskPathKey(outputPath)] = {
       ...rec,
       crc32: soldatCrc32(bytes),
       createdAt: Date.now(),
@@ -133,7 +136,7 @@ export class GeneratedOutputRegistry {
   }
 
   public getRecord(outputPath: string): GeneratedOutputRecord | null {
-    const rec = this.getMap()[path.resolve(outputPath).toLowerCase()];
+    const rec = this.getMap()[diskPathKey(outputPath)];
     if (!rec) return null;
     try {
       return soldatCrc32(fs.readFileSync(outputPath)) === rec.crc32 ? rec : null;

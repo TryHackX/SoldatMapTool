@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { MapValidationIssue, validateMapDocument } from '@shared/mapValidator';
 import { PmsMapData } from '@shared/pmsParser';
 
@@ -17,23 +17,19 @@ export function useDeferredValidation(
   },
   delayMs = 350
 ): { issues: MapValidationIssue[]; pending: boolean } {
-  const [issues, setIssues] = useState<MapValidationIssue[]>([]);
-  const [pending, setPending] = useState(false);
   const { knownTexturesLower, knownSceneriesLower, mapBaseName, includeHints } = options;
-
+  const request = useMemo(() => ({map, knownTexturesLower, knownSceneriesLower, mapBaseName, includeHints}),
+    [map, knownTexturesLower, knownSceneriesLower, mapBaseName, includeHints]);
+  const [checked, setChecked] = useState<{ request: typeof request; issues: MapValidationIssue[] } | null>(null);
   useEffect(() => {
-    if (!map) {
-      setIssues([]);
-      setPending(false);
-      return;
-    }
-    setPending(true);
+    if (!request.map) { setChecked(null); return; }
+    const target = request.map;
     const timer = window.setTimeout(() => {
-      setIssues(validateMapDocument(map, { knownTexturesLower, knownSceneriesLower, mapBaseName, includeHints }));
-      setPending(false);
+      setChecked({ request, issues: validateMapDocument(target, request) });
     }, delayMs);
     return () => window.clearTimeout(timer);
-  }, [map, knownTexturesLower, knownSceneriesLower, mapBaseName, includeHints, delayMs]);
-
-  return { issues, pending };
+  }, [request, delayMs]);
+  // Issue indices are valid only for the revision that produced them, including the render before effects run.
+  const pending = Boolean(map && checked?.request !== request);
+  return { issues: checked?.request === request ? checked.issues : [], pending };
 }

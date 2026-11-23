@@ -1,3 +1,4 @@
+import { useToolKeys } from '../shortcutBindings';
 import React from 'react';
 import { PmsMapData, SOLDAT_MAP_LIMITS } from '@shared/pmsParser';
 import { t } from '../../i18n';
@@ -23,6 +24,7 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
   selectionSummary,
   isDirty,
 }) => {
+  const keys = useToolKeys();
   const toolMeta = EDITOR_TOOLS.find((item) => item.id === activeTool);
 
   const counterCls = (val: number, max: number) =>
@@ -39,7 +41,7 @@ export const EditorStatusBar: React.FC<EditorStatusBarProps> = ({
         {toolMeta && (
           <>
             <span className="font-semibold text-cyan-300 shrink-0">
-              {t(toolMeta.labelEn)} [{toolMeta.shortcut}]
+              {t(toolMeta.labelEn)} [{keys[toolMeta.id]}]
             </span>
             <span className="text-zinc-600">•</span>
             <span className="truncate text-zinc-400">{t(toolMeta.hintEn)}</span>

@@ -19,18 +19,10 @@ import {
   SOLDAT_MAP_LIMITS,
 } from './pmsParser';
 import { RgbaColor } from './soldatConstants';
+import { patchPropFields } from './sceneryDependencies';
 
-/**
- * Twice the signed area of triangle (v0, v1, v2) in Soldat's Y-down world space (+X right, +Y down).
- * Positive (> 0) means Clockwise (CW), which is what Soldat / OpenSoldat expects for valid collision normals.
- */
-export function polygonSignedArea2(
-  v0: { x: number; y: number },
-  v1: { x: number; y: number },
-  v2: { x: number; y: number }
-): number {
-  return (v1.x - v0.x) * (v2.y - v0.y) - (v1.y - v0.y) * (v2.x - v0.x);
-}
+import { pointInTriInclusive, polygonSignedArea2, segmentsIntersect } from './polygonGeometry';
+export { earClipTriangulate, polygonSignedArea2, segmentsIntersect } from './polygonGeometry';
 
 export function isClockwisePolygon(poly: Pick<PmsPolygon, 'vertices'>): boolean {
   const [v0, v1, v2] = poly.vertices;
@@ -158,73 +150,6 @@ export function rebuildPolygonGeometry(
 
 export function ensureClockwiseWinding(poly: PmsPolygon): PmsPolygon {
   return rebuildPolygonGeometry(poly, { enforceCw: true });
-}
-
-function pointInTriInclusive(
-  px: number,
-  py: number,
-  a: { x: number; y: number },
-  b: { x: number; y: number },
-  c: { x: number; y: number }
-): boolean {
-  const d1 = (px - b.x) * (a.y - b.y) - (a.x - b.x) * (py - b.y);
-  const d2 = (px - c.x) * (b.y - c.y) - (b.x - c.x) * (py - c.y);
-  const d3 = (px - a.x) * (c.y - a.y) - (c.x - a.x) * (py - a.y);
-  const hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
-  const hasPos = d1 > 0 || d2 > 0 || d3 > 0;
-  return !(hasNeg && hasPos);
-}
-
-function orient2d(
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
-  cx: number,
-  cy: number
-): number {
-  return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
-}
-
-function onSegment(
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
-  px: number,
-  py: number
-): boolean {
-  return (
-    px >= Math.min(ax, bx) - 1e-6 &&
-    px <= Math.max(ax, bx) + 1e-6 &&
-    py >= Math.min(ay, by) - 1e-6 &&
-    py <= Math.max(ay, by) + 1e-6
-  );
-}
-
-export function segmentsIntersect(
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
-  cx: number,
-  cy: number,
-  dx: number,
-  dy: number
-): boolean {
-  const o1 = orient2d(ax, ay, bx, by, cx, cy);
-  const o2 = orient2d(ax, ay, bx, by, dx, dy);
-  const o3 = orient2d(cx, cy, dx, dy, ax, ay);
-  const o4 = orient2d(cx, cy, dx, dy, bx, by);
-
-  if (((o1 > 0 && o2 < 0) || (o1 < 0 && o2 > 0)) && ((o3 > 0 && o4 < 0) || (o3 < 0 && o4 > 0))) {
-    return true;
-  }
-  if (Math.abs(o1) <= 1e-6 && onSegment(ax, ay, bx, by, cx, cy)) return true;
-  if (Math.abs(o2) <= 1e-6 && onSegment(ax, ay, bx, by, dx, dy)) return true;
-  if (Math.abs(o3) <= 1e-6 && onSegment(cx, cy, dx, dy, ax, ay)) return true;
-  if (Math.abs(o4) <= 1e-6 && onSegment(cx, cy, dx, dy, bx, by)) return true;
-  return false;
 }
 
 export function triangleOverlapsBox(
@@ -462,7 +387,7 @@ export function compactSceneryTable(
 ): { props: PmsProp[]; scenery: PmsSceneryDef[]; removedSceneryCount: number } {
   const dropInactive = options?.dropInactiveProps !== false;
   const keptScenery: PmsSceneryDef[] = [];
-  const styleByLowerFilename = new Map<string, number>();
+  const styleByFilename = new Map<string, number>();
   const oldStyleToNewStyle = new Map<number, number>();
   const usedCounts = new Map<number, number>();
 
@@ -481,18 +406,17 @@ export function compactSceneryTable(
     let mappedStyle = oldStyleToNewStyle.get(p.style);
     if (!mappedStyle) {
       const origDef = scenery[p.style - 1];
-      const cleanName = origDef.filename.trim();
-      const key = cleanName.toLowerCase();
-      const existing = styleByLowerFilename.get(key);
+      // A Linux package may contain two different images called Crate.PNG and crate.png.
+      // The editor has no image hashes to prove those definitions refer to the same content.
+      const existing = styleByFilename.get(origDef.filename);
       if (existing) {
         mappedStyle = existing;
       } else {
         mappedStyle = keptScenery.length + 1;
-        styleByLowerFilename.set(key, mappedStyle);
+        styleByFilename.set(origDef.filename, mappedStyle);
         keptScenery.push({
           ...origDef,
           index: mappedStyle,
-          filename: cleanName || origDef.filename,
           usedCount: 0,
         });
       }
@@ -503,7 +427,7 @@ export function compactSceneryTable(
     nextProps.push(
       p.style === mappedStyle && p.index === nextProps.length
         ? p
-        : { ...p, index: nextProps.length, style: mappedStyle }
+        : { ...(p.style === mappedStyle ? p : patchPropFields(p, {style:mappedStyle})), index: nextProps.length }
     );
   }
 
@@ -520,7 +444,7 @@ export function compactSceneryTable(
 }
 
 /**
- * Finds an existing 1-based scenery style by filename (case-insensitive) or appends a new entry.
+ * Finds an existing 1-based style by its exact filename, or appends the requested spelling.
  */
 export function ensureSceneryEntry(
   scenery: PmsSceneryDef[],
@@ -528,9 +452,8 @@ export function ensureSceneryEntry(
   date?: number
 ): { scenery: PmsSceneryDef[]; style: number } {
   const clean = filename.trim().replace(/\\/g, '/');
-  const lower = clean.toLowerCase();
   for (let i = 0; i < scenery.length; i++) {
-    if (scenery[i].filename.trim().replace(/\\/g, '/').toLowerCase() === lower) {
+    if (scenery[i].filename.replace(/\\/g, '/') === clean) {
       return { scenery, style: i + 1 };
     }
   }
@@ -595,121 +518,6 @@ export function reindexWaypointsAfterDelete(
       connections: nextConns.slice(0, 20),
     };
   });
-}
-
-/**
- * Triangulates a simple closed 2D polygon into Clockwise (CW) triangles in Soldat Y-down space.
- * Returns an array of index triples `[i0, i1, i2]` into the cleaned point ring, or directly builds `PmsVertex` triples.
- */
-export function earClipTriangulate(points: ReadonlyArray<{ x: number; y: number }>): Array<[
-  { x: number; y: number },
-  { x: number; y: number },
-  { x: number; y: number },
-]> {
-  // 1. Remove consecutive duplicate points
-  const ring: Array<{ x: number; y: number }> = [];
-  for (const pt of points) {
-    if (!Number.isFinite(pt.x) || !Number.isFinite(pt.y)) continue;
-    const prev = ring[ring.length - 1];
-    if (!prev || Math.hypot(pt.x - prev.x, pt.y - prev.y) > 0.05) {
-      ring.push({ x: pt.x, y: pt.y });
-    }
-  }
-  if (ring.length >= 2) {
-    const first = ring[0];
-    const last = ring[ring.length - 1];
-    if (Math.hypot(first.x - last.x, first.y - last.y) <= 0.05) {
-      ring.pop();
-    }
-  }
-  if (ring.length < 3) return [];
-  if (ring.length === 3) {
-    const [a, b, c] = ring;
-    return polygonSignedArea2(a, b, c) >= 0 ? [[a, b, c]] : [[a, c, b]];
-  }
-
-  // 2. Ensure CW orientation in Y-down space (shoelace signed double-area > 0)
-  let area2 = 0;
-  for (let i = 0; i < ring.length; i++) {
-    const a = ring[i];
-    const b = ring[(i + 1) % ring.length];
-    area2 += a.x * b.y - b.x * a.y;
-  }
-  if (area2 < 0) {
-    ring.reverse();
-  }
-
-  const indices = ring.map((_, i) => i);
-  const triangles: Array<[{ x: number; y: number }, { x: number; y: number }, { x: number; y: number }]> = [];
-
-  let guard = indices.length * indices.length + 16;
-  while (indices.length > 3 && guard-- > 0) {
-    let earFound = false;
-    const len = indices.length;
-
-    for (let i = 0; i < len; i++) {
-      const iPrev = indices[(i + len - 1) % len];
-      const iCurr = indices[i];
-      const iNext = indices[(i + 1) % len];
-      const a = ring[iPrev];
-      const b = ring[iCurr];
-      const c = ring[iNext];
-
-      if (polygonSignedArea2(a, b, c) <= 1e-5) continue; // reflex or collinear
-
-      let containsPoint = false;
-      for (let j = 0; j < len; j++) {
-        const idx = indices[j];
-        if (idx === iPrev || idx === iCurr || idx === iNext) continue;
-        const p = ring[idx];
-        if (pointInTriInclusive(p.x, p.y, a, b, c)) {
-          containsPoint = true;
-          break;
-        }
-      }
-
-      if (!containsPoint) {
-        triangles.push([a, b, c]);
-        indices.splice(i, 1);
-        earFound = true;
-        break;
-      }
-    }
-
-    if (!earFound) {
-      // Degenerate / self-touching fallback: clip the most convex remaining corner
-      let bestIdx = 0;
-      let bestCross = -Infinity;
-      for (let i = 0; i < len; i++) {
-        const a = ring[indices[(i + len - 1) % len]];
-        const b = ring[indices[i]];
-        const c = ring[indices[(i + 1) % len]];
-        const cross = polygonSignedArea2(a, b, c);
-        if (cross > bestCross) {
-          bestCross = cross;
-          bestIdx = i;
-        }
-      }
-      const a = ring[indices[(bestIdx + len - 1) % len]];
-      const b = ring[indices[bestIdx]];
-      const c = ring[indices[(bestIdx + 1) % len]];
-      if (polygonSignedArea2(a, b, c) >= 0) {
-        triangles.push([a, b, c]);
-      } else {
-        triangles.push([a, c, b]);
-      }
-      indices.splice(bestIdx, 1);
-    }
-  }
-
-  if (indices.length === 3) {
-    const a = ring[indices[0]];
-    const b = ring[indices[1]];
-    const c = ring[indices[2]];
-    triangles.push(polygonSignedArea2(a, b, c) >= 0 ? [a, b, c] : [a, c, b]);
-  }
-
-  return triangles;
 }
 
 export function computeWorldAlignedUv(

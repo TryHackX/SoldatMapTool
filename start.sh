@@ -31,17 +31,5 @@ if [ "${1:-}" = "--rebuild" ] || ! node scripts/needs-build.mjs; then
   npm run build
 fi
 
-URL="http://127.0.0.1:${PORT:-4321}"
-echo "[3/3] Starting the local server on ${URL} (stop: Ctrl+C)..."
-(
-  sleep 2
-  if command -v xdg-open >/dev/null 2>&1; then
-    xdg-open "$URL" >/dev/null 2>&1 || true
-  elif command -v open >/dev/null 2>&1; then
-    open "$URL" || true
-  else
-    echo "Open in your browser: $URL"
-  fi
-) &
-
-exec npx tsx src/server/index.ts
+echo "[3/3] Starting Soldat Map Studio (stop: Ctrl+C)..."
+exec node scripts/serve.mjs --open

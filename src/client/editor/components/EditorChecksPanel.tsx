@@ -5,6 +5,8 @@ import type { EditorValidationIssueUI } from './EditorRightDock';
 
 interface EditorChecksPanelProps {
   issues: EditorValidationIssueUI[];
+  onOpenPolyFixer: () => void;
+  onRemoveUnusedScenery: () => void;
   pending: boolean;
   hintsEnabled: boolean;
   onToggleHints: (enabled: boolean) => void;
@@ -43,7 +45,7 @@ const IssueRow: React.FC<{
           type="button"
           disabled={disabled}
           onClick={onFix}
-          title={issue.fix.kind === 'repair_normals' ? t('Recompute the collision normals of these polygons') : t('Delete these polygons')}
+          title={issue.fix.kind === 'seal_junction' ? t('Overlap tips by up to 2 map units') : issue.fix.kind === 'repair_normals' ? t('Recompute the collision normals of these polygons') : t('Delete these polygons')}
           className="shrink-0 px-1.5 py-0.5 rounded border border-current/30 text-[10px] font-semibold flex items-center gap-1 hover:bg-white/10 cursor-pointer disabled:opacity-40 disabled:cursor-default"
         >
           <Wrench className="w-3 h-3" />
@@ -62,6 +64,8 @@ export const EditorChecksPanel: React.FC<EditorChecksPanelProps> = ({
   onToggleHints,
   onOpenIssue,
   onFixIssue,
+  onOpenPolyFixer,
+  onRemoveUnusedScenery,
 }) => {
   const [hintsOpen, setHintsOpen] = useState(false);
   const errors = issues.filter((i) => i.severity === 'error');
@@ -80,6 +84,12 @@ export const EditorChecksPanel: React.FC<EditorChecksPanelProps> = ({
 
   return (
     <div className="space-y-2">
+      <button type="button" onClick={onOpenPolyFixer} className="w-full flex items-center gap-2 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-left text-xs font-semibold text-amber-200 hover:bg-amber-500/20">
+        <Wrench size={14}/>{t('Poly Fixer')}<ChevronRight size={14} className="ml-auto"/>
+      </button>
+      <button type="button" onClick={onRemoveUnusedScenery} className="w-full rounded border border-zinc-700 px-3 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800">
+        {t('Remove unused scenery entries')}
+      </button>
       <div className="flex items-center justify-between text-[11px] text-zinc-400 min-h-5">
         <span className="flex items-center gap-1.5">
           {pending && <Loader2 className="w-3 h-3 animate-spin text-cyan-300" />}
@@ -87,7 +97,7 @@ export const EditorChecksPanel: React.FC<EditorChecksPanelProps> = ({
         </span>
       </div>
 
-      {errors.length === 0 && warnings.length === 0 ? (
+      {pending ? null : errors.length === 0 && warnings.length === 0 ? (
         <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4 text-center space-y-1.5 text-emerald-200">
           <CheckCircle2 className="w-6 h-6 text-emerald-400 mx-auto" />
           <div className="font-semibold">{t('All validation checks passed')}</div>
@@ -121,7 +131,7 @@ export const EditorChecksPanel: React.FC<EditorChecksPanelProps> = ({
                 onChange={(e) => onToggleHints(e.target.checked)}
                 className="mt-0.5 accent-cyan-500"
               />
-              <span>{t('Also look for gaps narrower than the soldier (7 × 14 u) — slower, many are intentional')}</span>
+              <span>{t('Check point contacts (Poly Fixer) and gaps narrower than the soldier')}</span>
             </label>
             {hints.length === 0 ? (
               <div className="text-[11px] text-zinc-500 px-1">{t('No hints.')}</div>

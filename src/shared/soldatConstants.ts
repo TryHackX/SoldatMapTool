@@ -1,3 +1,26 @@
+/** Terrain that can collide with at least one soldier, including conditional team and flag walls. */
+export const SOLDIER_COLLIDABLE_TYPES = new Set([0, 2, 4, 5, 6, 7, 8, 9, 11, 13, 15, 17, 18, 19, 20, 21, 22]);
+
+export function doesPolyCollideSoldier(
+  polyType: number,
+  team: 1 | 2 | 3 | 4,
+  carryingFlag: boolean
+): boolean {
+  if (polyType === 1 || polyType === 3 || polyType === 23 || polyType === 24 || polyType === 25) {
+    return false;
+  }
+  if (polyType === 10 || polyType === 12 || polyType === 14 || polyType === 16) {
+    return false;
+  }
+  if (polyType === 11) return team === 1;
+  if (polyType === 13) return team === 2;
+  if (polyType === 15) return team === 3;
+  if (polyType === 17) return team === 4;
+  if (polyType === 21) return carryingFlag;
+  if (polyType === 22) return !carryingFlag;
+  return true;
+}
+
 export interface RgbaColor {
   r: number;
   g: number;
@@ -86,12 +109,6 @@ export const STEPS_NAMES: Record<number, string> = {
   0: 'Twarde podłoże (Metal/Kamień)',
   1: 'Miękkie podłoże (Ziemia/Trawa)',
   2: 'Brak dźwięku kroków',
-};
-
-export const SCENERY_LEVEL_NAMES: Record<number, string> = {
-  0: 'Tył (Back — za graczem)',
-  1: 'Środek (Middle — przed graczem, za poligonami)',
-  2: 'Przód (Front — kryjówka na wierzchu)',
 };
 
 /**

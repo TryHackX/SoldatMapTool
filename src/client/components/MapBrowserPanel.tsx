@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   Ban,
   Camera,
+  Columns2,
   Check,
   Copy,
   LayoutGrid,
@@ -38,6 +39,7 @@ interface MapBrowserPanelProps {
   onAddAllFilteredToPack: () => void;
   onRemoveFilteredFromPack: () => void;
   onOpenBatchScreenshot: () => void;
+  onOpenSimilar: () => void;
   searchQuery: string;
   onChangeSearchQuery: (q: string) => void;
   sortField: MapSortField;
@@ -58,6 +60,8 @@ const SEARCH_EXAMPLES: Array<[string, string]> = [
   ['tag:turniej', t('maps with your tag')],
   ['pogoda:snieg', t('weather: none, rain, sand, snow')],
   ['-is:dup', t('minus before a filter = exclude')],
+  ['is:draft',t('draft map name')],
+  ['is:draft-scenery',t('uses scenery with a draft name')],
 ];
 
 const FavoriteStar: React.FC<{
@@ -200,6 +204,7 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
   onAddAllFilteredToPack,
   onRemoveFilteredFromPack,
   onOpenBatchScreenshot,
+  onOpenSimilar,
   searchQuery,
   onChangeSearchQuery,
   sortField,
@@ -461,7 +466,7 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
                       )}
                       {m.duplicateCount > 1 && (
                         <span
-                          title={t('Found {n} maps with an identical CRC32 checksum', { n: m.duplicateCount })}
+                          title={t('Found {n} copies with matching map and artwork content', { n: m.duplicateCount })}
                           className="text-orange-400 shrink-0"
                         >
                           <Copy className="w-3 h-3" />
@@ -669,6 +674,10 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
             </button>
           </div>
         </div>
+        <button type="button" onClick={onOpenSimilar} disabled={!totalFiltered && !packMapIds.size}
+          className="flex items-center gap-1.5 rounded-md px-1 py-1 text-[11px] font-semibold text-emerald-300 hover:bg-zinc-800 disabled:opacity-40">
+          <Columns2 size={13}/>{t('Find similar to selected')}
+        </button>
       </div>
 
       {/* Virtualized Results Container */}

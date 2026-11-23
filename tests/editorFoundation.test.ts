@@ -150,8 +150,6 @@ test('strict binary section isolation when editing individual sections', () => {
   );
 
   // 3. Modify ONLY startJet in header -> ShortString garbage padding bytes at [25] and [59] remain preserved!
-  const { rawHeader: _rh, ...restMap } = map;
-  void _rh;
   // Using updateMapHeader preserves rawHeader when we keep rawHeader or patch selectively; let's test pmsParser patchHeader:
   const headerPatchedBytes = Buffer.from(serializePms({ ...map, startJet: 150, startJetGame: 178 }));
   assert.equal(headerPatchedBytes[4 + 1 + 20], 0x77, 'mapName ShortString padding byte preserved');
@@ -325,6 +323,14 @@ test('SoldatMapEditorService: safe save, limit enforcement, overwrite confirmati
     assert.ok(fs.existsSync(savedNew.outputPath));
     assert.equal(savedNew.backupDir, null, 'no backup needed for brand-new file');
     assert.equal(savedNew.newMapId, 'ctf_sample_e', 'library scanner automatically indexed saved map');
+    const validBytes = Buffer.from(payloadB64,'base64');
+    const truncated = validBytes.subarray(0,-1);
+    assert.ok(parsePmsFull(truncated).parseWarnings.length);
+    await assert.rejects(service.saveEditedMap({
+      baseName:'ctf_sample_e',destination:'soldat_maps',confirmOverwrite:true,
+      pmsBase64:truncated.toString('base64')
+    }), (err:unknown) => err instanceof WorkshopError && err.status===400);
+    assert.deepEqual(fs.readFileSync(savedNew.outputPath),validBytes);
 
     // 3. Refuses unconfirmed overwrite with 409 Conflict
     await assert.rejects(

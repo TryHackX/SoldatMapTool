@@ -7,6 +7,8 @@
  * 5. Bounded LRU cache (max 500 decoded assets / 384 MB of pixels) so 10,000-map batch runs never leak RAM
  */
 
+import { renderNameKey, type MapAssetSource } from './mapAssetSource';
+
 export interface ProcessedImageAsset {
   width: number;
   height: number;
@@ -19,10 +21,13 @@ const MAX_ASSET_CACHE_ENTRIES = 500;
 const MAX_ASSET_CACHE_BYTES = 384 * 1024 * 1024;
 const imageAssetCache = new Map<string, Promise<ProcessedImageAsset | null>>();
 const assetBytesByKey = new Map<string, number>();
+const missesUntil = new Map<string, number>();
+const RETRY_MISSING_AFTER_MS = 5000;
 let totalAssetBytes = 0;
 
 function deleteCacheEntry(key: string): void {
   imageAssetCache.delete(key);
+  missesUntil.delete(key);
   const bytes = assetBytesByKey.get(key);
   if (bytes !== undefined) {
     totalAssetBytes -= bytes;
@@ -138,6 +143,7 @@ export function getAssetCacheEpoch(): number {
 export function clearSoldatAssetCache(): void {
   imageAssetCache.clear();
   assetBytesByKey.clear();
+  missesUntil.clear();
   totalAssetBytes = 0;
   assetCacheEpoch++;
   // Object sprites come from the same folders (a different Soldat path may have different ones)
@@ -149,11 +155,14 @@ export function loadSoldatAssetImage(
   name: string,
   applyGreenColorKey: boolean,
   preferClassicBmp = false,
-  keepCanvas = false
+  keepCanvas = false,
+  source?:MapAssetSource
 ): Promise<ProcessedImageAsset | null> {
   if (!name.trim()) return Promise.resolve(null);
-  const cacheKey = `${category}::${name.toLowerCase()}::${applyGreenColorKey ? 'ck' : 'raw'}::${preferClassicBmp ? 'bmp' : 'hd'}${keepCanvas ? '::cv' : ''}`;
+  const cacheKey = `${category}::${name.toLowerCase()}::${applyGreenColorKey ? 'ck' : 'raw'}::${preferClassicBmp ? 'bmp' : 'hd'}${keepCanvas ? '::cv' : ''}::${renderNameKey(name,source)}`;
 
+  const retryAt = missesUntil.get(cacheKey);
+  if (retryAt !== undefined && Date.now() >= retryAt) deleteCacheEntry(cacheKey);
   const hit = imageAssetCache.get(cacheKey);
   if (hit) {
     // Refresh LRU order
@@ -164,7 +173,8 @@ export function loadSoldatAssetImage(
 
   const promise = (async (): Promise<ProcessedImageAsset | null> => {
     const classicParam = preferClassicBmp ? '&classic=1' : '';
-    const baseUrl = `/api/assets?category=${encodeURIComponent(category)}&name=${encodeURIComponent(name)}${classicParam}`;
+    const sourceParam=source?'&mapId='+encodeURIComponent(source.mapId):'';
+    const baseUrl = `/api/assets?category=${encodeURIComponent(category)}&name=${encodeURIComponent(name)}${classicParam}${sourceParam}`;
     let decoded: { source: CanvasImageSource; width: number; height: number; close?: () => void };
     const virtualBlob = virtualAssets.get(virtualKey(category, name));
     try {
@@ -255,7 +265,11 @@ export function loadSoldatAssetImage(
   promise
     .then((asset) => {
       // Account the pixels only while this exact promise is still the cached one
-      if (!asset || imageAssetCache.get(cacheKey) !== promise) return;
+      if (imageAssetCache.get(cacheKey) !== promise) return;
+      if (!asset) {
+        missesUntil.set(cacheKey, Date.now() + RETRY_MISSING_AFTER_MS);
+        return;
+      }
       const bytes = asset.premultipliedData.byteLength * (asset.canvas ? 2 : 1);
       assetBytesByKey.set(cacheKey, bytes);
       totalAssetBytes += bytes;

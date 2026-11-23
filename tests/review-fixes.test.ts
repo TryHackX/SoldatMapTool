@@ -8,7 +8,7 @@ import { isSameMapFamily } from '../src/shared/mapFamily';
 import { makeOptimizeOutputName } from '../src/shared/pmsParser';
 import { parseSearchQuery } from '../src/shared/searchQuery';
 import { installFileLogger } from '../src/server/logger';
-import { LibraryError, listDuplicateGroups, moveDuplicateMaps, runLibraryOperation } from '../src/server/libraryTools';
+import { LibraryError, moveDuplicateMaps, runLibraryOperation } from '../src/server/libraryTools';
 import { executePackBuild } from '../src/server/packBuilder';
 import { PackPresetStore } from '../src/server/packPresets';
 import { duplicateIdentityKey, SoldatMapScanner } from '../src/server/soldatScanner';

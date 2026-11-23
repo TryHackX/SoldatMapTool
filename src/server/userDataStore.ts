@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { MapUserData, MapUserDataPatch } from '../shared/apiTypes';
 import { readJsonStoreFile } from './jsonStoreFile';
+import { writeFileAtomic } from './safeFileWriter';
 
 const MAX_TAGS_PER_MAP = 20;
 const MAX_TAG_LENGTH = 32;
@@ -11,7 +12,7 @@ const MAX_TAG_LENGTH = 32;
  * index rebuilds). Every change is written atomically right away: the file is small and changes are rare.
  */
 export class UserDataStore {
-  private readonly entries = new Map<string, MapUserData>();
+  private entries = new Map<string, MapUserData>();
 
   constructor(private readonly filePath: string) {
     const raw = readJsonStoreFile(filePath) as { maps?: Record<string, unknown> } | null;
@@ -38,9 +39,11 @@ export class UserDataStore {
       favorite: patch.favorite !== undefined ? patch.favorite : current.favorite,
       tags,
     });
-    if (next) this.entries.set(mapId, next);
-    else this.entries.delete(mapId);
-    this.save();
+    const updated = new Map(this.entries);
+    if (next) updated.set(mapId, next);
+    else updated.delete(mapId);
+    this.save(updated);
+    this.entries = updated;
     return next ?? {};
   }
 
@@ -48,13 +51,10 @@ export class UserDataStore {
     return Array.from(this.entries.entries());
   }
 
-  private save(): void {
-    const maps: Record<string, MapUserData> = {};
-    for (const [id, data] of this.entries) maps[id] = data;
+  private save(entries: Map<string, MapUserData>): void {
+    const maps = Object.fromEntries(entries);
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    const tmp = `${this.filePath}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify({ version: 1, maps }, null, 1), 'utf-8');
-    fs.renameSync(tmp, this.filePath);
+    writeFileAtomic(this.filePath, Buffer.from(JSON.stringify({ version: 1, maps }, null, 1)));
   }
 }
 

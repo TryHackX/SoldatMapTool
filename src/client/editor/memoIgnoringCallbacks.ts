@@ -1,19 +1,26 @@
-import React from 'react';
+import React, { useLayoutEffect, useRef } from 'react';
 
-/**
- * `React.memo` that re-renders only when a non-function prop changes. The docks get many inline callbacks from App,
- * and App re-renders on every mouse move while editing (cursor, snapping and guide state live in the editor hook),
- * so a plain memo would never skip anything. Every callback the docks receive either never changes or depends only
- * on state that is also passed to them as data, so they always pick up current callbacks with the next data change.
- */
+/** Keep event handlers current even when the dock skips a pointer-only update.
+ * Install targets after commit so an abandoned React render cannot change a live handler. */
 export function memoIgnoringCallbacks<P extends object>(component: React.FC<P>): React.FC<P> {
-  return React.memo(component, (prev, next) => {
-    const a = prev as Record<string, unknown>;
-    const b = next as Record<string, unknown>;
-    for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
-      if (typeof a[key] === 'function' && typeof b[key] === 'function') continue;
-      if (!Object.is(a[key], b[key])) return false;
+  const Dock = React.memo(component);
+  return function DockWithLiveActions(props: P) {
+    const latest = useRef(props);
+    useLayoutEffect(() => { latest.current = props; });
+    const actions = useRef(new Map<keyof P, (...args: unknown[]) => unknown>());
+    const stable = { ...props };
+    for (const key of Object.keys(props) as (keyof P)[]) {
+      if (typeof props[key] !== 'function') continue;
+      let action = actions.current.get(key);
+      if (!action) {
+        action = (...args: unknown[]) => {
+          const handle = latest.current[key];
+          if (typeof handle === 'function') return handle(...args);
+        };
+        actions.current.set(key,action);
+      }
+      stable[key] = action as P[keyof P];
     }
-    return true;
-  }) as unknown as React.FC<P>;
+    return React.createElement(Dock,stable);
+  };
 }

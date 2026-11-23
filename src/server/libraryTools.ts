@@ -1,3 +1,5 @@
+import { diskPathKey, portableSegment } from './diskPath';
+import { confirmedDuplicateGroups } from './duplicateMapContent';
 import fs from 'fs';
 import path from 'path';
 import {
@@ -60,7 +62,7 @@ function sameBytes(a: string, b: string): boolean {
 }
 
 // ---------------------------------------------------------------------------------------------------
-// C2: duplicate maps (identical OpenSoldat CRC32)
+// Duplicate maps with matching bytes and artwork.
 // ---------------------------------------------------------------------------------------------------
 
 function toDuplicateFile(e: MapIndexEntry): DuplicateMapFile {
@@ -131,11 +133,22 @@ export async function moveDuplicateMaps(
 ): Promise<LibraryMoveResult> {
   const remove = new Set(mapIds);
   const groupOf = new Map<string, MapIndexEntry[]>();
-  for (const entries of scanner.getDuplicateEntryGroups()) {
-    for (const e of entries) groupOf.set(e.id, entries);
+  const previouslyDuplicate = new Map<string,string>();
+  scanner.getResolver().reload();
+  const digests = new Map<string,string>();
+  for (const previous of scanner.getDuplicateEntryGroups()) {
+    if (!previous.some(e => remove.has(e.id))) continue;
+    for (const entry of previous) previouslyDuplicate.set(entry.id,entry.fileName);
+    for (const entries of await confirmedDuplicateGroups(previous, scanner.getResolver(), digests)) {
+      for (const e of entries) groupOf.set(e.id, entries);
+    }
   }
   for (const id of remove) {
     const group = groupOf.get(id);
+    if (!group && previouslyDuplicate.has(id)) {
+      throw new LibraryError(t('{name} no longer has an identical copy that stays — nothing was moved. Refresh the list.',
+        { name: previouslyDuplicate.get(id)! }), 409);
+    }
     if (!group) throw new LibraryError(t('Map {id} has no duplicates — it cannot be moved with this tool.', { id }));
     if (group.every((e) => remove.has(e.id))) {
       throw new LibraryError(
@@ -182,7 +195,7 @@ export async function moveDuplicateMaps(
   for (const id of remove) {
     const entry = scanner.getMapEntry(id);
     if (!entry) continue;
-    await session.move(entry.fullPath, path.join(sanitizeSegment(entry.sourceLabel || entry.sourceId), entry.fileName));
+    await session.move(entry.fullPath, path.join(portableSegment(entry.sourceLabel || entry.sourceId,'source'), entry.fileName));
   }
   session.writeRestoreList();
   return session.result();
@@ -286,10 +299,10 @@ export async function moveUnusedScenery(
  * OpenSoldat client ignore the difference; a case-sensitive Linux server serving map downloads does not.
  */
 export function computeCaseMismatches(scanner: SoldatMapScanner): CaseMismatchReport {
-  const root = path.resolve(scanner.getSoldatPath()).toLowerCase();
+  const root = diskPathKey(scanner.getSoldatPath());
   const byFile = new Map<
     string,
-    { category: CaseMismatchFile['category']; diskName: string; fullPath: string; spellings: Map<string, string[]> }
+    { category: CaseMismatchFile['category']; diskName: string; fullPath: string; spellings: Map<string, Map<string, string>> }
   >();
   let affectedMaps = 0;
   for (const entry of scanner.getAllEntries()) {
@@ -298,14 +311,14 @@ export function computeCaseMismatches(scanner: SoldatMapScanner): CaseMismatchRe
       if (!a.diskName || !a.diskFullPath || !a.referencedName || a.isVanilla || a.usedCount === 0) continue;
       if (a.status !== 'case-mismatch' && a.status !== 'custom') continue;
       if (a.category !== 'textures' && a.category !== 'scenery-gfx') continue;
-      const key = path.resolve(a.diskFullPath).toLowerCase();
+      const key = diskPathKey(a.diskFullPath);
       let file = byFile.get(key);
       if (!file) {
         file = { category: a.category, diskName: a.diskName, fullPath: a.diskFullPath, spellings: new Map() };
         byFile.set(key, file);
       }
-      const maps = file.spellings.get(a.referencedName) ?? [];
-      if (!maps.includes(entry.baseName)) maps.push(entry.baseName);
+      const maps = file.spellings.get(a.referencedName) ?? new Map<string, string>();
+      maps.set(entry.id,entry.baseName);
       file.spellings.set(a.referencedName, maps);
     }
   }
@@ -314,10 +327,10 @@ export function computeCaseMismatches(scanner: SoldatMapScanner): CaseMismatchRe
   for (const f of byFile.values()) {
     if (Array.from(f.spellings.keys()).every((name) => name === f.diskName)) continue;
     const spellings = Array.from(f.spellings.entries())
-      .map(([name, maps]) => ({ name, mapCount: maps.length, sampleMaps: maps.slice(0, 5) }))
+      .map(([name, maps]) => ({ name, mapCount: maps.size, sampleMaps: [...maps.values()].slice(0, 5) }))
       .sort((a, b) => b.mapCount - a.mapCount || a.name.localeCompare(b.name));
     const folder = path.dirname(f.fullPath);
-    const inGameFolder = path.resolve(folder).toLowerCase() === path.join(root, f.category);
+    const inGameFolder = diskPathKey(folder) === path.join(root, f.category);
     const only = spellings.length === 1 ? spellings[0].name : null;
     const renameTo =
       only && inGameFolder && path.basename(only) === only && only.toLowerCase() === f.diskName.toLowerCase()
@@ -347,12 +360,16 @@ export async function renameCaseMismatches(
   backupsRoot: string
 ): Promise<LibraryMoveResult> {
   const report = computeCaseMismatches(scanner);
-  const byKey = new Map(report.files.map((f) => [`${f.category}/${f.diskName}`.toLowerCase(), f]));
+  const byKey = new Map<string, CaseMismatchFile>();
+  for (const file of report.files) {
+    const key = `${file.category}/${file.diskName}`;
+    if (file.renameTo || !byKey.has(key)) byKey.set(key,file);
+  }
   const renamed: Array<{ from: string; to: string }> = [];
   const failed: Array<{ name: string; error: string }> = [];
   for (const req of requested) {
     const name = path.basename(req.diskName);
-    const file = byKey.get(`${req.category}/${name}`.toLowerCase());
+    const file = byKey.get(`${req.category}/${name}`);
     if (!file) {
       failed.push({ name, error: t('the name already matches the maps or the file is missing') });
       continue;
@@ -411,10 +428,6 @@ function createStampedDir(backupsRoot: string, label: string): string {
   for (let n = 2; fs.existsSync(dir); n++) dir = path.join(backupsRoot, `${label}-${stamp}_${n}`);
   fs.mkdirSync(dir, { recursive: true });
   return dir;
-}
-
-function sanitizeSegment(name: string): string {
-  return name.replace(/[<>:"/\\|?*\x00-\x1F]+/g, '_').trim() || 'source';
 }
 
 /** Moves files (rename, or copy + delete across drives) into one timestamped backup folder */

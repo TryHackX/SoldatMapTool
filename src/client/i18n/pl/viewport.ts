@@ -161,7 +161,7 @@ export const VIEWPORT_PL: PlDictionary = {
   'Damaged PMS file:': 'Uszkodzony plik PMS:',
   '{label}: {value} (game limit: {limit})': '{label}: {value} (limit gry: {limit})',
   'Optimize Scen. (_o) will help': 'pomoże Optimize Scen. (_o)',
-  'Identical CRC32 duplicates ({count}):': 'Identyczne duplikaty CRC32 ({count}):',
+  'Verified map copies ({count})': 'Potwierdzone kopie mapy ({count})',
   Parameters: 'Parametry',
   'Files ({count})': 'Pliki ({count})',
   'Geometry & environment': 'Geometria i Środowisko',

@@ -13,5 +13,5 @@ function hasNewerFile(p) {
   return st.mtimeMs > builtAt;
 }
 
-const inputs = ['src/client', 'src/shared', 'index.html', 'vite.config.ts', 'package.json'];
+const inputs = ['src/client', 'src/shared', 'index.html', 'vite.config.ts', 'package.json', 'package-lock.json', 'tsconfig.json'];
 process.exit(inputs.some((p) => fs.existsSync(p) && hasNewerFile(p)) ? 1 : 0);

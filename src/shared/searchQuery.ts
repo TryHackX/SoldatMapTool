@@ -29,7 +29,7 @@ export type SearchNumericField =
 
 export type SearchTextField = 'name' | 'title' | 'tex' | 'scenery' | 'prefix' | 'mode' | 'source' | 'crc' | 'tag';
 
-export type SearchFlag = 'fav' | 'vanilla' | 'custom' | 'broken' | 'dup' | 'incompatible' | 'case';
+export type SearchFlag = 'fav' | 'vanilla' | 'custom' | 'broken' | 'dup' | 'incompatible' | 'case' | 'draft' | 'draft-scenery';
 
 export type SearchCompareOp = '>' | '>=' | '<' | '<=' | '=';
 
@@ -140,6 +140,9 @@ const FLAG_VALUES: Record<string, SearchFlag> = {
   limity: 'incompatible',
   niekompatybilne: 'incompatible',
   case: 'case',
+  draft: 'draft',
+  robocze: 'draft',
+  'draft-scenery': 'draft-scenery',
 };
 
 const WEATHER_VALUES: Record<string, number> = {
@@ -283,6 +286,8 @@ const FLAG_LABELS: Record<SearchFlag, string> = {
   dup: 'duplicates',
   incompatible: "won't load",
   case: 'letter case',
+  draft: 'draft map name',
+  'draft-scenery': 'uses scenery with a draft name',
 };
 
 const WEATHER_LABELS = ['no weather', 'rain', 'sandstorm', 'snow'];

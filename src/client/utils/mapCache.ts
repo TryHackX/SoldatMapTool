@@ -12,16 +12,21 @@ import {
 import { parsePmsFull, PmsMapData } from '@shared/pmsParser';
 import { CustomPrefixRule } from '@shared/prefixUtils';
 import { t } from '../i18n';
+import { setMapAssetSource, thumbnailUrls } from '../renderer/mapAssetSource';
 
 const parsedMapLru = new Map<string, PmsMapData>();
 const inFlight = new Map<string, Promise<PmsMapData>>();
 const MAX_CACHED_MAPS = 25;
+let cacheGeneration = 0;
 
 const mapDetailsLru = new Map<string, MapIndexEntry>();
 const MAX_CACHED_DETAILS = 60;
 
 export function clearClientMapCaches(): void {
+  cacheGeneration++;
+  inFlight.clear();
   parsedMapLru.clear();
+  thumbnailUrls.clear();
   mapDetailsLru.clear();
 }
 
@@ -37,6 +42,7 @@ export async function fetchAndParseMap(mapId: string): Promise<PmsMapData> {
     return inFlight.get(mapId)!;
   }
 
+  const generation = cacheGeneration;
   const promise = (async () => {
     const res = await fetch(`/api/maps/${encodeURIComponent(mapId)}/raw`);
     if (!res.ok) {
@@ -45,7 +51,9 @@ export async function fetchAndParseMap(mapId: string): Promise<PmsMapData> {
     }
     const buf = await res.arrayBuffer();
     const parsed = parsePmsFull(buf);
+    setMapAssetSource(parsed,mapId,res.headers.get('X-Soldat-Asset-Scope'));
 
+    if (generation !== cacheGeneration) return parsed;
     if (parsedMapLru.size >= MAX_CACHED_MAPS) {
       const oldestKey = parsedMapLru.keys().next().value;
       if (oldestKey !== undefined) {
@@ -60,7 +68,7 @@ export async function fetchAndParseMap(mapId: string): Promise<PmsMapData> {
   try {
     return await promise;
   } finally {
-    inFlight.delete(mapId);
+    if (inFlight.get(mapId) === promise) inFlight.delete(mapId);
   }
 }
 
@@ -71,11 +79,13 @@ export async function fetchMapDetails(mapId: string, force = false): Promise<Map
     mapDetailsLru.set(mapId, hit);
     return hit;
   }
+  const generation = cacheGeneration;
   const res = await fetch(`/api/maps/${encodeURIComponent(mapId)}/details`);
   if (!res.ok) {
     throw new Error(t('Could not load the details of map {id} ({status})', { id: mapId, status: res.status }));
   }
   const entry: MapIndexEntry = await res.json();
+  if (generation !== cacheGeneration) return entry;
   if (mapDetailsLru.size >= MAX_CACHED_DETAILS) {
     const oldest = mapDetailsLru.keys().next().value;
     if (oldest !== undefined) mapDetailsLru.delete(oldest);
@@ -86,6 +96,7 @@ export async function fetchMapDetails(mapId: string, force = false): Promise<Map
 
 /** Sets the favourite flag and/or tags of one map; the cached details of that map are updated too */
 export async function updateMapUserData(mapId: string, patch: MapUserDataPatch): Promise<MapUserDataResponse> {
+  const generation = cacheGeneration;
   const res = await fetch(`/api/maps/${encodeURIComponent(mapId)}/user-data`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -94,7 +105,7 @@ export async function updateMapUserData(mapId: string, patch: MapUserDataPatch):
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || t('Could not save favorites / tags (HTTP {status})', { status: res.status }));
   const cached = mapDetailsLru.get(mapId);
-  if (cached) mapDetailsLru.set(mapId, { ...cached, favorite: data.favorite, tags: data.tags });
+  if (cached && generation === cacheGeneration) mapDetailsLru.set(mapId, { ...cached, favorite: data.favorite, tags: data.tags });
   return data as MapUserDataResponse;
 }
 

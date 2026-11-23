@@ -33,6 +33,9 @@ export function bakeTilesFor(
   const span = Math.max(64, Math.floor(maxTilePx / supersample) - 2 * TILE_OVERLAP_WORLD);
   const cols = Math.max(1, Math.ceil(bounds.width / span));
   const rows = Math.max(1, Math.ceil(bounds.height / span));
+  // The cell key is ry * cols + cx. Beyond exact integer precision a loop can stop advancing
+  // or two different cells can refer to the same tile.
+  if (!Number.isSafeInteger(cols * rows)) return null;
   // A tile renders its core plus the overlap, and a sprite edge may spread one texel further
   const reach = TILE_OVERLAP_WORLD + 1;
   const used = new Set<number>();

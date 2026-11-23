@@ -1,3 +1,6 @@
+import { diskPathKey } from './diskPath';
+import { confirmedDuplicateGroups } from './duplicateMapContent';
+import { isDraftName } from '../shared/librarySimilarity';
 import fs from 'fs';
 import path from 'path';
 import {
@@ -91,7 +94,7 @@ function unreadableSummary(message: string, crc32: number): PmsSummaryData {
   };
 }
 
-/** Identity of a map file for duplicate detection: same OpenSoldat CRC32 and size. CRC 0 = the file could not be read. */
+/** Fast shortlist for byte and artwork comparison. CRC 0 is also returned for unreadable files. */
 export function duplicateIdentityKey(crc32: number, fileSize: number): string | null {
   const crc = crc32 >>> 0;
   return crc === 0 ? null : `${crc}:${fileSize}`;
@@ -220,10 +223,22 @@ export class SoldatMapScanner {
     return { ...this.scanStatus };
   }
 
-  public markThumbnailCached(hexCrc: string): void {
-    const clean = hexCrc.toLowerCase();
+  public thumbnailKey(hexCrc:string,mapId?:string) {
+    const hex=hexCrc.toLowerCase();
+    if(!/^[a-f0-9]{1,8}$/.test(hex))return null;
+    if(mapId===undefined)return hex;
+    const m=this.getMapEntry(mapId);
+    if(!m||(m.crc32>>>0).toString(16)!==hex)return null;
+    const pkg=this.resolver.packageRootForMap(m.fullPath,m.sourceId);
+    return pkg?hex+'-'+this.resolver.packageRenderKey(pkg):hex;
+  }
+
+  public markThumbnailCached(cacheKey: string): void {
+    const clean = cacheKey.toLowerCase();
     this.existingThumbs.add(clean);
-    for (const item of this.itemsByCrcHex.get(clean) ?? []) {
+    const hex=clean.split('-')[0];
+    for (const item of this.itemsByCrcHex.get(hex) ?? []) {
+      if(this.thumbnailKey(hex,item.full.id)!==clean)continue;
       item.compact.hasThumbnail = true;
       item.full.hasThumbnail = true;
     }
@@ -251,7 +266,7 @@ export class SoldatMapScanner {
   }
 
   /**
-   * Lowercased root folders (with trailing separator) that a scan walks right now.
+   * Normalized root folders (with trailing separator) that a scan walks right now.
    */
   private getScannedRootKeys(): string[] {
     const roots = [path.join(this.soldatPath, 'maps'), path.join(this.soldatPath, 'downloads', 'maps')];
@@ -259,7 +274,7 @@ export class SoldatMapScanner {
       if (src.enabled && src.path && fs.existsSync(src.path)) roots.push(src.path);
     }
     return roots.map((r) => {
-      const abs = path.resolve(r).toLowerCase();
+      const abs = diskPathKey(r);
       return abs.endsWith(path.sep) ? abs : abs + path.sep;
     });
   }
@@ -394,7 +409,7 @@ export class SoldatMapScanner {
         if (entry.isFile()) {
           if (!entry.name.toLowerCase().endsWith('.pms')) continue;
           const fullPath = path.join(currentDir, entry.name);
-          const normKey = fullPath.toLowerCase();
+          const normKey = diskPathKey(fullPath);
           if (seenPaths.has(normKey)) continue;
           seenPaths.add(normKey);
 
@@ -538,7 +553,7 @@ export class SoldatMapScanner {
 
         for (let i = 0; i < discovered.length; i++) {
           const d = discovered[i];
-          const pathKey = d.fullPath.toLowerCase();
+          const pathKey = diskPathKey(d.fullPath);
           discoveredPathKeys.add(pathKey);
 
           let stat: fs.Stats;
@@ -617,7 +632,7 @@ export class SoldatMapScanner {
 
         this.scanStatus.phase = 'finalizing';
 
-        // Compute CRC32 duplicates across the entire collection in O(N)
+        // CRC lookup also serves thumbnails; several packages may share this map CRC.
         const byCrc = new Map<number, InternalIndexedMap[]>();
         for (const item of nextIndexed.values()) {
           let arr = byCrc.get(item.full.crc32);
@@ -632,7 +647,7 @@ export class SoldatMapScanner {
           nextByCrcHex.set((crc >>> 0).toString(16), group);
         }
 
-        // Duplicates = same CRC32 and same size. CRC 0 marks files that could not be read at all.
+        // Verify the cheap CRC/size candidates against the PMS and resolved artwork before exposing duplicates.
         const byIdentity = new Map<string, InternalIndexedMap[]>();
         for (const item of nextIndexed.values()) {
           item.full.duplicateCount = 1;
@@ -648,15 +663,20 @@ export class SoldatMapScanner {
           arr.push(item);
         }
         const nextDuplicateGroups: MapIndexEntry[][] = [];
-        for (const group of byIdentity.values()) {
-          if (group.length < 2) continue;
-          const ids = group.map((g) => g.full.id);
-          for (const g of group) {
-            g.full.duplicateCount = group.length;
-            g.compact.duplicateCount = group.length;
-            g.full.duplicateMapIds = ids.filter((id) => id !== g.full.id);
+        const duplicateDigests = new Map<string,string>();
+        for (const candidates of byIdentity.values()) {
+          if (candidates.length < 2) continue;
+          for (const group of await confirmedDuplicateGroups(candidates.map(g => g.full), this.resolver, duplicateDigests)) {
+            const ids = group.map(g => g.id);
+            for (const entry of group) {
+              entry.duplicateCount = group.length;
+              nextIndexed.get(entry.id)!.compact.duplicateCount = group.length;
+              // Materialise sibling IDs only when map details are requested.
+              Object.defineProperty(entry, 'duplicateMapIds', { enumerable: true,
+                get: () => ids.filter(id => id !== entry.id) });
+            }
+            nextDuplicateGroups.push(group);
           }
-          nextDuplicateGroups.push(group.map((g) => g.full));
         }
         this.duplicateGroups = nextDuplicateGroups;
 
@@ -710,14 +730,15 @@ export class SoldatMapScanner {
     summary: PmsSummaryData,
     classifier: ReturnType<typeof createMapClassifier>
   ): InternalIndexedMap {
+    const packageRoot=this.resolver.packageRootForMap(d.fullPath,d.sourceId);
     const textureInfo = this.resolver.resolveMapAsset(
       'textures',
       summary.texture,
-      summary.polygonCount
+      summary.polygonCount,packageRoot
     );
 
     const sceneryAssets = summary.scenery.map((sc) =>
-      this.resolver.resolveMapAsset('scenery-gfx', sc.filename, sc.usedCount)
+      this.resolver.resolveMapAsset('scenery-gfx', sc.filename, sc.usedCount,packageRoot)
     );
 
     const isVanillaMap = d.sourceId === 'soldat' && this.resolver.isVanillaMap(d.fileName);
@@ -753,7 +774,7 @@ export class SoldatMapScanner {
     const isPureVanilla = isVanillaMap && !hasCustomAssets;
     const cls = classifier.classify(d.baseName);
     const hexCrc = summary.crc32.toString(16).toLowerCase();
-    const hasThumbnail = this.existingThumbs.has(hexCrc);
+    const hasThumbnail = this.existingThumbs.has(packageRoot?hexCrc+'-'+this.resolver.packageRenderKey(packageRoot):hexCrc);
 
     const polyWidth = Math.round(summary.polyBounds.width);
     const polyHeight = Math.round(summary.polyBounds.height);
@@ -1154,6 +1175,12 @@ export class SoldatMapScanner {
             break;
           case 'incompatible':
             hit = m.limitViolationCount > 0 || m.parseWarningCount > 0;
+            break;
+          case 'draft':
+            hit=isDraftName(m.baseName);
+            break;
+          case 'draft-scenery':
+            hit=item.full.sceneryAssets.some(s=>s.usedCount>0 && isDraftName(s.referencedName));
             break;
           default:
             hit = m.caseMismatchCount > 0;

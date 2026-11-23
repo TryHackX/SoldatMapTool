@@ -38,8 +38,11 @@ import {
   pickSystemFolder,
 } from '../utils/mapCache';
 import { useModalDismiss } from '../utils/useModalDismiss';
+import { WallProtectionPanel } from './WallProtectionPanel';
 import {
   AlertTriangle,
+  Archive,
+  Columns2,
   CheckCircle2,
   Eye,
   FolderOpen,
@@ -54,8 +57,10 @@ import {
 
 interface MapWorkshopModalProps {
   open: boolean;
-  initialTab: 'fix' | 'optimize';
+  initialTab: 'fix' | 'optimize' | 'walls';
   onClose: () => void;
+  onOpenArchiveCleaner: () => void;
+  onOpenSimilar: () => void;
   currentMapEntry: MapIndexEntry | MapCompactEntry | null;
   currentMapData: PmsMapData | null;
   preferClassicBmp: boolean;
@@ -71,6 +76,8 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
   open,
   initialTab,
   onClose,
+  onOpenArchiveCleaner,
+  onOpenSimilar,
   currentMapEntry,
   currentMapData,
   preferClassicBmp,
@@ -81,7 +88,9 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
   onMetaUpdated,
   onSelectMapById,
 }) => {
-  const [tab, setTab] = useState<'fix' | 'optimize'>(initialTab);
+  const [tab, setTab] = useState<'fix' | 'optimize' | 'walls'>(initialTab);
+  const [wallBusy, setWallBusy] = useState(false);
+  const [wallNameLength,setWallNameLength] = useState(16);
   const [maxBaseLength, setMaxBaseLength] = useState<number>(24);
 
   // --- Tab 1: 1.7.1 Scenery Fixer (_f.pms) state ---
@@ -288,7 +297,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
   const backdropProps = useModalDismiss(
     open,
     onClose,
-    fixingSingle || applyingBatch || optimizing || previewing || optBatchRunning
+    fixingSingle || applyingBatch || optimizing || previewing || optBatchRunning || wallBusy
   );
 
   if (!open) return null;
@@ -625,7 +634,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
       {...backdropProps}
       className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
     >
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden">
+      <div className={'bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl w-full flex flex-col overflow-hidden '+(tab==='walls'?'max-w-[1720px] max-h-[96dvh]':'max-w-5xl max-h-[92vh]')}>
         {/* Header */}
         <div className="px-5 py-3.5 border-b border-zinc-800 bg-zinc-950/70 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -634,20 +643,17 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-zinc-100">
-                {tr('PMS Map Workshop — 1.7.1 Scenery Fix ({f}) and Optimize Sceneries ({o})', {
-                  f: <code>_f</code>,
-                  o: <code>_o</code>,
-                })}
+                {t('PMS Map Workshop')}
               </h2>
               <p className="text-[11px] text-zinc-400">
-                {t('Lossless editing of the scenery tables that keeps polygon physics, collision sectors, spawn points and bot waypoints 100% intact')}
+                {t('Scenery repair, optimization and wall protection')}
               </p>
             </div>
           </div>
 
           <button
             type="button"
-            disabled={optimizing || fixingSingle || applyingBatch || previewing || optBatchRunning}
+            disabled={optimizing || fixingSingle || applyingBatch || previewing || optBatchRunning || wallBusy}
             onClick={onClose}
             aria-label={t('Close workshop')}
             className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 disabled:opacity-40 cursor-pointer"
@@ -657,8 +663,8 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
         </div>
 
         {/* Main Feature Tabs + Max Filename Length Setting */}
-        <div className="px-5 py-2.5 bg-zinc-950/50 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex items-center bg-zinc-950 border border-zinc-800 rounded-lg p-1 gap-1">
+        <fieldset disabled={wallBusy} className="px-5 py-2.5 bg-zinc-950/50 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex flex-wrap items-center bg-zinc-950 border border-zinc-800 rounded-lg p-1 gap-1">
             <button
               type="button"
               onClick={() => setTab('fix')}
@@ -683,26 +689,38 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
               <Layers className="w-3.5 h-3.5" />
               {t('2. Optimize Sceneries — Layer Merging (_o.pms)')}
             </button>
+            <button type="button" onClick={()=>setTab('walls')} disabled={optimizing || fixingSingle || applyingBatch || previewing || optBatchRunning}
+              className={'rounded-md px-3 py-1.5 font-semibold '+(tab==='walls'?'bg-amber-600 text-white':'text-zinc-300 hover:bg-zinc-800')}>{t('Wall protection')}</button>
+            <button type="button" onClick={onOpenSimilar} disabled={optimizing || fixingSingle || applyingBatch || previewing || optBatchRunning}
+              className="flex items-center gap-1.5 rounded-md px-3 py-1.5 font-semibold text-zinc-300 hover:bg-zinc-800 disabled:opacity-40">
+              <Columns2 size={14}/>{t('Find similar to selected')}
+            </button>
           </div>
 
           <div className="flex items-center gap-2">
+            <button type="button" onClick={onOpenArchiveCleaner}
+              disabled={optimizing || fixingSingle || applyingBatch || previewing || optBatchRunning}
+              className="inline-flex items-center gap-1.5 rounded border border-zinc-700 px-2.5 py-1 font-semibold text-emerald-300 hover:bg-zinc-800 disabled:opacity-40">
+              <Archive size={14}/>{t('Clean archive')}
+            </button>
             <span className="text-zinc-400 text-[11px]">{t('Map name length limit:')}</span>
             <select
-              value={maxBaseLength}
-              onChange={(e) => setMaxBaseLength(Number(e.target.value))}
+              value={tab==='walls'?wallNameLength:maxBaseLength}
+              onChange={(e) => (tab==='walls'?setWallNameLength:setMaxBaseLength)(Number(e.target.value))}
               className="bg-zinc-950 border border-zinc-800 rounded px-2.5 py-1 font-mono text-zinc-200 focus:outline-none focus:border-amber-500"
-              title={t('If the name with the _f or _o suffix exceeds this limit, the end of the base name is cut off before the suffix is added')}
+              title={t('Maximum filename length before .pms')}
             >
-              <option value={16}>{t('16 characters (Soldat 1.6)')}</option>
+              <option value={16}>{t('16 characters (legacy compatibility)')}</option>
               <option value={20}>{t('20 characters')}</option>
-              <option value={24}>{t('24 characters (recommended)')}</option>
-              <option value={32}>{t('32 characters (OpenSoldat)')}</option>
+              <option value={24}>{t('24 characters')}</option>
+              <option value={32}>{t('32 characters')}</option>
             </select>
           </div>
-        </div>
+        </fieldset>
 
         {/* Body */}
-        {tab === 'fix' ? (
+        {tab==='walls' ? <WallProtectionPanel current={currentMapEntry} batchCount={batchCount}
+          batchLabel={batchSourceLabel} resolve={onResolveBatchCandidates} busy={wallBusy} setBusy={setWallBusy} maxLength={wallNameLength}/> : tab === 'fix' ? (
           <div className="flex-1 min-h-0 flex flex-col p-5 space-y-4 overflow-y-auto text-xs">
             {/* Scope Switch: Current Map vs Collection Batch */}
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -907,7 +925,7 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                             </div>
 
                             <div className="flex items-center gap-3 shrink-0 font-mono">
-                              <SceneryFixThumbs issue={issue} />
+                              <SceneryFixThumbs key={analysis.mapId + ':' + issue.sceneryName} mapId={analysis.mapId} issue={issue} />
                               <div className="text-right">
                                 <span className="text-red-300 line-through">
                                   {issue.pmsWidth}×{issue.pmsHeight}
@@ -1691,6 +1709,8 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
                             {pr.sceneryName} (
                             {pr.reason === 'animated_gif'
                               ? 'GIF'
+                              : pr.reason === 'missing_image'
+                              ? t('Missing image')
                               : pr.reason === 'giant_skybox'
                               ? t('Background/Fog')
                               : pr.reason === 'single_isolated'
@@ -2232,14 +2252,14 @@ const FidelityCard: React.FC<{
  * The scenery image drawn at its current PMS size and at the corrected size, on the same scale, so the
  * stretch (or enlargement) the fix removes is visible at a glance.
  */
-const SceneryFixThumbs: React.FC<{ issue: SceneryFixIssueGroup }> = ({ issue }) => {
+const SceneryFixThumbs: React.FC<{ mapId: string; issue: SceneryFixIssueGroup }> = ({ mapId, issue }) => {
   const [failed, setFailed] = useState(false);
   const pw = Math.max(1, Math.abs(issue.pmsWidth));
   const ph = Math.max(1, Math.abs(issue.pmsHeight));
   const ew = Math.max(1, Math.abs(issue.expectedWidth));
   const eh = Math.max(1, Math.abs(issue.expectedHeight));
   const scale = Math.min(64 / Math.max(pw, ew), 34 / Math.max(ph, eh));
-  const url = `/api/assets?category=scenery-gfx&name=${encodeURIComponent(issue.sceneryName)}&convert=png&colorkey=1`;
+  const url = `/api/assets?category=scenery-gfx&name=${encodeURIComponent(issue.sceneryName)}&mapId=${encodeURIComponent(mapId)}&convert=png&colorkey=1`;
   if (failed) return null;
   const box = (w: number, h: number, label: string, cls: string) => (
     <div className="flex flex-col items-center gap-0.5" title={`${label}: ${w}×${h}`}>

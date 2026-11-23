@@ -9,7 +9,7 @@ export function stripDerivedSuffix(name: string): string {
 }
 
 /** Every name the workshop could have given a version of `base` (all name-length limits, old two-step `_f_o`) */
-function derivedNamesOf(base: string): Set<string> {
+export function derivedNamesOf(base: string): Set<string> {
   const names = new Set<string>();
   for (const max of NAME_LENGTH_LIMITS) {
     for (const suffix of DERIVED_SUFFIXES) names.add(makeDerivedMapName(base, suffix, max).toLowerCase());

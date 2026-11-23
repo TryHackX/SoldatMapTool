@@ -4,6 +4,11 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { bakeTilesFor, estimateTileCrop, MAX_BAKE_TILES, TILE_OVERLAP_WORLD } from '../src/shared/bakeTiling';
+
+test('outlying legacy coordinates cannot stall tile indexing at the end of a sparse grid', () => {
+  const huge = box(0,0,1e30,20);
+  assert.equal(bakeTilesFor(huge,3,2048,[box(1e29,0,20,20)]),null);
+});
 import { OptimizeMapOptions } from '../src/shared/apiTypes';
 import { SoldatMapScanner } from '../src/server/soldatScanner';
 import { SoldatMapWorkshop } from '../src/server/mapFixerOptimizer';
@@ -65,6 +70,8 @@ test('crop estimate keeps the seam band when content touches a shared edge', () 
 async function planFor(name: string, propPositions: Array<{ x: number; y: number }>) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'sms-tiling-test-'));
   const root = path.join(base, 'Soldat');
+  fs.mkdirSync(path.join(root,'scenery-gfx'),{recursive:true});
+  fs.writeFileSync(path.join(root,'scenery-gfx','a.png'),'indexed artwork for the planning fixture');
   fs.mkdirSync(path.join(root, 'maps'), { recursive: true });
   fs.writeFileSync(
     path.join(root, 'maps', `${name}.pms`),

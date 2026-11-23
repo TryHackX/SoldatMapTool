@@ -8,6 +8,7 @@ import { SoldatMapScanner } from '../src/server/soldatScanner';
 import { SoldatMapWorkshop, WorkshopError } from '../src/server/mapFixerOptimizer';
 import { parsePmsFull } from '../src/shared/pmsParser';
 import { buildSyntheticPms } from './helpers';
+import type { OptimizeMapOptions } from '../src/shared/apiTypes';
 
 function makeTempEnv(maps: Record<string, Uint8Array | Buffer>) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'sms-workshop-test-'));
@@ -177,4 +178,79 @@ test('archive (_a): the map gets its own copies of the sceneries it still uses a
     missing: ['ghost.png'],
   });
   assert.ok(fs.existsSync(path.join(env.root, 'scenery-gfx', 'rock.png')), 'the shared originals stay untouched');
+});
+
+test('package-specific repair and archive reject stale previews and foreign images, and roll back a partial write', async t => {
+  const env = makeTempEnv({});
+  const pack = path.join(env.base,'archive','first');
+  const asset = 'fx_p_cloud1.png';
+  const image = async (width: number) => sharp({create:{width,height:6,channels:4,background:'#286090'}}).png().toBuffer();
+  const put = (root: string, rel: string, bytes: Uint8Array | string) => {
+    const file = path.join(root,rel);
+    fs.mkdirSync(path.dirname(file),{recursive:true});
+    fs.writeFileSync(file,bytes);
+  };
+  put(env.root,'scenery-gfx/'+asset,await image(42));
+  put(env.root,'readonly.txt','scenery-gfx/'+asset);
+  put(env.root,'textures/default.bmp','stock');
+  const art = await image(23);
+  put(pack,'scenery-gfx/'+asset,art);
+  put(pack,'textures/default.bmp','package');
+  const source = buildSyntheticPms({props:2,scenery:[asset,'missing.png','unused.png'],propSizes:[{width:0,height:0}]});
+  put(pack,'maps/one.pms',source);
+  const scanner = new SoldatMapScanner(env.root,[{id:'pack',label:'Pack',path:pack,enabled:true,recursive:true}],[],env.cache,env.thumbs);
+  t.after(() => { scanner['sqliteCache'].close(); fs.rmSync(env.base,{recursive:true,force:true}); });
+  await scanner.scanAsync(true);
+  const id = scanner.getAllEntries()[0].id;
+  const workshop = new SoldatMapWorkshop(scanner,path.join(env.base,'exports'),env.cache,path.join(env.base,'backups'));
+  const analysis = await workshop.analyzeMapFor171Fix(id);
+  assert.deepEqual(analysis.issues.map(i => [i.expectedWidth,i.expectedHeight]),[[23,6]]);
+  const options: OptimizeMapOptions = {mergeBack:true,mergeMid:true,mergeFront:true,supersample:1,maxTilePx:2048,
+    preserveGiantProps:false,giantPropThresholdPx:1600,skipIsolatedSingleProps:false,removeUnusedScenery:true,
+    preferClassicBmp:false,archive:true,maxBaseLength:24,fixFirst:true,destination:'exports_optimized'};
+  const plan = await workshop.planSceneryOptimization(id, options);
+  assert.equal(plan.preservedSample.find(p => p.propIndex === 1)?.reason,'missing_image');
+  const expected = {derivedBaseName:plan.derivedBaseName,propFixes:plan.appliedPropFixes,sourceCrc32:plan.sourceCrc32,
+    sourceGraphicsKey:plan.sourceGraphicsKey,tileCount:0};
+  const start = (config=options) => workshop.startOptimizeSession(id,config);
+  // Touch only scenery bytes, keeping its dimensions and the map filename unchanged.
+  put(pack,'scenery-gfx/'+asset,Buffer.concat([art,Buffer.from('updated')]));
+  await assert.rejects(workshop.commitOptimizeSession(start(),'never',true,expected),isConflict);
+  put(pack,'scenery-gfx/'+asset,art);
+  const fresh = await workshop.planSceneryOptimization(id, options);
+  const uploading = start();
+  const upload = workshop.addOptimizeTile(uploading,{tileFileName:'layer.png',level:0,insertOrderKey:fresh.groups[0].insertOrderKey,
+    worldX:0,worldY:0,scaleX:1,scaleY:1},art);
+  await assert.rejects(workshop.commitOptimizeSession(uploading,'never',true),isConflict);
+  await upload;
+  workshop.cancelOptimizeSession(uploading);
+
+  const copyOptions = {...options,mergeBack:false};
+  const copyPlan = await workshop.planSceneryOptimization(id,copyOptions);
+  const target = path.join(env.base,'exports','archived_maps');
+  const graphic = path.join(target,'scenery-gfx',copyPlan.derivedBaseName+'_s1.png');
+  const mapFile = path.join(target,'maps',copyPlan.derivedBaseName+'.pms');
+  const commit = () => workshop.commitOptimizeSession(start(copyOptions),'always',true);
+  put(target,path.relative(target,graphic),'belongs to a different map');
+  await assert.rejects(commit(),isConflict);
+  assert.equal(fs.readFileSync(graphic,'utf8'),'belongs to a different map');
+  assert.equal(fs.existsSync(mapFile),false);
+  fs.unlinkSync(graphic);
+
+  const rename = fs.renameSync;
+  const failLast = t.mock.method(fs,'renameSync',(from:fs.PathLike,to:fs.PathLike) => {
+    if (to === mapFile) throw Error('simulated failure saving map');
+    return rename(from,to);
+  });
+  try { await assert.rejects(commit(),/simulated failure saving map/); }
+  finally { failLast.mock.restore(); }
+  assert.ok(!fs.existsSync(graphic) && !fs.existsSync(mapFile));
+  for (const dir of ['scenery-gfx','maps','textures']) assert.deepEqual(fs.readdirSync(path.join(target,dir)),[]);
+  await commit();
+  assert.deepEqual(fs.readFileSync(graphic),art);
+  const saved = parsePmsFull(fs.readFileSync(mapFile));
+  assert.equal(fs.readFileSync(path.join(target,'textures',saved.texture),'utf8'),'package');
+  assert.ok(saved.scenery.some(s => s.filename === 'missing.png'));
+  put(pack,'maps/one.pms',Buffer.concat([source,Buffer.from([1])]));
+  await assert.rejects(workshop.commitOptimizeSession(start(copyOptions),'always',true,{...expected,sourceGraphicsKey:copyPlan.sourceGraphicsKey}),isConflict);
 });

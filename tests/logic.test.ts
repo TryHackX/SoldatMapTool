@@ -2,7 +2,18 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMapClassifier, sanitizeCustomRules } from '../src/shared/prefixUtils';
 import { decodeBmpToRgba } from '../src/server/bmpDecoder';
-import { applySeamCrossFade, sharpenForDisplay } from '../src/client/renderer/SceneryLayerBaker';
+import { applySeamCrossFade, sampleFidelityWindows, sharpenForDisplay } from '../src/client/renderer/SceneryLayerBaker';
+
+test('fidelity verification samples occupied regions of sparse maps and caps work on wide sceneries', () => {
+  const first = {left:0,top:0,right:30,bottom:20};
+  const distant = {left:3e9,top:-2e9,right:3e9+18,bottom:-2e9+50};
+  assert.deepEqual(sampleFidelityWindows([first,first,distant]), [
+    {left:0,top:0,width:30,height:20}, {left:3e9,top:-2e9,width:18,height:50}
+  ]);
+  const wide = sampleFidelityWindows([{left:0,top:0,right:1e8,bottom:90}]);
+  assert.equal(wide.length,24);
+  assert.equal(wide.at(-1)!.left + wide.at(-1)!.width,1e8);
+});
 
 test('built-in classifier: longest prefix wins (RSCS / Trenchwars / CTF)', () => {
   const c = createMapClassifier([]);

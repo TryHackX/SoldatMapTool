@@ -3,6 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import sharp from 'sharp';
 import { t } from './i18n';
+import { WorkshopError, writeFileAtomic } from './safeFileWriter';
 
 interface TileSession {
   id: string;
@@ -13,7 +14,8 @@ interface TileSession {
   quality: number;
   tempDir: string;
   tiles: Array<{ input: string; left: number; top: number }>;
-  createdAt: number;
+  lastActivity: number;
+  finalizing: boolean;
 }
 
 const sessions = new Map<string, TileSession>();
@@ -45,7 +47,7 @@ export function cleanupOrphanedTileSessions(cacheRoot: string): void {
 function pruneExpiredSessions(): void {
   const now = Date.now();
   for (const s of sessions.values()) {
-    if (now - s.createdAt > TILE_SESSION_TTL_MS) cancelTileSession(s.id);
+    if (!s.finalizing && now - s.lastActivity > TILE_SESSION_TTL_MS) cancelTileSession(s.id);
   }
 }
 
@@ -87,10 +89,19 @@ export function createTileSession(params: {
     quality: Math.max(1, Math.min(100, Math.round(params.quality ?? 92))),
     tempDir,
     tiles: [],
-    createdAt: Date.now(),
+    lastActivity: Date.now(),
+    finalizing: false,
   });
 
   return id;
+}
+
+function getOpenSession(id: string): TileSession {
+  const session = sessions.get(id);
+  if (!session || session.finalizing) {
+    throw new WorkshopError(t('Tiled render session not found: {id}', {id}), session ? 409 : 404);
+  }
+  return session;
 }
 
 export function addSessionTile(
@@ -99,10 +110,7 @@ export function addSessionTile(
   top: number,
   pngBuffer: Buffer
 ): void {
-  const session = sessions.get(sessionId);
-  if (!session) {
-    throw new Error(t('Tiled render session not found: {id}', { id: sessionId }));
-  }
+  const session = getOpenSession(sessionId);
   const x = Math.round(left);
   const y = Math.round(top);
   if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x >= session.width || y >= session.height) {
@@ -112,7 +120,8 @@ export function addSessionTile(
     throw new Error(t('Empty tile.'));
   }
   const tilePath = path.join(session.tempDir, `tile_${x}_${y}.png`);
-  fs.writeFileSync(tilePath, pngBuffer);
+  writeFileAtomic(tilePath, pngBuffer);
+  session.lastActivity = Date.now();
   // A re-sent tile replaces the previous one instead of being composited twice
   session.tiles = session.tiles.filter((tile) => tile.left !== x || tile.top !== y);
   session.tiles.push({ input: tilePath, left: x, top: y });
@@ -122,11 +131,13 @@ export function cancelTileSession(sessionId: string): void {
   const session = sessions.get(sessionId);
   if (!session) return;
   sessions.delete(sessionId);
-  try {
-    fs.rmSync(session.tempDir, { recursive: true, force: true });
-  } catch {
-    // Ignore cleanup error
-  }
+  // Sharp may still have the tiles open on Windows. Its finalizer owns their cleanup.
+  if (!session.finalizing) removeTiles(session);
+}
+
+function removeTiles(session: TileSession): void {
+  try { fs.rmSync(session.tempDir, {recursive:true, force:true}); }
+  catch { /* The next startup removes abandoned tile directories. */ }
 }
 
 export async function finalizeTileSession(
@@ -135,12 +146,11 @@ export async function finalizeTileSession(
   customFileName?: string,
   subfolder?: string
 ): Promise<{ outputPath: string; fileName: string; sizeBytes: number }> {
-  const session = sessions.get(sessionId);
-  if (!session) {
-    throw new Error(t('Tiled render session not found: {id}', { id: sessionId }));
-  }
-
+  const session = getOpenSession(sessionId);
+  session.finalizing = true;
+  let staged: string | undefined;
   try {
+    if (!session.tiles.length) throw new WorkshopError(t('Empty tile.'), 400);
     const cleanSub = sanitizeScreenshotSubfolder(subfolder);
     const finalDir = cleanSub ? path.join(outputDir, cleanSub) : outputDir;
     fs.mkdirSync(finalDir, { recursive: true });
@@ -178,15 +188,24 @@ export async function finalizeTileSession(
       pipeline = pipeline.png({ compressionLevel: 6 });
     }
 
-    await pipeline.toFile(outputPath);
-    const stat = fs.statSync(outputPath);
+    staged = path.join(finalDir, '.screenshot-' + crypto.randomUUID() + '.tmp');
+    const encoded = await pipeline.toFile(staged);
+    // No asynchronous work between checking cancellation and publishing the completed image.
+    if (!sessions.has(sessionId)) throw new WorkshopError(t('Tiled render session not found: {id}', {id:sessionId}), 404);
+    fs.renameSync(staged, outputPath);
+    staged = undefined;
 
     return {
       outputPath,
       fileName,
-      sizeBytes: stat.size,
+      sizeBytes: encoded.size,
     };
   } finally {
-    cancelTileSession(sessionId);
+    sessions.delete(sessionId);
+    try {
+      if (staged) fs.rmSync(staged, {force:true});
+    } finally {
+      removeTiles(session);
+    }
   }
 }

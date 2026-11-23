@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   compactSceneryTable,
   ensureSceneryEntry,
+  prepareMapForSave,
   reindexWaypointsAfterDelete,
 } from '../src/shared/pmsCompiler';
 import { parsePmsFull, PmsMapData, PmsWaypoint, serializePms } from '../src/shared/pmsParser';
@@ -19,11 +20,11 @@ import {
 import { createMapFromTemplate } from '../src/shared/editorTemplates';
 import { buildSyntheticPms } from './helpers';
 
-test('compactSceneryTable & ensureSceneryEntry prune orphans and merge case-insensitive duplicates', () => {
+test('editor save and placement keep differently cased artwork while merging exact references', () => {
   const base = parsePmsFull(
     buildSyntheticPms({
-      props: 3,
-      scenery: ['unused_first.bmp', 'Crate.PNG', 'unused_mid.bmp', 'crate.png', 'fern.bmp'],
+      props: 4,
+      scenery: ['unused_first.bmp', 'Crate.PNG', 'unused_mid.bmp', 'crate.png', 'fern.bmp', 'Crate.PNG'],
     })
   );
   // Prop 0 -> style 2 ('Crate.PNG'), Prop 1 -> style 4 ('crate.png'), Prop 2 -> style 5 ('fern.bmp')
@@ -31,30 +32,30 @@ test('compactSceneryTable & ensureSceneryEntry prune orphans and merge case-inse
     { ...base.props[0], style: 2, raw: undefined },
     { ...base.props[1], style: 4, raw: undefined },
     { ...base.props[2], style: 5, raw: undefined },
+    { ...base.props[3], style: 6, raw: undefined },
   ];
 
   const compacted = compactSceneryTable(customProps, base.scenery);
-  assert.equal(compacted.scenery.length, 2, 'unused entries removed and Crate.PNG / crate.png merged');
+  assert.equal(compacted.scenery.length, 3);
   assert.equal(compacted.removedSceneryCount, 3);
   assert.deepEqual(
-    compacted.scenery.map((s) => s.filename.toLowerCase()),
-    ['crate.png', 'fern.bmp']
+    compacted.scenery.map((s) => s.filename),
+    ['Crate.PNG', 'crate.png', 'fern.bmp']
   );
   assert.equal(compacted.props[0].style, 1);
-  assert.equal(compacted.props[1].style, 1);
-  assert.equal(compacted.props[2].style, 2);
+  assert.deepEqual(compacted.props.map(p=>p.style), [1, 2, 3, 1]);
   assert.equal(compacted.scenery[0].usedCount, 2);
   assert.equal(compacted.scenery[1].usedCount, 1);
 
-  // ensureSceneryEntry reuses existing entry case-insensitively and appends new ones
-  const reuse = ensureSceneryEntry(compacted.scenery, 'CRATE.PNG');
-  assert.equal(reuse.style, 1);
-  assert.equal(reuse.scenery.length, 2);
+  const reopened=parsePmsFull(serializePms(prepareMapForSave({...base,props:customProps},{sceneryDirty:true})));
+  assert.deepEqual(reopened.props.map(p=>reopened.scenery[p.style-1].filename), ['Crate.PNG','crate.png','fern.bmp','Crate.PNG']);
+  const reuse = ensureSceneryEntry(compacted.scenery, 'crate.png');
+  assert.equal(reuse.style, 2);
+  assert.equal(reuse.scenery, compacted.scenery);
 
-  const added = ensureSceneryEntry(compacted.scenery, 'bridge.png', 777777);
-  assert.equal(added.style, 3);
-  assert.equal(added.scenery.length, 3);
-  assert.equal(added.scenery[2].filename, 'bridge.png');
+  const added = ensureSceneryEntry(compacted.scenery, 'CRATE.PNG', 777777);
+  assert.equal(added.style, 4);
+  assert.equal(added.scenery[3].filename, 'CRATE.PNG');
 });
 
 test('reorderSelectedProps supports front, back, forward, and backward while preserving relative order', () => {
@@ -156,6 +157,14 @@ test('bot waypoints: 1-way & 2-way connection toggling, 20-link cap, and safe re
     ...base,
     waypoints: [makeWp(1, 0), makeWp(2, 50), makeWp(3, 100), makeWp(4, 150)],
   };
+  const fullLinks = Array.from({length:20}, (_,i)=>i+3);
+  const capMap = { ...map, waypoints: Array.from({length:22}, (_,i)=>makeWp(i+1,i*20)) };
+  capMap.waypoints[0].connections = fullLinks;
+  capMap.waypoints[1].connections = [1];
+  assert.equal(toggleWaypointConnection(capMap, 0, 1, true), capMap, 'a full source retains the reverse edge');
+  capMap.waypoints[0].connections = [];
+  capMap.waypoints[1].connections = fullLinks;
+  assert.equal(toggleWaypointConnection(capMap, 0, 1, true), capMap, 'a full destination prevents a partial two-way addition');
 
   // 1-way link: 0 -> 1 (1-based #1 -> #2)
   map = toggleWaypointConnection(map, 0, 1, false);

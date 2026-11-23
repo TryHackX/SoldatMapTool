@@ -3,8 +3,11 @@ import {
   AlertTriangle,
   ArrowLeft,
   CheckCircle2,
+  Wrench,
   Command,
   FilePlus2,
+  FolderOpen,
+  FolderDown,
   Filter,
   FlipHorizontal2,
   PanelsLeftRight,
@@ -31,10 +34,13 @@ interface EditorTopBarProps {
   onUndo: () => void;
   onRedo: () => void;
   onOpenNewMap: () => void;
+  onOpenProject: () => void;
+  onSaveProject: () => void;
   onOpenSave: () => void;
   onOpenSymmetry: () => void;
   onOpenImageTrace: () => void;
   onOpenValidation: () => void;
+  onOpenPolyFixer: () => void;
   onOpenCommandPalette: () => void;
   onExitEditor: (force: boolean) => void;
   panelsHidden: boolean;
@@ -56,10 +62,13 @@ export const EditorTopBar: React.FC<EditorTopBarProps> = ({
   onUndo,
   onRedo,
   onOpenNewMap,
+  onOpenProject,
+  onSaveProject,
   onOpenSave,
   onOpenSymmetry,
   onOpenImageTrace,
   onOpenValidation,
+  onOpenPolyFixer,
   onOpenCommandPalette,
   onExitEditor,
   panelsHidden,
@@ -68,6 +77,7 @@ export const EditorTopBar: React.FC<EditorTopBarProps> = ({
   onQuickSave,
   lastAutosaveAt,
 }) => {
+  const editableProject = Boolean(snapshot.projectFile || snapshot.map.editorTunnels?.length || snapshot.map.editorSketch);
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
   const discardBackdrop = useModalDismiss(confirmDiscardOpen, () => setConfirmDiscardOpen(false));
 
@@ -81,9 +91,9 @@ export const EditorTopBar: React.FC<EditorTopBarProps> = ({
 
   return (
     <>
-      <div className="h-11 shrink-0 bg-zinc-900/95 border-b border-zinc-800 px-3 flex items-center justify-between gap-3 select-none">
+      <div className="min-h-11 shrink-0 bg-zinc-900/95 border-b border-zinc-800 px-3 py-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1 select-none">
         {/* Left: Back to Browser & Active Map Identity */}
-        <div className="flex items-center gap-2.5 min-w-0">
+        <div className="flex flex-1 items-center gap-2.5 min-w-44 overflow-hidden">
           <button
             type="button"
             onClick={handleBackClick}
@@ -97,11 +107,11 @@ export const EditorTopBar: React.FC<EditorTopBarProps> = ({
           <div className="h-4 w-px bg-zinc-800 shrink-0" />
 
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shrink-0">
+            <span className="hidden 2xl:inline text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 shrink-0">
               {t('MAP EDITOR')}
             </span>
             <span className="font-mono text-sm font-bold text-zinc-100 truncate">
-              {snapshot.currentBaseName}.pms
+              {snapshot.currentBaseName}.{snapshot.projectFile ? 'smaproj' : 'pms'}
             </span>
             {isDirty && (
               <span
@@ -136,7 +146,7 @@ export const EditorTopBar: React.FC<EditorTopBarProps> = ({
               className="px-2 py-1 rounded text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-35 flex items-center gap-1 cursor-pointer"
             >
               <Undo2 className="w-3.5 h-3.5" />
-              <span className="hidden xl:inline">{t('Undo')}</span>
+              <span className="hidden 2xl:inline">{t('Undo')}</span>
             </button>
             <button
               type="button"
@@ -146,7 +156,7 @@ export const EditorTopBar: React.FC<EditorTopBarProps> = ({
               className="px-2 py-1 rounded text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-35 flex items-center gap-1 cursor-pointer"
             >
               <Redo2 className="w-3.5 h-3.5" />
-              <span className="hidden xl:inline">{t('Redo')}</span>
+              <span className="hidden 2xl:inline">{t('Redo')}</span>
             </button>
           </div>
 
@@ -186,7 +196,7 @@ export const EditorTopBar: React.FC<EditorTopBarProps> = ({
             className="px-2.5 py-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-xs font-medium text-zinc-200 flex items-center gap-1.5 cursor-pointer"
           >
             <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="hidden xl:inline">{t('Image → Polys')}</span>
+            <span className="hidden 2xl:inline">{t('Image → Polys')}</span>
           </button>
 
           <button
@@ -196,7 +206,12 @@ export const EditorTopBar: React.FC<EditorTopBarProps> = ({
             className="px-2.5 py-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-xs font-medium text-zinc-200 flex items-center gap-1.5 cursor-pointer"
           >
             <FlipHorizontal2 className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="hidden md:inline">{t('Mirror / Symmetry')}</span>
+            <span className="hidden 2xl:inline">{t('Mirror / Symmetry')}</span>
+          </button>
+
+          <button type="button" onClick={onOpenPolyFixer} title={t('Inspect and repair polygon contacts')}
+            className="px-2 py-1.5 rounded-md border border-amber-500/35 bg-amber-500/10 hover:bg-amber-500/20 text-xs font-semibold text-amber-200 flex items-center gap-1.5 cursor-pointer whitespace-nowrap">
+            <Wrench className="w-3.5 h-3.5" />{t('Poly Fixer')}
           </button>
 
           <button
@@ -232,7 +247,7 @@ export const EditorTopBar: React.FC<EditorTopBarProps> = ({
             type="button"
             onClick={onTogglePanels}
             aria-pressed={panelsHidden}
-            title={panelsHidden ? t('Show the side panels (Tab)') : t('Hide the side panels for a bigger map (Tab)')}
+            title={panelsHidden ? t('Show the side panels (F4)') : t('Hide the side panels for a bigger map (F4)')}
             className={`p-1.5 rounded-md border text-xs cursor-pointer ${
               panelsHidden
                 ? 'bg-cyan-500/20 border-cyan-500/40 text-cyan-200'
@@ -257,28 +272,46 @@ export const EditorTopBar: React.FC<EditorTopBarProps> = ({
           <button
             type="button"
             onClick={onOpenNewMap}
-            title={t('Create a new map from a template')}
+            title={t('Build a climb tunnel, generate a course or choose a starter template')}
             className="px-2.5 py-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-xs font-medium text-zinc-200 flex items-center gap-1.5 cursor-pointer"
           >
             <FilePlus2 className="w-3.5 h-3.5 text-emerald-400" />
             <span className="hidden 2xl:inline">{t('New map')}</span>
           </button>
 
+          <div className="flex items-stretch" role="group" aria-label={t('Project file')}>
+            <button type="button" onClick={onOpenProject}
+              title={t('Open project file')} aria-label={t('Open project file')}
+              className="px-2 py-1.5 rounded-l-md bg-zinc-800 border border-zinc-700 text-zinc-200 hover:bg-zinc-700">
+              <FolderOpen className="w-3.5 h-3.5" />
+            </button>
+            <button type="button" onClick={onSaveProject} aria-label={t('Save project')}
+              title={t('Save the map, tunnel path and settings in a project file (.smaproj)') + (editableProject ? ' (Ctrl+S)' : '')}
+              className={`px-2 py-1.5 rounded-r-md border-y border-r flex items-center gap-1.5 text-xs font-medium ${editableProject
+                ? 'bg-cyan-900 border-cyan-700 text-cyan-100 hover:bg-cyan-800'
+                : 'bg-zinc-800 border-zinc-700 text-zinc-200 hover:bg-zinc-700'}`}>
+              <FolderDown className="w-3.5 h-3.5" />
+              {t('Save project')}
+              {editableProject && <kbd className="hidden 2xl:inline font-mono text-[10px]">Ctrl+S</kbd>}
+            </button>
+          </div>
           <div className="flex items-stretch">
             <button
               type="button"
-              onClick={hasSaveTarget ? onQuickSave : onOpenSave}
-              title={
+              onClick={hasSaveTarget && !editableProject ? onQuickSave : onOpenSave}
+              title={editableProject ? t('Export map for Soldat (.pms) (Ctrl+Shift+S)') :
                 hasSaveTarget
                   ? t('Save again to {name}.pms (Ctrl+S)', { name: snapshot.currentBaseName })
                   : `${t('Save map (.pms)')} (Ctrl+S)`
               }
-              className="px-3 py-1.5 rounded-l-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-lg shadow-emerald-950/50 cursor-pointer"
+              className={`px-3 py-1.5 text-xs font-bold flex items-center gap-1.5 cursor-pointer ${editableProject
+                ? 'rounded-md bg-zinc-800 border border-zinc-700 text-zinc-200 hover:bg-zinc-700'
+                : 'rounded-l-md bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-950/50'}`}
             >
               <Save className="w-3.5 h-3.5" />
-              <span>{t('Save .pms')}</span>
+              <span>{editableProject ? t('Export .pms') : t('Save .pms')}</span>
             </button>
-            <button
+            {!editableProject && <button
               type="button"
               onClick={onOpenSave}
               title={t('Save as… (Ctrl+Shift+S)')}
@@ -286,7 +319,7 @@ export const EditorTopBar: React.FC<EditorTopBarProps> = ({
               className="px-1.5 rounded-r-md bg-emerald-700 hover:bg-emerald-600 border-l border-emerald-900/60 text-white cursor-pointer"
             >
               <SaveAll className="w-3.5 h-3.5" />
-            </button>
+            </button>}
           </div>
         </div>
       </div>
@@ -333,11 +366,13 @@ export const EditorTopBar: React.FC<EditorTopBarProps> = ({
                 type="button"
                 onClick={() => {
                   setConfirmDiscardOpen(false);
-                  onOpenSave();
+                  if (editableProject) onSaveProject();
+                  else onOpenSave();
                 }}
+                title={editableProject ? t('Save the map, tunnel path and settings in a project file (.smaproj)') : t('Save map (.pms)')}
                 className="px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white cursor-pointer"
               >
-                {t('Save first')}
+                {editableProject ? t('Save project') : t('Save first')}
               </button>
             </div>
           </div>

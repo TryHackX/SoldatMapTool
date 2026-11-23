@@ -48,8 +48,6 @@ if "%NEED_BUILD%"=="1" (
     )
 )
 
-echo [3/3] Starting the local server on http://127.0.0.1:4321 ...
-start "" /B cmd /c "timeout /t 2 /nobreak >nul & if exist ""C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"" (start """" ""C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"" --app=http://127.0.0.1:4321) else (start http://127.0.0.1:4321)"
-
-call npx.cmd tsx src/server/index.ts
+echo [3/3] Starting Soldat Map Studio ...
+node scripts\serve.mjs --open
 pause

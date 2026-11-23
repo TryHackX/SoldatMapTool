@@ -455,6 +455,10 @@ if __name__ == "__main__":
     parser.add_argument("--no-dots", action="store_true", help="Render only the clean template, without dots")
 
     args = parser.parse_args()
+    if args.step < 1 or args.width < 1:
+        parser.error("--width and --step must be positive")
+    if args.clearance < 0 or args.dot_radius < 0:
+        parser.error("--clearance and --dot-radius must be nonnegative")
     data = parse_pms(args.pms_file)
     render_map_and_dots(
         pms_data=data,

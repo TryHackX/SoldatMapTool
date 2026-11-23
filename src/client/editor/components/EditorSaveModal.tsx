@@ -174,6 +174,13 @@ export const EditorSaveModal: React.FC<EditorSaveModalProps> = ({
               autoFocus
               className="w-full bg-zinc-950 border border-zinc-700 rounded-md px-3 py-2 font-mono text-sm text-zinc-100 focus:border-emerald-500 focus:outline-none"
             />
+            {baseName.trim().replace(/\.pms$/i,'').length>16 && <p className="text-amber-200">
+              {t('Legacy server tools display up to 16 bytes of the map name.')}
+              {' '}<button type="button" className="underline" onClick={()=>{
+                const ascii=baseName.trim().replace(/\.pms$/i,'').normalize('NFKD').replace(/\p{M}/gu,'').replace(/[^a-z0-9_-]/gi,'_');
+                setBaseName(makeEditedMapName(ascii,16));
+              }}>{t('Suggest a short filename')}</button>
+            </p>}
           </div>
 
           {/* Destination Selector */}

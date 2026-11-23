@@ -1,4 +1,7 @@
+import { diskPathKey, portableSegment } from './diskPath';
 import fs from 'fs';
+import { randomUUID } from 'node:crypto';
+import os from 'os';
 import path from 'path';
 import { ZipArchive } from 'archiver';
 import {
@@ -8,10 +11,12 @@ import {
   PackPreviewFile,
   PackPreviewResponse,
 } from '../shared/apiTypes';
-import { soldatCrc32 } from '../shared/pmsParser';
+import { parsePmsFull, patchPmsPropsAndScenery, soldatCrc32 } from '../shared/pmsParser';
+import { pruneUnusedScenery } from '../shared/sceneryDependencies';
 import { APP_VERSION } from '../shared/version';
 import { t, tp } from './i18n';
 import { SoldatMapScanner } from './soldatScanner';
+import {missingArtworkText,readMissingArtworkText,type MissingArtwork} from './missingArtwork';
 
 interface InternalPackPlan {
   selectedMaps: MapIndexEntry[];
@@ -39,13 +44,19 @@ export function packCrcManifestName(packName: string): string {
 }
 
 function sanitizeFileName(name: string): string {
-  return name.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim() || 'Soldat_Map_Pack';
+  return portableSegment(name,'Soldat_Map_Pack');
+}
+
+function companionName(reference: string, diskName: string, fixCase: boolean) {
+  if (!fixCase) return diskName;
+  return path.posix.parse(reference).name + path.posix.extname(diskName).toLowerCase();
 }
 
 function collectPackPlan(
   options: PackBuildOptions,
   selectedMaps: MapIndexEntry[],
-  scanner: SoldatMapScanner
+  scanner: SoldatMapScanner,
+  preview = false
 ): InternalPackPlan {
   const resolver = scanner.getResolver();
   const filesMap = new Map<string, PackPreviewFile>(); // key = lowerCase(archivePath)
@@ -69,7 +80,7 @@ function collectPackPlan(
     if (existing) {
       const sameDiskFile =
         existing.diskPath === diskPath ||
-        path.resolve(existing.diskPath).toLowerCase() === path.resolve(diskPath).toLowerCase();
+        diskPathKey(existing.diskPath) === diskPathKey(diskPath);
       // Linux fix: maps spell the same file differently (e.g. "fx_P_cloud5.png" / "fx_p_cloud5.png"), so the file
       // is packed once per spelling — a case-sensitive server finds each one
       if (options.fixLinuxCase && sameDiskFile && existing.archivePath !== archivePath) {
@@ -126,15 +137,17 @@ function collectPackPlan(
   };
 
   for (const map of selectedMaps) {
+    const warningStart=allMissingWarnings.length;
     const mapDiskPath = map.fullPath || scanner.getMapFilePath(map.id);
     if (mapDiskPath && fs.existsSync(mapDiskPath)) {
-      addPackFile(`maps/${map.fileName}`, mapDiskPath, 'map', map.fileSize, map.baseName);
+      const removed = preview && options.excludeUnusedScenery ? map.sceneryAssets.filter(s=>!s.usedCount).length : 0;
+      addPackFile(`maps/${map.fileName.replace(/\.pms$/i,'.pms')}`, mapDiskPath, 'map', map.fileSize - 55 * removed, map.baseName);
     }
 
     // 1. Main Texture
     const tex = map.textureInfo;
     if (tex.referencedName) {
-      if (tex.status === 'missing') {
+      if (tex.status === 'missing' || (!options.excludeVanillaAssets && !tex.diskName)) {
         allMissingWarnings.push({
           mapName: map.baseName,
           category: 'textures',
@@ -182,32 +195,32 @@ function collectPackPlan(
           const pngFullPath = tex.pngOverrideFullPath ?? pngEntry?.fullPath ?? null;
           if (pngFullPath) {
             addPackFile(
-              `textures/${tex.pngOverrideDiskName}`,
+              `textures/${companionName(tex.referencedName, tex.pngOverrideDiskName, options.fixLinuxCase)}`,
               pngFullPath,
               'texture',
-              pngEntry?.size ?? 0,
+              tex.pngOverrideFileSize ?? pngEntry?.size ?? 0,
               map.baseName
             );
           }
         }
 
-        // Optional HD Edge texture
-        if (options.includeEdgeTextures && tex.edgeDiskName) {
-          const isVanillaEdge = resolver.isVanillaAsset('textures/edges', tex.edgeDiskName);
+      }
+      // A package can supply a custom edge for an otherwise stock texture.
+      if (options.includeEdgeTextures && tex.edgeDiskName) {
+          const isVanillaEdge = tex.edgeIsVanilla ?? (tex.isVanilla && resolver.isVanillaAsset('textures/edges', tex.edgeDiskName));
           if (!isVanillaEdge || !options.excludeVanillaAssets) {
             const edgeEntry = resolver.getExactDiskEntry('textures/edges', tex.edgeDiskName);
             const edgeFullPath = tex.edgeFullPath ?? edgeEntry?.fullPath ?? null;
             if (edgeFullPath) {
               addPackFile(
-                `textures/edges/${tex.edgeDiskName}`,
+                `textures/edges/${companionName(tex.referencedName, tex.edgeDiskName, options.fixLinuxCase)}`,
                 edgeFullPath,
                 'edge',
-                edgeEntry?.size ?? 0,
+                tex.edgeFileSize ?? edgeEntry?.size ?? 0,
                 map.baseName
               );
             }
           }
-        }
       }
     }
 
@@ -220,11 +233,11 @@ function collectPackPlan(
         continue;
       }
 
-      const scKey = sc.referencedName.toLowerCase();
+      const scKey = sc.referencedName;
       if (seenMapScenery.has(scKey)) continue;
       seenMapScenery.add(scKey);
 
-      if (sc.status === 'missing') {
+      if (sc.status === 'missing' || (!options.excludeVanillaAssets && !sc.diskName)) {
         allMissingWarnings.push({
           mapName: map.baseName,
           category: 'scenery-gfx',
@@ -279,15 +292,46 @@ function collectPackPlan(
           const pngFullPath = sc.pngOverrideFullPath ?? pngEntry?.fullPath ?? null;
           if (pngFullPath) {
             addPackFile(
-              `scenery-gfx/${sc.pngOverrideDiskName}`,
+              `scenery-gfx/${companionName(sc.referencedName, sc.pngOverrideDiskName, options.fixLinuxCase)}`,
               pngFullPath,
               'scenery',
-              pngEntry?.size ?? 0,
+              sc.pngOverrideFileSize ?? pngEntry?.size ?? 0,
               map.baseName
             );
           }
         }
       }
+    }
+    const packedMap=filesMap.get('maps/'+map.fileName.toLowerCase());
+    if (!packedMap || packedMap.diskPath!==mapDiskPath) continue;
+    const originalPath=scanner.getMapFilePath?.(map.id) || mapDiskPath;
+    const notes:MissingArtwork[]=[];
+    if (originalPath && path.basename(path.dirname(originalPath)).toLowerCase()==='maps') {
+      const report=path.join(path.dirname(originalPath),'..','missing',path.basename(originalPath).slice(0,-4)+'.txt');
+      if (fs.existsSync(report)) {
+        const stat=fs.lstatSync(report);
+        if (stat.isFile() && stat.size<=1024*1024) notes.push(...readMissingArtworkText(fs.readFileSync(report,'utf8')));
+      }
+    }
+    const missing:MissingArtwork[]=[];
+    for (const warning of allMissingWarnings.slice(warningStart)) {
+      const category=warning.category==='textures'?'texture':'scenery';
+      const saved=notes.filter(n=>n.category===category && n.expected===warning.referencedName);
+      if (saved.length) missing.push(...saved);
+      else missing.push({category,original:warning.referencedName,expected:warning.referencedName,reason:'missing'});
+    }
+    if (!tex.edgeDiskName) {
+      const missingEdges=notes.filter(n=>n.category==='edge' && n.expected===tex.referencedName);
+      if (missingEdges.length) {
+        missing.push(...missingEdges);
+        allMissingWarnings.push({mapName:map.baseName,category:'textures/edges',referencedName:tex.referencedName});
+      }
+    }
+    if (missing.length) {
+      const archivePath='missing/'+path.posix.basename(packedMap.archivePath,'.pms')+'.txt';
+      const generatedText=missingArtworkText(missing);
+      filesMap.set(archivePath.toLowerCase(),{archivePath,diskPath:'<generated>',category:'generated',generatedText,
+        sizeBytes:Buffer.byteLength(generatedText),usedByMapsCount:1,sampleMaps:[map.baseName]});
     }
   }
 
@@ -403,13 +447,13 @@ export function buildPackPreview(
   scanner: SoldatMapScanner
 ): PackPreviewResponse {
   const selectedMaps: MapIndexEntry[] = [];
-  for (const id of options.mapIds) {
+  for (const id of new Set(options.mapIds)) {
     const entry = scanner.getMapEntry(id);
     if (entry) selectedMaps.push(entry);
   }
 
-  const plan = collectPackPlan(options, selectedMaps, scanner);
-  const safeBaseName = sanitizeFileName(options.packName || 'Soldat_Map_Pack');
+  const plan = collectPackPlan(options, selectedMaps, scanner, true);
+  const safeBaseName = sanitizeFileName((options.packName || '').trim().replace(/\.zip$/i,''));
   const splitBy = options.splitBy || 'none';
 
   const splitGroupsPreview =
@@ -453,11 +497,11 @@ export function crcManifestEntries(
   maps: MapIndexEntry[],
   fromDisk: boolean
 ): CrcManifestEntry[] {
-  const byPath = new Map(maps.map((m) => [path.resolve(m.fullPath).toLowerCase(), m]));
+  const byPath = new Map(maps.map((m) => [diskPathKey(m.fullPath), m]));
   const entries: CrcManifestEntry[] = [];
   for (const f of files) {
     if (f.category !== 'map') continue;
-    const map = byPath.get(path.resolve(f.diskPath).toLowerCase());
+    const map = byPath.get(diskPathKey(f.diskPath));
     let crc32 = map?.crc32 ?? 0;
     let size = f.sizeBytes;
     if (fromDisk) {
@@ -580,14 +624,14 @@ export async function executePackBuild(
   scanner: SoldatMapScanner,
   defaultOutputRoot: string
 ): Promise<BuiltPackResult> {
-  const safeName = sanitizeFileName(options.packName || 'Soldat_Map_Pack').replace(/\.zip$/i, '');
+  const safeName = sanitizeFileName((options.packName || '').trim().replace(/\.zip$/i,''));
   const outRoot = options.customOutputFolder?.trim()
     ? path.resolve(options.customOutputFolder.trim())
     : defaultOutputRoot;
 
   fs.mkdirSync(outRoot, { recursive: true });
 
-  const selectedMaps = options.mapIds
+  const selectedMaps = [...new Set(options.mapIds)]
     .map((id) => scanner.getMapEntry(id))
     .filter((m): m is MapIndexEntry => Boolean(m));
 
@@ -595,14 +639,59 @@ export async function executePackBuild(
     throw new Error(t('No maps selected for packing.'));
   }
 
+  if (!options.excludeUnusedScenery || !selectedMaps.some(m=>m.sceneryAssets.some(s=>!s.usedCount))) {
+    return executeSelectedPack(options,scanner,safeName,outRoot,selectedMaps);
+  }
+  // Make at most one map buffer at a time. Archiver lazily opens each staged file; the
+  // same immutable snapshot supplies both the CRC manifest and every output format.
+  const temp=await fs.promises.mkdtemp(path.join(os.tmpdir(),'soldat-pack-scenery-'));
+  try {
+    const prepared:MapIndexEntry[]=[];
+    const cache=new Map<string,MapIndexEntry>();
+    for(const m of selectedMaps){
+      if(!m.sceneryAssets.some(s=>!s.usedCount)){prepared.push(m);continue;}
+      const previous=cache.get(m.id);
+      if(previous){prepared.push(previous);continue;}
+      const bytes=await fs.promises.readFile(m.fullPath||scanner.getMapFilePath(m.id)!);
+      if(soldatCrc32(bytes)!==(m.crc32>>>0))throw Error(t('Map changed since the last scan: {file}',{file:m.fileName}));
+      const parsed=parsePmsFull(bytes);
+      const trimmed=pruneUnusedScenery(parsed);
+      if(!trimmed.removedCount){prepared.push(m);continue;}
+      const patched=patchPmsPropsAndScenery(bytes,trimmed.props,trimmed.scenery);
+      const fullPath=path.join(temp,prepared.length+'.pms');
+      await fs.promises.writeFile(fullPath,patched,{flag:'wx'});
+      const sourceStat=await fs.promises.stat(m.fullPath||scanner.getMapFilePath(m.id)!);
+      await fs.promises.utimes(fullPath,sourceStat.atime,sourceStat.mtime);
+      const snapshot={...m,fullPath,fileSize:patched.byteLength,crc32:soldatCrc32(patched)};
+      prepared.push(snapshot);cache.set(m.id,snapshot);
+    }
+    return await executeSelectedPack(options,scanner,safeName,outRoot,prepared);
+  }finally{
+    await fs.promises.rm(temp,{recursive:true,force:true});
+  }
+}
+
+/** A directory export needs a fresh folder: merging with a previous pack would keep stale maps and artwork. */
+function createPackDirectory(parent: string, name: string) {
+  for (let i = 1; ; i++) {
+    const dir = path.join(parent,i === 1 ? name : name + '_' + i);
+    try { fs.mkdirSync(dir); return dir; }
+    catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    }
+  }
+}
+
+async function executeSelectedPack(
+  options:PackBuildOptions,scanner:SoldatMapScanner,safeName:string,outRoot:string,selectedMaps:MapIndexEntry[]
+):Promise<BuiltPackResult>{
   const splitBy = options.splitBy || 'none';
 
   // Split-by-prefix or Split-by-mode into separate .zip packs!
   if (options.outputFormat === 'zip' && splitBy !== 'none') {
     const groups = groupMapsForSplit(selectedMaps, splitBy, safeName);
     const bundleDirName = `${safeName}_${splitBy === 'mode' ? t('by_mode') : t('by_prefix')}`;
-    const bundleDir = path.join(outRoot, bundleDirName);
-    fs.mkdirSync(bundleDir, { recursive: true });
+    const bundleDir = createPackDirectory(outRoot,bundleDirName);
 
     let totalBytes = 0;
     const warnings: string[] = [];
@@ -626,7 +715,7 @@ export async function executePackBuild(
 
     return {
       outputPath: bundleDir,
-      fileName: tp(groups.length, '{name} ({n} .zip pack)', '{name} ({n} .zip packs)', { name: bundleDirName }),
+      fileName: tp(groups.length, '{name} ({n} .zip pack)', '{name} ({n} .zip packs)', { name: path.basename(bundleDir) }),
       sizeBytes: totalBytes,
       fileCount: groups.length,
       format: 'folder',
@@ -637,8 +726,7 @@ export async function executePackBuild(
 
   if (options.outputFormat === 'folder') {
     const plan = collectPackPlan(options, selectedMaps, scanner);
-    const targetFolder = path.join(outRoot, safeName);
-    fs.mkdirSync(targetFolder, { recursive: true });
+    const targetFolder = createPackDirectory(outRoot,safeName);
     const warnings: string[] = [...plan.collisionWarnings];
     let copied = 0;
 
@@ -658,12 +746,15 @@ export async function executePackBuild(
 
     // Async copies, 8 at a time, so a 20k-file folder export never freezes the server
     const queue = plan.allFiles.filter((f) => !(caseInsensitiveTarget && f.caseAliasOf));
+    let next = 0;
+    let writtenBytes = 0;
     const worker = async () => {
-      for (let file = queue.shift(); file; file = queue.shift()) {
+      while (next < queue.length) {
+        const file = queue[next++];
         const destPath = path.join(targetFolder, ...file.archivePath.split('/'));
         await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
         if (file.category === 'generated') {
-          const content = generatedFileContent(
+          const content = file.generatedText ?? generatedFileContent(
             file.archivePath,
             safeName,
             selectedMaps,
@@ -671,10 +762,17 @@ export async function executePackBuild(
             plan.allFiles
           );
           await fs.promises.writeFile(destPath, content, 'utf-8');
+          writtenBytes += Buffer.byteLength(content);
           copied++;
         } else {
           try {
             await fs.promises.copyFile(file.diskPath, destPath);
+            if (file.category==='map') {
+              const sourceStat=await fs.promises.stat(file.diskPath);
+              await fs.promises.utimes(destPath,sourceStat.atime,sourceStat.mtime);
+            }
+            const stat = await fs.promises.stat(destPath);
+            writtenBytes += stat.size;
             copied++;
           } catch (err) {
             warnings.push(
@@ -687,12 +785,14 @@ export async function executePackBuild(
         }
       }
     };
-    await Promise.all(Array.from({ length: 8 }, worker));
+    const outcomes = await Promise.allSettled(Array.from({ length: 8 }, worker));
+    const failed = outcomes.find(r => r.status === 'rejected');
+    if (failed?.status === 'rejected') throw failed.reason;
 
     return {
       outputPath: targetFolder,
-      fileName: safeName,
-      sizeBytes: plan.totalUncompressedBytes,
+      fileName: path.basename(targetFolder),
+      sizeBytes: writtenBytes,
       fileCount: copied,
       format: 'folder',
       warnings: warnings.slice(0, 500),
@@ -731,8 +831,7 @@ export async function executePackBuild(
         warnings: [...singlePlan.collisionWarnings, ...zipped.warnings],
       };
     } else {
-      const smapFolder = path.join(outRoot, `${safeName}_smap`);
-      fs.mkdirSync(smapFolder, { recursive: true });
+      const smapFolder = createPackDirectory(outRoot,`${safeName}_smap`);
       let totalSize = 0;
       const warnings: string[] = [];
       const usedNames = new Set<string>();
@@ -771,7 +870,7 @@ export async function executePackBuild(
       return {
         outputPath: smapFolder,
         fileName: tp(selectedMaps.length, '{name} ({n} .smap file)', '{name} ({n} .smap files)', {
-          name: `${safeName}_smap`,
+          name: path.basename(smapFolder),
         }),
         sizeBytes: totalSize,
         fileCount: selectedMaps.length,
@@ -816,8 +915,8 @@ function createZipArchive(
   warnings: PackMissingWarning[]
 ): Promise<{ bytes: number; fileCount: number; warnings: string[] }> {
   return new Promise((resolve, reject) => {
-    const partPath = `${targetZipPath}.part`;
-    const output = fs.createWriteStream(partPath);
+    const partPath = `${targetZipPath}.${randomUUID()}.part`;
+    const output = fs.createWriteStream(partPath, { flags: 'wx' });
     const archive = new ZipArchive({ zlib: { level: 6 } });
     const buildWarnings: string[] = [];
     let fileCount = 0;
@@ -828,11 +927,9 @@ function createZipArchive(
       failed = true;
       archive.abort();
       output.destroy();
-      try {
-        fs.rmSync(partPath, { force: true });
-      } catch {
-        // Ignore
-      }
+      // A Windows output handle must close before its partial file can be removed.
+      if (!output.closed) output.once('close', () => { void fs.promises.rm(partPath,{force:true}).catch(() => undefined); });
+      else void fs.promises.rm(partPath,{force:true}).catch(() => undefined);
       reject(err instanceof Error ? err : new Error(String(err)));
     };
 
@@ -848,6 +945,7 @@ function createZipArchive(
     });
     output.on('error', fail);
     archive.on('error', fail);
+    archive.on('entry', () => { fileCount++; });
     archive.on('warning', (err: Error & { code?: string }) => {
       buildWarnings.push(t('File skipped in the pack: {error}', { error: err.message }));
     });
@@ -856,13 +954,11 @@ function createZipArchive(
 
     for (const f of files) {
       if (f.category === 'generated') {
-        archive.append(generatedFileContent(f.archivePath, packName, selectedMaps, warnings, files), {
+        archive.append(f.generatedText ?? generatedFileContent(f.archivePath, packName, selectedMaps, warnings, files), {
           name: f.archivePath,
         });
-        fileCount++;
       } else if (fs.existsSync(f.diskPath)) {
         archive.file(f.diskPath, { name: f.archivePath });
-        fileCount++;
       } else {
         buildWarnings.push(t('{file}: the file disappeared from disk before packing', { file: f.archivePath }));
       }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { generateAndCacheThumbnail } from '../renderer/FullSizeExporter';
 import { fetchAndParseMap } from './mapCache';
+import { thumbnailUrl, thumbnailUrls as resolvedUrls } from '../renderer/mapAssetSource';
 
 interface ThumbJob {
   isCancelled: () => boolean;
@@ -14,7 +15,6 @@ const thumbStack: ThumbJob[] = [];
 // MAX_PENDING_JOBS cards) gets its job back once the stack drains, instead of waiting forever.
 let deferredJobs: ThumbJob[] = [];
 let running = false;
-const resolvedUrls = new Map<number, string>();
 
 function enqueueJob(job: ThumbJob) {
   if (thumbStack.length >= MAX_PENDING_JOBS) {
@@ -64,11 +64,11 @@ export function useMapThumbnail(
   enabled: boolean
 ): MapThumbnailState {
   const unsignedCrc = crc32 >>> 0;
-  const serverUrl = `/api/thumbnails/${unsignedCrc.toString(16)}`;
+  const serverUrl = thumbnailUrl(unsignedCrc,mapId);
 
   const [url, setUrl] = useState<string | null>(() => {
     if (hasThumbnailOnDisk) return serverUrl;
-    return resolvedUrls.get(unsignedCrc) ?? null;
+    return resolvedUrls.get(serverUrl) ?? null;
   });
   const [failed, setFailed] = useState(false);
 
@@ -77,12 +77,12 @@ export function useMapThumbnail(
     setFailed(false);
 
     if (hasThumbnailOnDisk) {
-      resolvedUrls.set(unsignedCrc, serverUrl);
+      resolvedUrls.set(serverUrl, serverUrl);
       setUrl(serverUrl);
       return;
     }
 
-    const cached = resolvedUrls.get(unsignedCrc);
+    const cached = resolvedUrls.get(serverUrl);
     if (cached) {
       setUrl(cached);
       return;
@@ -90,12 +90,13 @@ export function useMapThumbnail(
 
     setUrl(null);
     let cancelled = false;
+    let temporaryUrl: string | null = null;
 
     const job: ThumbJob = {
       isCancelled: () => cancelled,
       run: async () => {
         if (cancelled) return;
-        const already = resolvedUrls.get(unsignedCrc);
+        const already = resolvedUrls.get(serverUrl);
         if (already) {
           if (!cancelled) setUrl(already);
           return;
@@ -105,7 +106,10 @@ export function useMapThumbnail(
           if (cancelled) return;
           const generatedUrl = await generateAndCacheThumbnail(parsed, unsignedCrc);
           if (generatedUrl) {
-            resolvedUrls.set(unsignedCrc, generatedUrl);
+            if (generatedUrl.startsWith('blob:')) {
+              if (cancelled) { URL.revokeObjectURL(generatedUrl); return; }
+              temporaryUrl = generatedUrl;
+            } else resolvedUrls.set(serverUrl, generatedUrl);
             if (!cancelled) setUrl(generatedUrl);
           } else if (!cancelled) {
             setFailed(true);
@@ -122,6 +126,7 @@ export function useMapThumbnail(
 
     return () => {
       cancelled = true;
+      if (temporaryUrl) URL.revokeObjectURL(temporaryUrl);
     };
   }, [mapId, unsignedCrc, hasThumbnailOnDisk, enabled, serverUrl]);
 

@@ -1,3 +1,4 @@
+import type { StudioProjectData } from './studioProjectData';
 import { MapLimitViolation, PmsBounds } from './pmsParser';
 import { CustomPrefixRule } from './prefixUtils';
 import { RgbaColor } from './soldatConstants';
@@ -16,8 +17,11 @@ export interface ResolvedAssetInfo {
   diskFullPath?: string | null;        // Full source path on disk (supports multi-folder sources!)
   pngOverrideDiskName?: string | null; // Optional .png companion when .bmp also exists
   pngOverrideFullPath?: string | null;
+  pngOverrideFileSize?: number;
   edgeDiskName?: string | null;        // Optional textures/edges/<name> companion
   edgeFullPath?: string | null;
+  edgeFileSize?: number;
+  edgeIsVanilla?: boolean;
   isVanilla: boolean;
   status: AssetStatus;
   usedCount: number;                   // For scenery: how many active Props use it; for texture: polygon count
@@ -344,6 +348,7 @@ export interface PackPreset {
 }
 
 export interface PackPreviewFile {
+  generatedText?: string;
   archivePath: string;                  // e.g. "maps/ctf_Ash.pms", "scenery-gfx/tree.png"
   diskPath: string;
   category: 'map' | 'texture' | 'edge' | 'scenery' | 'generated';
@@ -358,7 +363,7 @@ export interface PackPreviewFile {
 
 export interface PackMissingWarning {
   mapName: string; // base name of the map that references the missing file
-  category: 'textures' | 'scenery-gfx';
+  category: 'textures' | 'scenery-gfx' | 'textures/edges';
   referencedName: string;
 }
 
@@ -510,11 +515,13 @@ export interface OptimizePreservedPropInfo {
   propIndex: number;
   level: 0 | 1 | 2;
   sceneryName: string;
-  reason: 'animated_gif' | 'giant_skybox' | 'layer_disabled' | 'single_isolated' | 'zero_size' | 'off_map';
+  reason: 'animated_gif' | 'missing_image' | 'giant_skybox' | 'layer_disabled' | 'single_isolated' | 'zero_size' | 'off_map';
 }
 
 export interface MapOptimizePlanResponse {
   mapId: string;
+  sourceCrc32?: number;
+  sourceGraphicsKey?: string;
   baseName: string;
   derivedBaseName: string;
   totalActivePropsBefore: number;
@@ -634,7 +641,8 @@ export interface EditorDraftSummary {
   fileSize: number;
 }
 
-export interface EditorDraftPayload extends EditorDraftSummary {
+export interface EditorDraftPayload extends EditorDraftSummary, StudioProjectData {
+  projectFile?: boolean;
   pmsBase64: string;
 }
 

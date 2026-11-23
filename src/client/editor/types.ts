@@ -1,5 +1,7 @@
+import { CourseSettings, DEFAULT_COURSE } from '@shared/courseGenerator';
 import { PmsBounds } from '@shared/pmsParser';
 import { RgbaColor } from '@shared/soldatConstants';
+import type { DragShapeMode, ShapeOrientation } from './dragShapes';
 
 export type EditorToolId =
   | 'select'
@@ -10,6 +12,7 @@ export type EditorToolId =
   | 'poly_fan'
   | 'poly_shape'
   | 'poly_laser'
+  | 'climb_tunnel'
   | 'color_brush'
   | 'uv'
   | 'scenery'
@@ -112,7 +115,10 @@ export interface EditorPlacementDefaults {
   polyType: number;
   bounciness: number;
   polyColor: RgbaColor;
-  polyShapeMode: 'polygon' | 'rect';
+  polyShapeMode: 'polygon' | DragShapeMode;
+  shapeOrientation: ShapeOrientation;
+  strokeMode: 'outline' | 'course';
+  course: CourseSettings;
   laserDetail: number;
   laserSmoothPasses: number;
   laserAutoShade: boolean;
@@ -140,6 +146,9 @@ export const DEFAULT_PLACEMENT_SETTINGS: EditorPlacementDefaults = {
   bounciness: 1.5,
   polyColor: { r: 220, g: 226, b: 234, a: 255 },
   polyShapeMode: 'polygon',
+  shapeOrientation: 'drag',
+  strokeMode: 'outline',
+  course: DEFAULT_COURSE,
   laserDetail: 8,
   laserSmoothPasses: 1,
   laserAutoShade: true,
@@ -207,4 +216,4 @@ export interface SelectionSummary {
 }
 
 export type LeftDockTab = 'layers' | 'outliner' | 'assets' | 'prefabs';
-export type RightDockTab = 'properties' | 'settings' | 'validation' | 'history';
+export type RightDockTab = 'properties' | 'settings' | 'validation' | 'poly_fixer' | 'history';

@@ -2,6 +2,13 @@ import type { PlDictionary } from './types';
 
 // Texts made outside the UI in English (shared parser, classifier, search chips, scan-time warnings)
 export const SHARED_PL: PlDictionary = {
+  'Preview unavailable': 'Podgląd niedostępny',
+  'Loading preview…': 'Wczytywanie podglądu…',
+  'Previous': 'Poprzednia',
+  'Next': 'Następna',
+  'Loading…': 'Wczytywanie…',
+  'Preview': 'Podgląd',
+  'Remove': 'Usuń',
   // Built-in mode categories (src/shared/prefixUtils.ts) — names that are the same in both languages need no entry
   'Longshot / Sniper': 'Longshot / Snajperskie',
   'Weapon Arenas (Knife / M79 / Saw)': 'Areny Broni (Knife / M79 / Saw)',

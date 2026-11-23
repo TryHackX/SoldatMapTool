@@ -10,13 +10,15 @@ import {
 import { locale, t, tp, tr, tText } from '../i18n';
 import { formatBytes, openPathInExplorer } from '../utils/mapCache';
 import { useModalDismiss } from '../utils/useModalDismiss';
+import { ArchiveCleanerPanel } from './ArchiveCleanerPanel';
 import { AlertTriangle, Archive, CaseSensitive, CheckCircle2, Copy, FolderOpen, ImageOff, RefreshCw, X } from 'lucide-react';
 
-export type LibraryToolsTab = 'duplicates' | 'unused' | 'case';
+export type LibraryToolsTab = 'duplicates' | 'unused' | 'case' | 'archive';
 
 interface LibraryToolsModalProps {
   open: boolean;
   initialTab: LibraryToolsTab;
+  libraryReady: boolean;
   onClose: () => void;
   onMetaUpdated: (meta: IndexMetaResponse) => void;
 }
@@ -46,7 +48,7 @@ function formatDate(ms: number): string {
   return new Date(ms).toLocaleDateString(locale);
 }
 
-export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, initialTab, onClose, onMetaUpdated }) => {
+export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, initialTab, libraryReady, onClose, onMetaUpdated }) => {
   const [tab, setTab] = useState<LibraryToolsTab>(initialTab);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +57,7 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
 
   // Duplicates
   const [dups, setDups] = useState<DuplicatesResponse | null>(null);
-  const [keepByCrc, setKeepByCrc] = useState<Record<string, string>>({});
+  const [keepByGroup, setKeepByGroup] = useState<Record<string, string>>({});
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(() => new Set());
   const [groupsShown, setGroupsShown] = useState(GROUPS_PAGE);
 
@@ -73,9 +75,9 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
     getJson<DuplicatesResponse>('/api/library/duplicates', (d) => Array.isArray(d?.groups))
       .then((d) => {
         setDups(d);
-        setKeepByCrc(Object.fromEntries(d.groups.map((g) => [g.crcHex, g.suggestedKeepId])));
+        setKeepByGroup(Object.fromEntries(d.groups.map((g) => [g.suggestedKeepId, g.suggestedKeepId])));
         // Exact copies (one name) are pre-selected; groups with different names stay untouched by default
-        setSelectedGroups(new Set(d.groups.filter((g) => g.sameName).map((g) => g.crcHex)));
+        setSelectedGroups(new Set(d.groups.filter((g) => g.sameName).map((g) => g.suggestedKeepId)));
         setGroupsShown(GROUPS_PAGE);
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
@@ -106,7 +108,7 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
   const loadTab = (which: LibraryToolsTab) => {
     if (which === 'duplicates') loadDuplicates();
     else if (which === 'unused') loadUnused();
-    else loadCase();
+    else if (which === 'case') loadCase();
   };
 
   // The modal stays mounted between openings: every opening starts from fresh lists (maps and files change)
@@ -130,7 +132,7 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
       setError(null);
       setConfirming(false);
     }
-    if (!loadedRef.current[which]) {
+    if (which !== 'archive' && !loadedRef.current[which]) {
       loadedRef.current[which] = true;
       loadTab(which);
     }
@@ -141,12 +143,12 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
     if (!dups) return [];
     const ids: string[] = [];
     for (const g of dups.groups) {
-      if (!selectedGroups.has(g.crcHex)) continue;
-      const keep = keepByCrc[g.crcHex] ?? g.suggestedKeepId;
+      if (!selectedGroups.has(g.suggestedKeepId)) continue;
+      const keep = keepByGroup[g.suggestedKeepId] ?? g.suggestedKeepId;
       for (const f of g.files) if (f.id !== keep) ids.push(f.id);
     }
     return ids;
-  }, [dups, selectedGroups, keepByCrc]);
+  }, [dups, selectedGroups, keepByGroup]);
 
   const unusedSelectedBytes = useMemo(() => {
     if (!unused) return 0;
@@ -191,19 +193,20 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
   return (
     <div
       {...backdropProps}
+      aria-labelledby="collection-cleanup-title"
       className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4"
     >
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden text-xs">
         <div className="px-5 py-3.5 border-b border-zinc-800 bg-zinc-950/70 flex items-center justify-between gap-4">
           <div>
-            <h2 className="text-base font-bold text-zinc-100 flex items-center gap-2">
+            <h2 id="collection-cleanup-title" className="text-base font-bold text-zinc-100 flex items-center gap-2">
               <Archive className="w-5 h-5 text-emerald-400" /> {t('Collection clean-up')}
             </h2>
-            <p className="text-[11px] text-zinc-400">
+            {tab !== 'archive' && <p className="text-[11px] text-zinc-400">
               {tr('Files are moved to {path} (with a RESTORE.txt list) — nothing is deleted.', {
                 path: <code>data/backups/</code>,
               })}
-            </p>
+            </p>}
           </div>
           <button
             type="button"
@@ -216,18 +219,20 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
           </button>
         </div>
 
-        <div className="px-5 py-2 border-b border-zinc-800 flex items-center gap-1">
+        <div className="px-5 py-2 border-b border-zinc-800 flex flex-wrap items-center gap-1">
           {(
             [
-              ['duplicates', t('CRC32 duplicates'), <Copy key="d" className="w-3.5 h-3.5" />],
+              ['duplicates', t('Verified duplicates'), <Copy key="d" className="w-3.5 h-3.5" />],
               ['unused', t('Unused sceneries'), <ImageOff key="u" className="w-3.5 h-3.5" />],
               ['case', t('Letter case (Linux)'), <CaseSensitive key="c" className="w-3.5 h-3.5" />],
+              ['archive', t('Clean archive'), <Archive key="a" className="w-3.5 h-3.5" />],
             ] as const
           ).map(([id, label, icon]) => (
             <button
               key={id}
               type="button"
-              disabled={busy}
+              disabled={busy || (id !== 'archive' && !libraryReady)}
+              aria-pressed={tab === id}
               onClick={() => {
                 setTab(id);
                 setConfirming(false);
@@ -241,7 +246,7 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
               {label}
             </button>
           ))}
-          <button
+          {tab !== 'archive' && <button
             type="button"
             disabled={busy}
             onClick={() => loadTab(tab)}
@@ -250,16 +255,16 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
             className="ml-auto p-1.5 rounded text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" />
-          </button>
+          </button>}
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-3">
-          {tab === 'duplicates' ? (
+          {tab === 'archive' ? <ArchiveCleanerPanel onMetaUpdated={onMetaUpdated}/> : tab === 'duplicates' ? (
             !dups ? (
               <div className="text-zinc-500">{t('Loading duplicate groups...')}</div>
             ) : dups.groups.length === 0 ? (
               <div className="text-emerald-300 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4" /> {t('No maps in the collection share the same CRC32 checksum.')}
+                <CheckCircle2 className="w-4 h-4" /> {t('No matching copies with identical map and artwork content were found.')}
               </div>
             ) : (
               <>
@@ -274,7 +279,7 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => setSelectedGroups(new Set(dups.groups.map((g) => g.crcHex)))}
+                    onClick={() => setSelectedGroups(new Set(dups.groups.map((g) => g.suggestedKeepId)))}
                     className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 cursor-pointer"
                   >
                     {t('Select all groups')}
@@ -289,19 +294,19 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
                 </div>
                 {dups.groups.slice(0, groupsShown).map((g) => (
                   <DuplicateGroupCard
-                    key={g.crcHex}
+                    key={g.suggestedKeepId}
                     group={g}
-                    selected={selectedGroups.has(g.crcHex)}
-                    keepId={keepByCrc[g.crcHex] ?? g.suggestedKeepId}
+                    selected={selectedGroups.has(g.suggestedKeepId)}
+                    keepId={keepByGroup[g.suggestedKeepId] ?? g.suggestedKeepId}
                     onToggle={() =>
                       setSelectedGroups((prev) => {
                         const next = new Set(prev);
-                        if (next.has(g.crcHex)) next.delete(g.crcHex);
-                        else next.add(g.crcHex);
+                        if (next.has(g.suggestedKeepId)) next.delete(g.suggestedKeepId);
+                        else next.add(g.suggestedKeepId);
                         return next;
                       })
                     }
-                    onKeep={(id) => setKeepByCrc((prev) => ({ ...prev, [g.crcHex]: id }))}
+                    onKeep={(id) => setKeepByGroup((prev) => ({ ...prev, [g.suggestedKeepId]: id }))}
                   />
                 ))}
                 {dups.groups.length > groupsShown && (
@@ -399,7 +404,7 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
           )}
         </div>
 
-        <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-950/60 space-y-2">
+        {tab !== 'archive' && <div className="px-5 py-3 border-t border-zinc-800 bg-zinc-950/60 space-y-2">
           {error && (
             <div className="bg-red-950/80 border border-red-700 rounded px-3 py-1.5 text-red-200">{error}</div>
           )}
@@ -473,7 +478,7 @@ export const LibraryToolsModal: React.FC<LibraryToolsModalProps> = ({ open, init
               </button>
             )}
           </div>
-        </div>
+        </div>}
       </div>
     </div>
   );
@@ -614,7 +619,7 @@ const DuplicateGroupCard: React.FC<{
           <span className="flex items-center gap-2 min-w-0">
             <input
               type="radio"
-              name={`keep-${group.crcHex}`}
+              name={`keep-${group.suggestedKeepId}`}
               checked={keepId === f.id}
               onChange={() => onKeep(f.id)}
               className="border-zinc-700 bg-zinc-900 text-emerald-500"

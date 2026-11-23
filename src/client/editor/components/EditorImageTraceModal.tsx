@@ -7,6 +7,7 @@ import { Eye, FileImage, Layers, Sparkles, Upload, X } from 'lucide-react';
 import { polyTypeName, t } from '../../i18n';
 import { useModalDismiss } from '../../utils/useModalDismiss';
 import { loadSoldatAssetImage } from '../../renderer/assetLoader';
+import { mapAssetSource } from '../../renderer/mapAssetSource';
 import { EditorBlueprintOverlay } from '../types';
 import { NumberInput } from './EditorFields';
 
@@ -249,7 +250,7 @@ export const EditorImageTraceModal: React.FC<EditorImageTraceModalProps> = ({
   };
 
   const handlePickScenerySprite = async (name: string) => {
-    const loaded = await loadSoldatAssetImage('scenery-gfx', name, true, preferClassicBmp, true);
+    const loaded = await loadSoldatAssetImage('scenery-gfx', name, true, preferClassicBmp, true, mapAssetSource(map));
     if (!loaded || !loaded.canvas) return;
     const built = buildRasterSourceFromImage(loaded.canvas, loaded.width, loaded.height, name);
     if (built) {

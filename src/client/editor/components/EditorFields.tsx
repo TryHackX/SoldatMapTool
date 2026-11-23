@@ -1,10 +1,39 @@
-import React, { useRef, useState } from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 
 type InputPassThrough = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type'>;
 
 /** The change handlers in the docks read `e.target.value`, so the fields hand them a minimal event-like object */
 export interface FieldChange {
   target: { value: string };
+}
+
+/** Let the native picker paint every input locally. Large editor snapshots only
+ * receive a settled RGB value. Blur also commits before the next tool gesture. */
+export function EditorColorInput({ value, onChange, ...rest }: {
+  value: string; onChange: (event: FieldChange) => void;
+} & Omit<InputPassThrough, 'onBlur' | 'onInput'>) {
+  const input = useRef<HTMLInputElement>(null);
+  const timeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const pending = useRef(false);
+  const latest = useRef(onChange);
+  useLayoutEffect(() => { latest.current = onChange; });
+  useLayoutEffect(() => {
+    if (input.current) input.current.value = value;
+    pending.current = false;
+    return () => clearTimeout(timeout.current);
+  }, [value]);
+  function commit() {
+    clearTimeout(timeout.current);
+    if (!pending.current || !input.current) return;
+    pending.current = false;
+    if (input.current.value !== value.toLowerCase()) latest.current({target: {value: input.current.value}});
+  }
+  return <input {...rest} ref={input} type="color" defaultValue={value}
+    onChange={() => {
+      pending.current = true;
+      clearTimeout(timeout.current);
+      timeout.current = setTimeout(commit, 160);
+    }} onBlur={commit}/>;
 }
 
 const toNumber = (v: unknown): number | null => {

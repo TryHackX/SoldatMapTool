@@ -3,6 +3,14 @@
  * `{placeholders}`. Entries for tp(n, one, other) use the key "one|other" and the forms [1, 2–4, 5+].
  */
 export const SERVER_PL: Record<string, string | readonly [string, string, string]> = {
+  'The tunnel editing data in this project is invalid.': 'Projekt zawiera błędne dane edycji tunelu.',
+  "Reload the admin page.": "Odśwież stronę administracji.",
+  "Try again in a minute.": "Spróbuj ponownie za minutę.",
+  "Enter a login and a password of 12 to 256 characters.": "Podaj login i hasło o długości od 12 do 256 znaków.",
+  "Incorrect login or password.": "Niepoprawny login lub hasło.",
+  "Sign in to administration.": "Zaloguj się do panelu administracyjnego.",
+  "Choose a Font Awesome web ZIP containing webfonts/fa-solid-900.woff2.": "Wybierz paczkę webową Font Awesome (ZIP) z plikiem webfonts/fa-solid-900.woff2.",
+  'Administration request failed.': 'Nie udało się wykonać operacji administracyjnej.',
   // Shared plural forms
   '{n} file|{n} files': ['{n} plik', '{n} pliki', '{n} plików'],
 
@@ -62,6 +70,7 @@ export const SERVER_PL: Record<string, string | readonly [string, string, string
   // packBuilder.ts — map pack warnings and results
   '{file}: packed {packed}, skipped {skipped} ({map})': '{file}: spakowano {packed}, pominięto {skipped} ({map})',
   'No maps selected for packing.': 'Nie wybrano żadnych map do spakowania.',
+  'Map changed since the last scan: {file}': 'Mapa zmieniła się od ostatniego skanowania: {file}',
   by_mode: 'wg_trybu',
   by_prefix: 'wg_prefixu',
   '{name} ({n} .zip pack)|{name} ({n} .zip packs)': [
@@ -121,6 +130,11 @@ export const SERVER_PL: Record<string, string | readonly [string, string, string
     'Mapa wynikowa miałaby tę samą nazwę i folder co mapa źródłowa — zapis przerwany, aby nie nadpisać oryginału.',
   'File {file} exists and is not an unchanged Studio output for this map — skipped.':
     'Plik {file} istnieje i nie jest niezmienionym wynikiem Studio dla tej mapy — pominięto.',
+  'Wait for the remaining tiles to upload.': 'Poczekaj na przesłanie pozostałych warstw.',
+  'The number of uploaded tiles does not match the preview.': 'Liczba przesłanych warstw różni się od podglądu.',
+  'Two generated graphics have the same filename: {file}': 'Dwie wygenerowane grafiki mają tę samą nazwę: {file}.',
+  'Graphic {file} exists and belongs to another map or was modified. Choose another output folder.': 'Plik grafiki {file} należy do innej mapy lub został zmieniony. Wybierz inny folder wyjściowy.',
+  'Could not restore all files. Backups: {path}': 'Nie udało się przywrócić wszystkich plików. Kopie zapasowe: {path}',
   'File {file} already exists in the target folder. Confirm the overwrite to continue.':
     'Plik {file} już istnieje w folderze docelowym. Potwierdź nadpisanie, aby kontynuować.',
   'The optimization session has expired or does not exist.': 'Sesja optymalizacji wygasła lub nie istnieje.',
@@ -151,6 +165,8 @@ export const SERVER_PL: Record<string, string | readonly [string, string, string
   'Path {path} goes through a symbolic link — extraction stopped.':
     'Ścieżka {path} prowadzi przez dowiązanie symboliczne — wypakowanie przerwane.',
   'Unsafe path in the archive: {path}': 'Niebezpieczna ścieżka w archiwum: {path}',
+  'Different entries share a destination filename. Use Clean archive to keep both versions: {path}': 'Dwa różne pliki trafiłyby pod tę samą nazwę. Użyj funkcji Czyste archiwum, aby zachować obie wersje. Plik {path}',
+  'Could not finish restoring the extraction. Previous files are in {path}': 'Nie udało się dokończyć przywracania plików. Poprzednie wersje są w {path}',
   'The archive contains overlapping entries ({file}) — it looks crafted.':
     'Archiwum zawiera nakładające się wpisy ({file}) — wygląda na spreparowane.',
   'File {file} in the archive is too large ({size} B).': 'Plik {file} w archiwum jest za duży ({size} B).',

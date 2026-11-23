@@ -1,3 +1,6 @@
+import type { MapValidationIssue } from '@shared/mapValidator';
+import { uint8ToBase64 } from '../utils/binary';
+export { uint8ToBase64 };
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   EditorAssetCatalogResponse,
@@ -6,13 +9,18 @@ import {
   EditorSaveResponse,
   IndexMetaResponse,
 } from '@shared/apiTypes';
-import { freehandLaserToPolygons, previewLaserContour } from '@shared/imageTracer';
+import { useToolKeys } from './shortcutBindings';
+import { sealPolyJunction } from '@shared/polyJunctions';
+import { laserStroke } from './polygonDrawing';
+import { createPolygonGestures, isPolygonDrag, type PolygonDrag } from './polygonGestures';
+import { createTunnelMap, type TunnelPoint } from '@shared/climbTunnel';
+import { createTunnelProject, tunnelSectionGates, tunnelGateAt, tunnelTrialRoute } from '@shared/tunnelProject';
+import { useTunnelWorkspace } from './useTunnelWorkspace';
+import type { TunnelTrialResult } from './tunnelTrial';
+import { downloadProjectFile } from './projectFile';
+import { appendTunnel, sketchExample, TunnelStroke } from './tunnelBlueprint';
 import {
-  computePolygonNormals,
   computeWorldAlignedUv,
-  createPolygonFromPoints,
-  earClipTriangulate,
-  polygonSignedArea2,
   ensureSceneryEntry,
   prepareMapForSave,
   splitPolygonEdge,
@@ -21,6 +29,7 @@ import {
   computePropCorners,
   PmsBounds,
   PmsMapData,
+  SOLDAT_MAP_LIMITS,
   PmsPolygon,
   PmsProp,
   PmsVertex,
@@ -66,6 +75,8 @@ import {
   translateSelection,
   updateMapHeader,
 } from './EditorDocument';
+import { DraftAutosave } from './draftAutosave';
+import { mapAssetOriginId, mapAssetSource } from '../renderer/mapAssetSource';
 import { hitTestTransformGizmo, renderEditorOverlay } from './EditorOverlayPainter';
 import { replacePropsScenery, rotatePropsInPlace, scaleProps } from './sceneryOps';
 import {
@@ -125,6 +136,8 @@ export interface ViewportEditorBridge {
     zoom: number;
   }) => void;
   onPointerUp: (info: {
+    outsideViewport?: boolean;
+    cancelled?: boolean;
     worldX: number;
     worldY: number;
     clientX: number;
@@ -154,9 +167,10 @@ export interface ViewportEditorBridge {
 }
 
 const LASSO_PREVIEW_INTERVAL_MS = 90;
-const LASER_PREVIEW_INTERVAL_MS = 120;
 
 type ActivePointerDrag =
+  | { kind: 'tunnel_stroke'; stroke: TunnelStroke }
+  | { kind: 'tunnel_knot'; knot: number; start: TunnelPoint; origin: TunnelPoint; zoom: number }
   | {
       kind: 'move';
       txId: string;
@@ -236,17 +250,7 @@ type ActivePointerDrag =
       altRotate: boolean;
       shiftScale: boolean;
     }
-  | {
-      kind: 'rect_create';
-      startX: number;
-      startY: number;
-      endX: number;
-      endY: number;
-    }
-  | {
-      kind: 'poly_laser';
-      points: Array<{ x: number; y: number }>;
-    };
+  | PolygonDrag;
 
 const CLIPBOARD_STORAGE_KEY = 'soldat-map-studio.editor.clipboard.v1';
 
@@ -279,15 +283,6 @@ function confirmWholeMap(action: string): boolean {
   );
 }
 
-export function uint8ToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const sub = bytes.subarray(i, Math.min(bytes.length, i + chunkSize));
-    binary += String.fromCharCode(...sub);
-  }
-  return window.btoa(binary);
-}
 
 export function base64ToUint8(b64: string): Uint8Array {
   const bin = window.atob(b64);
@@ -329,8 +324,15 @@ export function useEditorController(params: {
   const [smartGuides, setSmartGuides] = useState<SmartGuideLine[]>([]);
   const [marqueeBox, setMarqueeBox] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
   const [lassoPoints, setLassoPoints] = useState<Array<{ x: number; y: number }> | null>(null);
+  const toolKeys = useToolKeys();
   const [laserPoints, setLaserPoints] = useState<Array<{ x: number; y: number }> | null>(null);
   const [laserPreviewPoints, setLaserPreviewPoints] = useState<Array<{ x: number; y: number }> | null>(null);
+  const isOpen = snapshot !== null;
+  const tunnelWorkspace = useTunnelWorkspace(docRef,snapshot,setSnapshot,activeTool==='climb_tunnel',rightTab==='properties');
+  const {settings:tunnelSettings,setSettings:setTunnelSettings,method:tunnelMethod,setMethod:setTunnelMethod,
+    path:tunnelPath,setPath:setTunnelPath,draft:tunnelDraft,open:openTunnel,project:activeTunnel,
+    selectKnot,setSection,knotIndex,point:sectionPoint,modified:sectionModified,hasPreview:sectionHasPreview,
+    comparing:comparingSections,planning:planningPace,variant:sectionVariant,comparisonStop,cancel:cancelSection} = tunnelWorkspace;
   const laserPreviewAtRef = useRef(0);
   const [draftPoints, setDraftPoints] = useState<Array<{ x: number; y: number }>>([]);
   const [symmetryAxisX, setSymmetryAxisX] = useState<number | null>(null);
@@ -358,12 +360,16 @@ export function useEditorController(params: {
     jetpack: false,
   });
   const activeDragRef = useRef<ActivePointerDrag | null>(null);
+  useEffect(() => {
+    if (activeTool !== 'poly_shape') return;
+    if (activeDragRef.current?.kind === 'shape_drag') activeDragRef.current = null;
+    setDraftPoints([]);
+  }, [activeTool, placement.polyShapeMode]);
   const viewCenterRef = useRef<{ x: number; y: number } | null>(null);
   // Centre of the visible part of the map: where generated or pasted content goes when the cursor is not on it
   const getViewCenter = useCallback(() => viewCenterRef.current, []);
   const savingRef = useRef(false);
-  const autosaveInFlightRef = useRef<Promise<void> | null>(null);
-  const lastAutosavedMapRef = useRef<PmsMapData | null>(null);
+  const [draftAutosave] = useState(() => new DraftAutosave());
   // Where the last successful save went: Ctrl+S then saves there again without the dialog
   const lastSaveTargetRef = useRef<{
     baseName: string;
@@ -385,8 +391,8 @@ export function useEditorController(params: {
   );
   const lastClickPickRef = useRef<{ x: number; y: number; cycle: number } | null>(null);
 
-  const isOpen = snapshot !== null;
   const map = snapshot?.map ?? null;
+  const assetSource = map ? mapAssetSource(map) : undefined;
 
   // Rebuild spatial index whenever map polygons or props change
   const spatialIndex = useMemo(() => (map ? new EditorSpatialIndex(map) : null), [map]);
@@ -404,7 +410,8 @@ export function useEditorController(params: {
     const tex = map?.texture || 'default.bmp';
     if (!map) return;
     let cancelled = false;
-    void loadSoldatAssetImage('textures', tex, false, layers.preferClassicBmp).then((img) => {
+    setTexDims({ w: 128, h: 128 });
+    void loadSoldatAssetImage('textures', tex, false, layers.preferClassicBmp, false, assetSource).then((img) => {
       if (!cancelled && img && img.width > 0 && img.height > 0) {
         setTexDims({ w: img.width, h: img.height });
       }
@@ -412,13 +419,14 @@ export function useEditorController(params: {
     return () => {
       cancelled = true;
     };
-  }, [map?.texture, Boolean(map), layers.preferClassicBmp]);
+  }, [map?.texture, Boolean(map), layers.preferClassicBmp, assetSource?.key, assetSource?.mapId]);
 
   // Track active placement scenery dimensions for accurate prop placement & ghost preview
   useEffect(() => {
     if (!placement.sceneryFilename) return;
     let cancelled = false;
-    void loadSoldatAssetImage('scenery-gfx', placement.sceneryFilename, true, layers.preferClassicBmp).then((img) => {
+    setSceneryPreviewDims({ w: 64, h: 64 });
+    void loadSoldatAssetImage('scenery-gfx', placement.sceneryFilename, true, layers.preferClassicBmp, false, assetSource).then((img) => {
       if (!cancelled && img && img.width > 0 && img.height > 0) {
         setSceneryPreviewDims({ w: img.width, h: img.height });
       }
@@ -426,14 +434,18 @@ export function useEditorController(params: {
     return () => {
       cancelled = true;
     };
-  }, [placement.sceneryFilename, layers.preferClassicBmp]);
+  }, [placement.sceneryFilename, layers.preferClassicBmp, assetSource?.key, assetSource?.mapId]);
 
   // Load editor asset catalog when entering editor mode
   const refreshAssetCatalog = useCallback(async () => {
     try {
-      const res = await fetch('/api/editor/assets');
+      const doc = docRef.current;
+      if (!doc) return;
+      const source = mapAssetSource(doc.getSnapshot().map);
+      const res = await fetch('/api/editor/assets' + (source ? '?mapId=' + encodeURIComponent(source.mapId) : ''));
       if (!res.ok) return;
       const data = (await res.json()) as EditorAssetCatalogResponse;
+      if (docRef.current !== doc) return;
       setAssetCatalog(data);
       setPlacement((prev) => {
         if (prev.sceneryFilename || data.sceneries.length === 0) return prev;
@@ -452,10 +464,24 @@ export function useEditorController(params: {
       initialBaseName?: string;
       draftId?: string;
       startDirty?: boolean;
+      projectFile?: boolean;
+      fullRun?: TunnelTrialResult;
     }) => {
+      const previous = docRef.current;
+      if (previous) void draftAutosave.clearIfClean(previous.getSnapshot());
       const doc = new EditorDocument(opts);
       docRef.current = doc;
-      lastAutosavedMapRef.current = opts.startDirty ? opts.map : null;
+      setAssetCatalog(null);
+      openTunnel(opts.map,opts.fullRun);
+      setActiveToolState(opts.map.editorTunnels?.length || opts.map.editorSketch ? 'climb_tunnel' : 'select');
+      if (opts.map.editorTunnels?.length || opts.map.editorSketch) {
+        setRightTab('properties');
+        setPanelsHidden(false);
+      }
+      activeDragRef.current = null;
+      // Recovered drafts are already on disk. Newly generated maps need a first autosave.
+      if (opts.startDirty && opts.draftId) draftAutosave.rememberRecovered(opts.draftId, opts.map);
+      setLastAutosaveAt(null);
       lastSaveTargetRef.current = null;
       setSnapshot(doc.getSnapshot());
       setDraftPoints([]);
@@ -474,22 +500,15 @@ export function useEditorController(params: {
       });
       void refreshAssetCatalog();
     },
-    [layers, onChangeLayers, refreshAssetCatalog]
+    [layers, onChangeLayers, refreshAssetCatalog, draftAutosave, openTunnel]
   );
 
   const closeEditor = useCallback((force = false): boolean => {
     const doc = docRef.current;
-    if (!force && doc?.isDirty()) {
+    if (!force && (doc?.isDirty() || sectionModified)) {
       return false; // Caller shows confirmation
     }
-    if (doc?.isDirty()) {
-      // "Discard changes": the autosaved draft would otherwise be offered for recovery right away
-      const draftId = doc.getSnapshot().draftId;
-      void (autosaveInFlightRef.current ?? Promise.resolve())
-        .catch(() => {})
-        .then(() => fetch(`/api/editor/drafts/${encodeURIComponent(draftId)}`, { method: 'DELETE' }))
-        .catch(() => {});
-    }
+    if (doc) void draftAutosave.clear(doc.getSnapshot().draftId);
     docRef.current = null;
     setSnapshot(null);
     setDraftPoints([]);
@@ -500,7 +519,7 @@ export function useEditorController(params: {
     setActivePrefab(null);
     setValidationFocus(null);
     return true;
-  }, []);
+  }, [draftAutosave,sectionModified]);
 
   const spawnPlaytestSoldier = useCallback(
     (customX?: number, customY?: number, teamOverride?: 1 | 2 | 3 | 4, flagOverride?: boolean) => {
@@ -532,6 +551,13 @@ export function useEditorController(params: {
   const setActiveTool = useCallback(
     (tool: EditorToolId) => {
       setActiveToolState(tool);
+      if (tool==='climb_tunnel' || tool==='poly_shape') {
+        setRightTab('properties');
+        setPanelsHidden(false);
+      }
+      activeDragRef.current=null;
+      setMarqueeBox(null);
+      setLassoPoints(null);
       setDraftPoints([]);
       setLaserPoints(null);
       setLaserPreviewPoints(null);
@@ -609,55 +635,58 @@ export function useEditorController(params: {
   useEffect(() => {
     if (!isOpen) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (docRef.current?.isDirty()) {
+      if (docRef.current?.isDirty() || sectionModified) {
         e.preventDefault();
         e.returnValue = '';
       }
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [isOpen]);
+  }, [isOpen, sectionModified]);
+
+  // Returning to the saved revision invalidates the previous recovery file immediately.
+  useEffect(() => {
+    if (!snapshot) return;
+    void draftAutosave.clearIfClean(snapshot);
+    if (snapshot.map === snapshot.savedMap) setLastAutosaveAt(null);
+  }, [snapshot?.draftId, snapshot?.map, snapshot?.savedMap, draftAutosave]);
 
   // Periodic background draft autosave to data/editor-drafts/ (never into Soldat maps/)
   useEffect(() => {
     if (!isOpen) return;
     const timer = window.setInterval(() => {
       const doc = docRef.current;
-      if (!doc || !doc.isDirty() || savingRef.current || autosaveInFlightRef.current) return;
+      if (!doc || savingRef.current) return;
       const snapState = doc.getSnapshot();
-      if (lastAutosavedMapRef.current === snapState.map) return; // nothing new since the last draft
-      try {
+      if (!doc.isDirty()) {
+        void draftAutosave.clear(snapState.draftId);
+        return;
+      }
+      const geometryDirty = doc.isGeometryDirty(), sceneryDirty = doc.isSceneryDirty();
+      void draftAutosave.save(snapState.draftId, snapState.map, async () => {
         const prepared = prepareMapForSave(snapState.map, {
-          geometryDirty: doc.isGeometryDirty(),
-          sceneryDirty: doc.isSceneryDirty(),
+          geometryDirty, sceneryDirty,
         });
         const pmsBase64 = uint8ToBase64(serializePms(prepared));
-        const request = fetch(`/api/editor/drafts/${encodeURIComponent(snapState.draftId)}`, {
+        const response = await fetch(`/api/editor/drafts/${encodeURIComponent(snapState.draftId)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             sourceMapId: snapState.sourceMapId,
+            assetMapId: mapAssetOriginId(snapState.map),
             baseName: snapState.currentBaseName,
             pmsBase64,
+            tunnels: snapState.map.editorTunnels,
+            sketch: snapState.map.editorSketch,
+            projectFile: snapState.projectFile,
           }),
-        })
-          .then((res) => {
-            if (res.ok) {
-              lastAutosavedMapRef.current = snapState.map;
-              setLastAutosaveAt(Date.now());
-            }
-          })
-          .catch(() => {})
-          .finally(() => {
-            autosaveInFlightRef.current = null;
-          });
-        autosaveInFlightRef.current = request;
-      } catch {
-        // Ignore background draft error
-      }
+        });
+        if (!response.ok) throw new Error('Draft autosave failed');
+        if (docRef.current === doc && doc.getSnapshot().map === snapState.map) setLastAutosaveAt(Date.now());
+      });
     }, 20000);
     return () => window.clearInterval(timer);
-  }, [isOpen]);
+  }, [isOpen, draftAutosave]);
 
   const commitMutation = useCallback(
     (label: string, nextMap: PmsMapData, nextSelection?: EditorSelection, transactionId?: string) => {
@@ -674,23 +703,40 @@ export function useEditorController(params: {
     setSnapshot(doc.setSelection(nextSelection));
   }, []);
 
+  const removeUnusedScenery = useCallback(() => {
+    const doc=docRef.current;
+    if(!doc)return;
+    try {
+      const {snapshot:next,removedCount}=doc.removeUnusedScenery();
+      if(!removedCount){notify('info',t('Every scenery entry is in use.'));return;}
+      setSnapshot(next);
+      notify('success',t('Unused scenery entries removed: {n}. Undo with Ctrl+Z.',{n:removedCount}));
+    } catch {
+      notify('error',t('A placed scenery refers to an invalid image number. Repair its image assignment first.'));
+    }
+  },[notify]);
+
   const undo = useCallback(() => {
     const doc = docRef.current;
+    if (sectionHasPreview) { cancelSection(); return; }
     if (!doc || !doc.canUndo()) return;
+    cancelSection();
     setSnapshot(doc.undo());
-  }, []);
+  }, [sectionHasPreview,cancelSection]);
 
   const redo = useCallback(() => {
     const doc = docRef.current;
-    if (!doc || !doc.canRedo()) return;
+    if (sectionHasPreview || !doc || !doc.canRedo()) return;
+    cancelSection();
     setSnapshot(doc.redo());
-  }, []);
+  }, [sectionHasPreview,cancelSection]);
 
   const jumpToHistory = useCallback((depth: number) => {
     const doc = docRef.current;
     if (!doc) return;
+    cancelSection();
     setSnapshot(doc.jumpToHistoryDepth(depth));
-  }, []);
+  }, [cancelSection]);
 
   const handleDeleteSelection = useCallback(() => {
     const doc = docRef.current;
@@ -824,6 +870,34 @@ export function useEditorController(params: {
     []
   );
 
+  const projectSaving = useRef(false);
+  const saveProject = useCallback(async () => {
+    const doc = docRef.current;
+    if (!doc || projectSaving.current) return;
+    if (sectionHasPreview) {
+      setActiveTool('climb_tunnel');
+      notify('info',t('Apply or cancel the section preview before saving the project.'));
+      return;
+    }
+    const st = doc.getSnapshot();
+    projectSaving.current = true;
+    try {
+      const prepared = prepareMapForSave(st.map,{geometryDirty:doc.isGeometryDirty(),sceneryDirty:doc.isSceneryDirty()});
+      const result = await downloadProjectFile(st.currentBaseName,prepared);
+      if (!result || docRef.current!==doc) return;
+      if (result==='download-started') {
+        notify('info',t('Project download started. The recovery copy stays available.'));
+        return;
+      }
+      setSnapshot(doc.markSaved(prepared,st.currentBaseName,null,st.map,'project'));
+      notify('success',t('Saved the editable project as .smaproj.'));
+    } catch (error) {
+      notify('error',t('Could not save the project: {error}',{error:error instanceof Error ? error.message : String(error)}));
+    } finally {
+      projectSaving.current=false;
+    }
+  },[sectionHasPreview,setActiveTool,notify]);
+
   // Save map via server safe-save endpoint
   const saveMapToDisk = useCallback(
     async (opts: {
@@ -871,14 +945,9 @@ export function useEditorController(params: {
           customOutputFolder: opts.customOutputFolder,
         };
       }
-      // Clear the draft once cleanly saved (after an autosave that may still be on its way)
-      void (autosaveInFlightRef.current ?? Promise.resolve())
-        .catch(() => {})
-        .then(() => fetch(`/api/editor/drafts/${encodeURIComponent(st.draftId)}`, { method: 'DELETE' }))
-        .catch(() => {});
       if (docRef.current === doc) {
         setSnapshot(doc.markSaved(prepared, saveResult.baseName, saveResult.newMapId, st.map));
-        lastAutosavedMapRef.current = null;
+        void draftAutosave.clearIfClean(doc.getSnapshot());
       }
       if (saveResult.meta) onMetaUpdated(saveResult.meta);
       if (saveResult.newMapId && onSavedToLibrary) onSavedToLibrary(saveResult.newMapId);
@@ -887,7 +956,7 @@ export function useEditorController(params: {
         savingRef.current = false;
       }
     },
-    [onMetaUpdated, onSavedToLibrary]
+    [onMetaUpdated, onSavedToLibrary, draftAutosave]
   );
 
   // Ctrl+S after the first save: same file, same folder, no dialog (that file is this document's own output)
@@ -1042,45 +1111,52 @@ export function useEditorController(params: {
     [brush, spatialIndex]
   );
 
-  // Finalize closed shape auto-triangulation
-  const commitDraftShape = useCallback(
-    (pts: Array<{ x: number; y: number }>) => {
+  // Insert arbitrary CW polygons (from Image-to-Polygons Vectorizer or Procedural Island Generator)
+  const insertGeneratedPolygons = useCallback(
+    (added: PmsPolygon[], label: string) => {
       const doc = docRef.current;
-      if (!doc || pts.length < 3) {
-        setDraftPoints([]);
-        return;
-      }
-      const tris = earClipTriangulate(pts);
-      if (tris.length === 0) {
-        setDraftPoints([]);
-        return;
-      }
+      if (!doc || added.length === 0) return false;
       const st = doc.getSnapshot();
-      const added: PmsPolygon[] = tris.map((tri) =>
-        createPolygonFromPoints(tri, {
-          polyType: placement.polyType,
-          bounciness: placement.bounciness,
-          color: placement.polyColor,
-          texWidth: texDims.w,
-          texHeight: texDims.h,
-        })
-      );
       const startIdx = st.map.polygons.length;
-      const nextPolygons = [...st.map.polygons, ...added];
-      setDraftPoints([]);
+      if (startIdx + added.length > SOLDAT_MAP_LIMITS.maxPolys) {
+        notify('error', t('This operation would exceed the 5000 polygon limit.'));
+        return false;
+      }
       setSnapshot(
         doc.commit({
-          label: 'Create triangulated shape',
-          nextMap: { ...st.map, polygons: nextPolygons },
+          label,
+          nextMap: { ...st.map, polygons: [...st.map.polygons, ...added] },
           nextSelection: {
             ...emptySelection(),
             polygons: added.map((_, i) => startIdx + i),
           },
         })
       );
+      return true;
     },
-    [placement, texDims]
+    [notify]
   );
+
+  const polygonGestures = useMemo(() => createPolygonGestures({
+    placement, texture: texDims,
+    hasDocument: () => docRef.current !== null,
+    insert: insertGeneratedPolygons,
+    inform: message => notify('info', message),
+    startDrag: drag => { activeDragRef.current = drag; },
+    setDraft: setDraftPoints,
+    setLaser: setLaserPoints,
+    setLaserPreview: setLaserPreviewPoints,
+    lastLaserPreview: laserPreviewAtRef,
+    snapEndpoint: (pointer, anchor, showGuides) => {
+      const end = spatialIndex?.snapPoint(pointer.worldX, pointer.worldY, pointer.zoom, snap, { anchorPoint: anchor });
+      if (end && showGuides) {
+        setSnapIndicator(end.indicator);
+        setSmartGuides(end.guides);
+      }
+      return end;
+    },
+  }), [placement, texDims, insertGeneratedPolygons, notify, spatialIndex, snap]);
+  const commitDraftShape = polygonGestures.finishOutline;
 
   // Global keyboard shortcuts while editor is open. The handlers are rebuilt on every render (they read the
   // latest state) but registered only once per editor session through refs.
@@ -1127,7 +1203,10 @@ export function useEditorController(params: {
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') e.preventDefault();
         return;
       }
-      if (isSliderKey(e)) return; // a focused slider moves with its keys
+      // Let focused controls keep native activation, tab navigation and radio/slider movement.
+      if (e.key==='Tab' || isSliderKey(e)) return;
+      const control=e.target instanceof Element && e.target.closest('button,input,select,textarea,summary,a[href],[role="button"]');
+      if (control && (e.code==='Space' || e.key==='Enter' || e.target instanceof HTMLInputElement && e.target.type==='radio' && e.key.startsWith('Arrow'))) return;
 
       if (e.code === 'Space' && !isEditableTarget(e.target)) {
         // Space must not press the last clicked dock button again or scroll a panel
@@ -1150,6 +1229,11 @@ export function useEditorController(params: {
         if (document.activeElement instanceof HTMLElement && isEditableTarget(document.activeElement)) {
           document.activeElement.blur();
         }
+        const current = docRef.current?.getSnapshot();
+        if (!e.shiftKey && (current?.projectFile || current?.map.editorSketch || current?.map.editorTunnels?.length)) {
+          void saveProject();
+          return;
+        }
         const target = lastSaveTargetRef.current;
         if (e.shiftKey || !target) {
           setSaveModalOpen(true);
@@ -1161,8 +1245,7 @@ export function useEditorController(params: {
 
       if (isEditableTarget(e.target)) return;
 
-      // Tab hides / shows both side panels (a bigger map to work on)
-      if (e.key === 'Tab' && !mod && !e.altKey && !e.shiftKey) {
+      if (e.key === 'F4' && !mod && !e.altKey && !e.shiftKey) {
         e.preventDefault();
         setPanelsHidden((v) => !v);
         return;
@@ -1280,19 +1363,43 @@ export function useEditorController(params: {
         return;
       }
 
+      if ((e.key === 'Escape' || e.key === 'Backspace') && activeDragRef.current?.kind === 'shape_drag') {
+        e.preventDefault();
+        activeDragRef.current = null;
+        setDraftPoints([]);
+        return;
+      }
+      if (e.key === 'Backspace' && draftPoints.length) {
+        e.preventDefault();
+        setDraftPoints(points => points.slice(0, -1));
+        return;
+      }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
         handleDeleteSelection();
         return;
       }
 
-      if (e.key === 'Enter' && activeTool === 'poly_shape' && draftPoints.length >= 3) {
+      if (e.key === 'Enter' && activeTool === 'poly_shape' && placement.polyShapeMode === 'polygon' && draftPoints.length >= 3) {
         e.preventDefault();
         commitDraftShape(draftPoints);
         return;
       }
 
       if (e.key === 'Escape') {
+        if (activeTool==='climb_tunnel') {
+          if (activeTunnel) {
+            if (activeDragRef.current?.kind !== 'tunnel_knot') tunnelWorkspace.cancel();
+            activeDragRef.current = null;
+            setLaserPoints(null);
+            return;
+          }
+          const drawing = activeDragRef.current?.kind === 'tunnel_stroke';
+          activeDragRef.current=null;
+          setLaserPoints(null);
+          if (!drawing) setTunnelPath([]);
+          return;
+        }
         if (draftPoints.length > 0) {
           setDraftPoints([]);
         } else if (activePrefab) {
@@ -1408,28 +1515,10 @@ export function useEditorController(params: {
 
       if (!mod && !e.altKey) {
         const key = e.key.toLowerCase();
-        const toolMap: Record<string, EditorToolId> = {
-          v: 'select',
-          q: 'lasso',
-          a: 'vertex',
-          p: 'poly_tri',
-          s: 'poly_strip',
-          f: 'poly_fan',
-          b: 'poly_shape',
-          x: 'poly_laser',
-          c: 'color_brush',
-          u: 'uv',
-          e: 'scenery',
-          o: 'spawn',
-          k: 'collider',
-          w: 'waypoint',
-          l: 'light',
-          m: 'ruler',
-          j: 'playtest',
-        };
-        if (key in toolMap) {
+        const tool = (Object.keys(toolKeys) as EditorToolId[]).find(id => toolKeys[id] === key.toUpperCase());
+        if (tool) {
           e.preventDefault();
-          setActiveTool(toolMap[key]);
+          setActiveTool(tool);
         } else if (key === 'g') {
           e.preventDefault();
           setSnap((prev) => ({ ...prev, snapToGrid: !prev.snapToGrid }));
@@ -1504,78 +1593,30 @@ export function useEditorController(params: {
       }
 
       // 1. Polygon Creation Tools
-      if (activeTool === 'poly_laser') {
-        const pts = [{ x: info.worldX, y: info.worldY }];
-        setLaserPoints(pts);
-        activeDragRef.current = { kind: 'poly_laser', points: pts };
-        return true;
-      }
-
-      if (activeTool === 'poly_tri' || activeTool === 'poly_strip' || activeTool === 'poly_fan') {
-        const nextPts = [...draftPoints, { x: sx, y: sy }];
-        if (nextPts.length < 3) {
-          setDraftPoints(nextPts);
-          return true;
-        }
-        const a = nextPts[nextPts.length - 3];
-        const b = nextPts[nextPts.length - 2];
-        const c = nextPts[nextPts.length - 1];
-        if (
-          Math.hypot(a.x - b.x, a.y - b.y) > 0.5 &&
-          Math.hypot(b.x - c.x, b.y - c.y) > 0.5 &&
-          Math.hypot(c.x - a.x, c.y - a.y) > 0.5
-        ) {
-          const poly = createPolygonFromPoints([a, b, c], {
-            polyType: placement.polyType,
-            bounciness: placement.bounciness,
-            color: placement.polyColor,
-            texWidth: texDims.w,
-            texHeight: texDims.h,
+      if (activeTool==='climb_tunnel') {
+        if (planningPace) return true;
+        if (locks.polygons) { notify('info',t('Unlock polygons to draw terrain.')); return true; }
+        const clicked={x:info.worldX,y:info.worldY};
+        if (activeTunnel) {
+          let hit = -1, best = 12;
+          activeTunnel.knots.slice(1,-1).forEach((p,i)=>{
+            const pos = i+1===knotIndex && sectionPoint ? sectionPoint : p;
+            const d = Math.hypot(pos.x-clicked.x,pos.y-clicked.y)*info.zoom;
+            if (d<=best) {best=d;hit=i+1;}
           });
-          const nextIdx = snapshot.map.polygons.length;
-          commitMutation(
-            'Create polygon',
-            { ...snapshot.map, polygons: [...snapshot.map.polygons, poly] },
-            { ...emptySelection(), polygons: [nextIdx] }
-          );
-        }
-        if (activeTool === 'poly_tri') {
-          setDraftPoints([]);
-        } else if (activeTool === 'poly_strip') {
-          setDraftPoints([b, c]);
-        } else {
-          setDraftPoints([nextPts[0], c]);
-        }
-        return true;
-      }
-
-      if (activeTool === 'poly_shape') {
-        if (placement.polyShapeMode === 'rect') {
-          activeDragRef.current = {
-            kind: 'rect_create',
-            startX: sx,
-            startY: sy,
-            endX: sx,
-            endY: sy,
-          };
-          setDraftPoints([
-            { x: sx, y: sy },
-            { x: sx, y: sy },
-            { x: sx, y: sy },
-            { x: sx, y: sy },
-          ]);
+          if (hit<0 || (sectionModified && hit!==knotIndex)) return true;
+          if (hit!==knotIndex) selectKnot(hit);
+          if (comparingSections) return true;
+          const origin=hit===knotIndex && sectionPoint ? sectionPoint : activeTunnel.knots[hit];
+          activeDragRef.current={kind:'tunnel_knot',knot:hit,start:clicked,origin,zoom:info.zoom};
           return true;
         }
-        if (draftPoints.length >= 3) {
-          const first = draftPoints[0];
-          if (Math.hypot(sx - first.x, sy - first.y) <= 10 / Math.max(0.02, info.zoom)) {
-            commitDraftShape(draftPoints);
-            return true;
-          }
-        }
-        setDraftPoints([...draftPoints, { x: sx, y: sy }]);
+        const near=tunnelMethod==='draw' ? tunnelPath.findIndex(p=>Math.hypot(p.x-clicked.x,p.y-clicked.y)*info.zoom<=8) : -1;
+        activeDragRef.current = {kind:'tunnel_stroke', stroke: new TunnelStroke(tunnelPath, near, clicked,
+          {x:info.clientX, y:info.clientY})};
         return true;
       }
+      if (polygonGestures.begin(activeTool, info, snapped, draftPoints, locks.polygons)) return true;
 
       // 2. Color Brush & Light Tools (+ Alt Eyedropper on vertices OR sceneries!)
       if (activeTool === 'color_brush' || activeTool === 'light') {
@@ -2120,13 +2161,14 @@ export function useEditorController(params: {
       draftPoints,
       activePrefab,
       placement,
-      texDims,
       sceneryPreviewDims,
       layers,
       locks,
       selectionSummary,
       commitMutation,
-      commitDraftShape,
+      polygonGestures,
+      tunnelMethod, tunnelPath, activeTunnel, sectionPoint, sectionModified, comparingSections, planningPace, knotIndex, selectKnot,
+      notify,
       applyVertexBrushAt,
       updateSelection,
       spawnPlaytestSoldier,
@@ -2416,18 +2458,19 @@ export function useEditorController(params: {
         return;
       }
 
-      if (drag.kind === 'poly_laser') {
-        const last = drag.points[drag.points.length - 1];
-        if (!last || Math.hypot(info.worldX - last.x, info.worldY - last.y) * info.zoom >= 2.5) {
-          drag.points.push({ x: info.worldX, y: info.worldY });
-          setLaserPoints([...drag.points]);
-          // The triangulated preview (simplify + untangle + ear clipping) is far heavier than the stroke itself
-          const now = performance.now();
-          if (now - laserPreviewAtRef.current >= LASER_PREVIEW_INTERVAL_MS) {
-            laserPreviewAtRef.current = now;
-            setLaserPreviewPoints([...drag.points]);
-          }
-        }
+      if (drag.kind === 'tunnel_knot') {
+        setLaserPoints([{x:drag.origin.x+info.worldX-drag.start.x,y:drag.origin.y+info.worldY-drag.start.y}]);
+        return;
+      }
+      if (drag.kind === 'tunnel_stroke') {
+        const p={x:info.worldX,y:info.worldY};
+        if (drag.stroke.sample(p, {x:info.clientX,y:info.clientY}, 3 / info.zoom))
+          setLaserPoints([...drag.stroke.points]);
+        return;
+      }
+
+      if (isPolygonDrag(drag)) {
+        polygonGestures.move(drag, info);
         return;
       }
 
@@ -2484,22 +2527,6 @@ export function useEditorController(params: {
         return;
       }
 
-      if (drag.kind === 'rect_create') {
-        const snapped = spatialIndex.snapPoint(info.worldX, info.worldY, info.zoom, snap);
-        drag.endX = snapped.x;
-        drag.endY = snapped.y;
-        const x1 = Math.min(drag.startX, drag.endX);
-        const x2 = Math.max(drag.startX, drag.endX);
-        const y1 = Math.min(drag.startY, drag.endY);
-        const y2 = Math.max(drag.startY, drag.endY);
-        setDraftPoints([
-          { x: x1, y: y1 },
-          { x: x2, y: y1 },
-          { x: x2, y: y2 },
-          { x: x1, y: y2 },
-        ]);
-        setSnapIndicator(snapped.indicator);
-      }
     },
     [
       isOpen,
@@ -2515,72 +2542,46 @@ export function useEditorController(params: {
       commitMutation,
       updateSelection,
       applyVertexBrushAt,
+      polygonGestures,
     ]
   );
 
-  const handlePointerUp = useCallback(() => {
+  const handlePointerUp = useCallback((info: Parameters<ViewportEditorBridge['onPointerUp']>[0]) => {
     const drag = activeDragRef.current;
     activeDragRef.current = null;
     if (drag?.kind === 'lasso' && drag.points.length >= 3 && spatialIndex) {
       const lassoSel = spatialIndex.selectInLasso(drag.points, layers, locks, activeTool === 'vertex', selectionFilter);
       updateSelection(mergeSelections(drag.baseSelection, lassoSel, drag.mode));
     }
-    if (drag?.kind === 'rect_create') {
-      const x1 = Math.min(drag.startX, drag.endX);
-      const x2 = Math.max(drag.startX, drag.endX);
-      const y1 = Math.min(drag.startY, drag.endY);
-      const y2 = Math.max(drag.startY, drag.endY);
-      if (x2 - x1 >= 2 && y2 - y1 >= 2) {
-        commitDraftShape([
-          { x: x1, y: y1 },
-          { x: x2, y: y1 },
-          { x: x2, y: y2 },
-          { x: x1, y: y2 },
-        ]);
-      } else {
-        setDraftPoints([]);
-      }
-    } else if (drag?.kind === 'poly_laser') {
+    if (isPolygonDrag(drag)) {
+      polygonGestures.end(drag, info, locks.polygons);
+    } else if (drag?.kind==='tunnel_knot') {
       setLaserPoints(null);
-      setLaserPreviewPoints(null);
-      const doc = docRef.current;
-      if (doc && drag.points.length >= 3) {
-        const added = freehandLaserToPolygons(drag.points, {
-          detailEpsilon: placement.laserDetail,
-          smoothPasses: placement.laserSmoothPasses,
-          polyType: placement.polyType,
-          bounciness: placement.bounciness,
-          color: placement.polyColor,
-          autoShadeDepth: placement.laserAutoShade,
-          texWidth: texDims.w,
-          texHeight: texDims.h,
-        });
-        if (added.length > 0) {
-          const st = doc.getSnapshot();
-          const startIdx = st.map.polygons.length;
-          setSnapshot(
-            doc.commit({
-              label: 'Draw laser polygons',
-              nextMap: { ...st.map, polygons: [...st.map.polygons, ...added] },
-              nextSelection: {
-                ...emptySelection(),
-                polygons: added.map((_, i) => startIdx + i),
-              },
-            })
-          );
-        }
+      if (!info.cancelled && !info.outsideViewport && !locks.polygons) {
+        const dx = info.worldX-drag.start.x, dy=info.worldY-drag.start.y;
+        if (Math.hypot(dx,dy)*drag.zoom>=3) setSection(drag.knot,{point:{
+          x: Math.round(drag.origin.x+dx), y: Math.round(drag.origin.y+dy),
+        }});
+      }
+    } else if (drag?.kind==='tunnel_stroke') {
+      setLaserPoints(null);
+      const cancelled = Boolean(info.cancelled || info.outsideViewport);
+      if (!cancelled) drag.stroke.sample({x:info.worldX,y:info.worldY}, {x:info.clientX,y:info.clientY}, 0, true);
+      const completed = drag.stroke.finish(cancelled);
+      if (completed) {
+        setTunnelPath(completed);
       }
     }
     setMarqueeBox(null);
     setLassoPoints(null);
     setSnapIndicator(null);
     setSmartGuides((g) => (g.length > 0 ? [] : g));
-  }, [commitDraftShape, placement, texDims, spatialIndex, layers, locks, activeTool, selectionFilter, updateSelection]);
+  }, [polygonGestures, spatialIndex, layers, locks, activeTool, selectionFilter, updateSelection, setSection, setTunnelPath]);
 
   const handleDoubleClick = useCallback(
     (info: { worldX: number; worldY: number; zoom: number }): boolean => {
       if (!isOpen || !snapshot || !spatialIndex) return false;
-      if (activeTool === 'poly_shape' && draftPoints.length >= 3) {
+      if (activeTool === 'poly_shape' && placement.polyShapeMode === 'polygon' && draftPoints.length >= 3) {
         commitDraftShape(draftPoints);
         return true;
       }
@@ -2626,7 +2627,7 @@ export function useEditorController(params: {
       }
       return false;
     },
-    [isOpen, snapshot, spatialIndex, activeTool, draftPoints, snap.weldSharedVertices, commitDraftShape, commitMutation]
+    [isOpen, snapshot, spatialIndex, activeTool, placement.polyShapeMode, draftPoints, snap.weldSharedVertices, commitDraftShape, commitMutation]
   );
 
   const handleWheel = useCallback(
@@ -2682,6 +2683,11 @@ export function useEditorController(params: {
 
   const handleContextMenu = useCallback((): boolean => {
     if (!isOpen) return false;
+    if (activeDragRef.current?.kind === 'shape_drag') {
+      activeDragRef.current = null;
+      setDraftPoints([]);
+      return true;
+    }
     if (draftPoints.length > 0) {
       if (activeTool === 'poly_shape' && draftPoints.length >= 3) {
         commitDraftShape(draftPoints);
@@ -2738,13 +2744,26 @@ export function useEditorController(params: {
     sceneryPreviewDims,
   ]);
 
-  const laserPreviewContour = useMemo(
-    () =>
-      laserPreviewPoints && laserPreviewPoints.length >= 3
-        ? previewLaserContour(laserPreviewPoints, placement.laserDetail, placement.laserSmoothPasses)
-        : null,
-    [laserPreviewPoints, placement.laserDetail, placement.laserSmoothPasses]
-  );
+  const laserPreview = useMemo(() => laserPreviewPoints ? laserStroke(laserPreviewPoints, placement, texDims) : [],
+    [laserPreviewPoints, placement, texDims]);
+
+  const sectionPreview=tunnelWorkspace.preview;
+  const localFaces=tunnelWorkspace.sectionIndices;
+  const widthChanged = tunnelWorkspace.widthOffset !== (activeTunnel?.sections[knotIndex-1]?.widthOffset ?? 0);
+  const compareTerrain = widthChanged || !!sectionVariant;
+  const comparisonGates = useMemo(() => {
+    if (!comparingSections || !activeTunnel) return undefined;
+    const {entry, exit} = tunnelSectionGates(activeTunnel, knotIndex);
+    const {centerline} = tunnelTrialRoute(activeTunnel);
+    return [tunnelGateAt(centerline, entry), tunnelGateAt(centerline, exit)];
+  }, [comparingSections, activeTunnel, knotIndex]);
+  const originalSectionPolygons = useMemo(() => compareTerrain && sectionPreview?.ok && snapshot
+    ? sectionPreview.changedIndices.map(i => snapshot.map.polygons[i]) : undefined, [compareTerrain,sectionPreview,snapshot?.map]);
+  const sectionPolygons=useMemo(()=>{
+    if (activeTool!=='climb_tunnel' || !activeTunnel || !snapshot) return [];
+    return sectionPreview?.ok ? sectionPreview.changedIndices.map(i=>sectionPreview.map.polygons[i]) :
+      localFaces.map(i=>snapshot.map.polygons[i]);
+  },[activeTool,activeTunnel,sectionPreview,localFaces,snapshot?.map]);
 
   const overlayRevision = useMemo(
     () =>
@@ -2778,9 +2797,16 @@ export function useEditorController(params: {
         smartGuides,
         marqueeBox,
         lassoPoints,
-        laserPoints,
-        laserPreviewContour,
+        tunnelSection: activeTool==='climb_tunnel' && !planningPace && activeTunnel && sectionPoint ? {
+          knots:activeTunnel.knots, index:knotIndex, handle:laserPoints?.[0] ?? sectionPoint,
+          triangles:sectionPolygons, originalTriangles:originalSectionPolygons, preview:!!sectionPreview?.ok, invalid:sectionPreview?.ok===false,
+          trial:sectionVariant?.trial, gates:comparisonGates, stop:comparisonStop,
+        } : undefined,
+        laserPoints: activeTool==='climb_tunnel' ? (activeTunnel ? null : laserPoints ?? (tunnelMethod==='draw' ? tunnelPath : null)) : laserPoints,
+        laserPreview: activeTool==='climb_tunnel' ? (laserPoints ? [] : tunnelDraft?.polygons ?? []) : laserPreview,
+        closeLaser:placement.strokeMode==='outline',
         draftPoints,
+        closedDraft: activeTool === 'poly_shape' && placement.polyShapeMode !== 'polygon',
         brushRadius:
           activeTool === 'color_brush'
             ? brush.radius
@@ -2808,8 +2834,10 @@ export function useEditorController(params: {
       marqueeBox,
       lassoPoints,
       laserPoints,
-      laserPreviewContour,
+      laserPreview,
+      tunnelDraft, tunnelMethod, tunnelPath, placement.strokeMode, activeTunnel, sectionPoint, knotIndex, sectionPolygons, originalSectionPolygons, sectionPreview, sectionVariant, comparisonGates, comparisonStop, planningPace,
       draftPoints,
+      placement.polyShapeMode,
       brush.radius,
       brush.lightRadius,
       symmetryAxisX,
@@ -2989,12 +3017,17 @@ export function useEditorController(params: {
 
   // "Fix" buttons of the validation panel
   const applyValidationFix = useCallback(
-    (fix: { kind: 'repair_normals' | 'delete_polygons'; polygons: number[] }) => {
+    (fix: NonNullable<MapValidationIssue['fix']>) => {
       const doc = docRef.current;
       if (!doc) return;
       const st = doc.getSnapshot();
       const valid = fix.polygons.filter((i) => i >= 0 && i < st.map.polygons.length);
       if (valid.length === 0) return;
+      if (fix.kind === 'seal_junction') {
+        const nextMap = sealPolyJunction(st.map, fix.x, fix.y);
+        if (nextMap !== st.map) setSnapshot(doc.commit({label: 'Seal polygon junction', nextMap}));
+        return;
+      }
       if (fix.kind === 'repair_normals') {
         const { nextMap, fixed } = repairPolygonNormals(st.map, valid);
         if (fixed > 0) {
@@ -3013,27 +3046,6 @@ export function useEditorController(params: {
       notify('success', tp(valid.length, 'Deleted {count} polygon', 'Deleted {count} polygons'));
     },
     [notify]
-  );
-
-  // Insert arbitrary CW polygons (from Image-to-Polygons Vectorizer or Procedural Island Generator)
-  const insertGeneratedPolygons = useCallback(
-    (added: PmsPolygon[], label: string) => {
-      const doc = docRef.current;
-      if (!doc || added.length === 0) return;
-      const st = doc.getSnapshot();
-      const startIdx = st.map.polygons.length;
-      setSnapshot(
-        doc.commit({
-          label,
-          nextMap: { ...st.map, polygons: [...st.map.polygons, ...added] },
-          nextSelection: {
-            ...emptySelection(),
-            polygons: added.map((_, i) => startIdx + i),
-          },
-        })
-      );
-    },
-    []
   );
 
   // Extrude 1-click Grass / Snow / Ice Surface Crust along top boundary edges
@@ -3055,20 +3067,9 @@ export function useEditorController(params: {
         texWidth: texDims.w,
         texHeight: texDims.h,
       });
-      if (crust.length === 0) return;
-      const startIdx = st.map.polygons.length;
-      setSnapshot(
-        doc.commit({
-          label: 'Generate surface crust',
-          nextMap: { ...st.map, polygons: [...st.map.polygons, ...crust] },
-          nextSelection: {
-            ...emptySelection(),
-            polygons: crust.map((_, i) => startIdx + i),
-          },
-        })
-      );
+      insertGeneratedPolygons(crust, 'Generate surface crust');
     },
-    [texDims]
+    [texDims, insertGeneratedPolygons]
   );
 
   // Apply 1-click Directional 3D Sun Relief Shading onto selected (or all) polygons
@@ -3159,9 +3160,9 @@ export function useEditorController(params: {
   return {
     isOpen,
     snapshot,
-    isDirty: Boolean(docRef.current?.isDirty()),
-    canUndo: Boolean(docRef.current?.canUndo()),
-    canRedo: Boolean(docRef.current?.canRedo()),
+    isDirty: Boolean(docRef.current?.isDirty()) || sectionModified,
+    canUndo: sectionHasPreview || Boolean(docRef.current?.canUndo()),
+    canRedo: !sectionHasPreview && Boolean(docRef.current?.canRedo()),
     activeTool,
     setActiveTool,
     selectionFilter,
@@ -3205,6 +3206,32 @@ export function useEditorController(params: {
     setSaveModalOpen,
     newMapModalOpen,
     setNewMapModalOpen,
+    tunnelSettings, setTunnelSettings, tunnelMethod, setTunnelMethod, tunnelPath, setTunnelPath, tunnelDraft,
+    useTunnelExample: (kind:'spiral'|'hills') => {
+      const path=sketchExample(kind,getViewCenter() ?? {x:0,y:0},tunnelSettings.clearance);
+      setTunnelPath(path);
+      const x=path.map(p=>p.x), y=path.map(p=>p.y), pad=tunnelSettings.clearance;
+      focusWorldRect({left:Math.min(...x)-pad,right:Math.max(...x)+pad,top:Math.min(...y)-pad,bottom:Math.max(...y)+pad});
+    },
+    applyTunnel: (markers:boolean) => {
+      const current=docRef.current?.getSnapshot().map;
+      if (!current || !tunnelDraft?.validation.ok) return;
+      const replace=tunnelMethod==='auto';
+      if (locks.polygons || (markers && (locks.spawns || locks.flags)) || (replace && Object.values(locks).some(Boolean))) {
+        notify('info',t('Unlock the affected layers before applying the tunnel.'));
+        return;
+      }
+      const next=replace ? createTunnelMap(tunnelDraft,tunnelSettings,{title:current.mapName,texture:current.texture}) :
+        appendTunnel(current,tunnelDraft,tunnelSettings,markers);
+      if (!next) { notify('error',t('This tunnel would exceed the PMS polygon or spawn limit.')); return; }
+      const previous = replace ? [] : current.editorTunnels ?? [];
+      const recipe = createTunnelProject(tunnelDraft,tunnelSettings,replace ? undefined : tunnelPath);
+      commitMutation(replace?'Rebuild climb tunnel':'Insert climb tunnel',
+        {...next, editorSketch:undefined, editorTunnels:[...previous,recipe]},emptySelection());
+      tunnelWorkspace.choose(previous.length);
+      if (replace) focusWorldRect(next.fullBounds);
+      notify('success',t('Tunnel applied. Ctrl+Z restores the previous map.'));
+    },
     symmetryModalOpen,
     setSymmetryModalOpen,
     imageTraceModalOpen,
@@ -3219,6 +3246,8 @@ export function useEditorController(params: {
     invertSelection: invertCurrentSelection,
     handlePolygonDrawOrder,
     openMapInEditor,
+    saveProject,
+    tunnelWorkspace,
     closeEditor,
     commitMutation,
     updateSelection,
@@ -3234,6 +3263,7 @@ export function useEditorController(params: {
     resetSelectedPolygonsUvWorldAligned,
     flipSelectedPolygonsWinding,
     applyValidationFix,
+    removeUnusedScenery,
     replaceSelectedScenery,
     insertGeneratedPolygons,
     applySurfaceCrust,

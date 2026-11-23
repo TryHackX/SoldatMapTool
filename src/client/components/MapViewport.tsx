@@ -12,6 +12,7 @@ import {
 } from '../renderer/assetLoader';
 import { renderMapOverlays, RulerMeasurement, spawnTypeName } from '../renderer/OverlayRenderer';
 import { SoldatWebGLRenderer } from '../renderer/SoldatWebGLRenderer';
+import { mapAssetSource } from '../renderer/mapAssetSource';
 import { RenderLayerVisibility } from '../renderer/types';
 import { polyTypeName, t, tText } from '../i18n';
 import { findFloorBelow, pointInTriangle } from '../utils/mapGeometry';
@@ -450,12 +451,14 @@ export const MapViewport: React.FC<MapViewportProps> = ({
 
   // Ensure mouse release outside window never leaves drag state active
   useEffect(() => {
-    const clearDrag = () => {
+    const clearDrag = (event: Event) => {
       dragRef.current = null;
       // Only a release outside the viewport (or a lost focus) still owes the editor its pointer-up
       if (editorBridgeRef.current?.active && editorPointerPendingRef.current) {
         editorPointerPendingRef.current = false;
         editorBridgeRef.current.onPointerUp({
+          outsideViewport: true,
+          cancelled: event.type === 'blur',
           worldX: 0,
           worldY: 0,
           clientX: 0,
@@ -550,7 +553,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       return;
     }
     let cancelled = false;
-    loadSoldatAssetImage('scenery-gfx', name, true, layers.preferClassicBmp)
+    loadSoldatAssetImage('scenery-gfx', name, true, layers.preferClassicBmp, false, mapData ? mapAssetSource(mapData) : undefined)
       .then((img) => {
         if (!cancelled) setInspectFileDims(img ? { name, w: img.width, h: img.height } : null);
       })
@@ -560,7 +563,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [inspection, layers.preferClassicBmp]);
+  }, [inspection, mapData, layers.preferClassicBmp]);
 
   // Track container resize
   useEffect(() => {
@@ -2526,8 +2529,9 @@ async function orderBySeeThrough(
 ): Promise<InspectHit[] | null> {
   const propHits = hits.filter((h) => h.kind === 'prop' && h.sceneryName);
   if (propHits.length === 0) return null;
+  const source = mapAssetSource(map);
   const images = await Promise.all(
-    propHits.map((h) => loadSoldatAssetImage('scenery-gfx', h.sceneryName!, true, preferClassicBmp).catch(() => null))
+    propHits.map((h) => loadSoldatAssetImage('scenery-gfx', h.sceneryName!, true, preferClassicBmp, false, source).catch(() => null))
   );
   const seeThrough = new Set<InspectHit>();
   propHits.forEach((h, i) => {

@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
 import AdmZip from 'adm-zip';
 import { t } from './i18n';
 
@@ -55,8 +56,9 @@ function assertNoLinkOnPath(root: string, target: string): void {
     let stat: fs.Stats;
     try {
       stat = fs.lstatSync(current);
-    } catch {
-      return; // the rest of the path does not exist yet
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw error;
     }
     if (stat.isSymbolicLink()) {
       throw new ZipSafetyError(t('Path {path} goes through a symbolic link — extraction stopped.', { path: rel }));
@@ -69,8 +71,11 @@ function moveFile(from: string, to: string): void {
     fs.renameSync(from, to); // replaces an existing file
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
-    fs.copyFileSync(from, to);
-    fs.rmSync(from, { force: true });
+    const sibling = path.join(path.dirname(to), '.sms-copy-' + randomUUID());
+    try {
+      fs.copyFileSync(from, sibling, fs.constants.COPYFILE_EXCL);
+      fs.renameSync(sibling, to);
+    } finally { fs.rmSync(sibling, {force:true}); }
   }
 }
 
@@ -106,8 +111,9 @@ export function extractZipSafely(
       skippedLinks++;
       continue;
     }
-    const target = path.resolve(root, entry.entryName);
-    if (!target.startsWith(root + path.sep)) {
+    const target = path.resolve(root, entry.entryName.replaceAll('\\', '/'));
+    const relative = path.relative(root, target);
+    if (!relative || relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
       throw new ZipSafetyError(t('Unsafe path in the archive: {path}', { path: entry.entryName }));
     }
     const problem = zipEntryProblem(entry);
@@ -140,25 +146,60 @@ export function extractZipSafely(
 
   fs.mkdirSync(root, { recursive: true });
   const staging = fs.mkdtempSync(path.join(root, '.sms-extract-'));
+  const payload = path.join(staging, 'files'), backupDir = path.join(staging, 'originals');
+  const distinct: string[] = [];
+  let distinctBytes = 0;
+  const written: Array<{target:string; backup?:string}> = [];
+  let keepBackups = false;
   try {
     for (const { entry, rel } of plan) {
-      const staged = path.join(staging, rel);
+      const staged = path.join(payload, rel);
       fs.mkdirSync(path.dirname(staged), { recursive: true });
       const data = entry.getData(); // throws on a bad CRC
       if (data.length !== entry.header.size) {
         throw new ZipSafetyError(t('Corrupted file in the archive: {file}', { file: entry.entryName }));
       }
-      fs.writeFileSync(staged, data);
+      // Test the destination volume's own case/normalization rules in staging.
+      // A pack can legitimately include the same artwork under two case spellings.
+      try { fs.writeFileSync(staged, data, {flag:'wx'}); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        if (fs.statSync(staged).isFile() && data.equals(fs.readFileSync(staged))) continue;
+        throw new ZipSafetyError(t('Different entries share a destination filename. Use Clean archive to keep both versions: {path}', {path:rel}));
+      }
+      distinct.push(rel);
+      distinctBytes += data.length;
     }
-    for (const { rel } of plan) {
+    fs.mkdirSync(backupDir);
+    for (const rel of distinct) {
       const target = path.join(root, rel);
       assertNoLinkOnPath(root, path.dirname(target));
       fs.mkdirSync(path.dirname(target), { recursive: true });
       assertNoLinkOnPath(root, target);
-      moveFile(path.join(staging, rel), target);
+      let backup: string | undefined;
+      if (fs.existsSync(target)) {
+        if (!fs.statSync(target).isFile()) throw new ZipSafetyError(t('Unsafe path in the archive: {path}', {path:rel}));
+        backup = path.join(backupDir,String(written.length));
+        fs.copyFileSync(target,backup,fs.constants.COPYFILE_EXCL);
+      }
+      moveFile(path.join(payload, rel), target);
+      written.push({target,backup});
     }
+  } catch (error) {
+    const failed: unknown[] = [];
+    for (const row of written.reverse()) {
+      try {
+        if (row.backup) moveFile(row.backup,row.target);
+        else fs.unlinkSync(row.target);
+      } catch (rollback) { failed.push(rollback); }
+    }
+    if (failed.length) {
+      keepBackups = true;
+      throw new AggregateError([error,...failed],t('Could not finish restoring the extraction. Previous files are in {path}',{path:backupDir}));
+    }
+    throw error;
   } finally {
-    fs.rmSync(staging, { recursive: true, force: true });
+    if (!keepBackups) fs.rmSync(staging, { recursive: true, force: true });
   }
-  return { files: plan.length, bytes: totalBytes, skippedLinks };
+  return { files: distinct.length, bytes: distinctBytes, skippedLinks };
 }

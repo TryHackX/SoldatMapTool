@@ -1,4 +1,5 @@
 import type { PmsMapData } from '@shared/pmsParser';
+import { SOLDIER_COLLIDABLE_TYPES } from '@shared/soldatConstants';
 
 /** True when the point lies inside or on the edge of the triangle (either winding) */
 export function pointInTriangle(
@@ -17,7 +18,7 @@ export function pointInTriangle(
 }
 
 // Polygon types players stand on (everything except bullet-only, non-colliding, flag-only and background ones)
-export const PLAYER_SOLID_POLY_TYPES = new Set([0, 2, 4, 5, 6, 7, 8, 9, 11, 13, 15, 17, 18, 19, 20, 21, 22]);
+export const PLAYER_SOLID_POLY_TYPES = SOLDIER_COLLIDABLE_TYPES;
 
 /**
  * Height of the first floor a soldier dropped at (x, y) lands on: the nearest player-solid polygon edge crossed by

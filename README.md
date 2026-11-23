@@ -10,6 +10,8 @@ computer: a small Node.js server reads the game folder and the interface opens i
   Trenchwars, Climb, INF, HTF…), custom prefixes and categories, search with filters
   (`props>300 tex:ananas is:fav -is:dup`), favorites, tags, detection of missing files, CRC32 duplicates and maps
   the game won't load (engine limits).
+- **Similar maps** — compare selected maps by terrain silhouette and scenery images to find work-in-progress
+  copies, renamed versions and near duplicates.
 - **Game-accurate 1:1 preview** (WebGL2) — sceneries, polygons, edges, background, spawn points, flags, bot
   waypoints, colliders; object inspector under the cursor, minimap, "player view" frame, side-by-side comparison of
   two map versions with a slider, full-size map screenshots at 100% (one map or a whole batch).
@@ -19,22 +21,82 @@ computer: a small Node.js server reads the game folder and the interface opens i
     with a preview before saving and a fidelity report,
   - `_f_o` — both steps at once, also in batch mode; every file that gets overwritten is backed up first,
   - `_a` — an archive: layers merged as in `_o`, and every remaining scenery and the polygon texture copied under
-    the map's own name, so other packs or game updates can't change how the map looks.
+    the map's own name, so other packs or game updates can't change how the map looks,
+  - **Wall protection** — traces long invisible Deadly strips through solid terrain (by default 1 unit wide with
+    2 units of clearance) for the whole map, only painted areas, or along a strip you draw. Paint an area pink to
+    exclude it and green to restore it; the preview shows the textured map and the triangle count before a separate
+    PMS is exported. Optionally restores collision entries that a legacy wall left out of its sector.
 - **Map editor** — edit any map or start one from a template, on the same game-accurate canvas:
-  - polygons (triangle, strip, fan, auto-triangulated shape, freehand), vertex editing with welding and edge
-    splitting, all 26 polygon types, vertex colours, light baking and texture coordinates;
+  - polygons (triangle, strip, fan, auto-triangulated shape, freehand, and **Shapes** for boxes, outlines, ramps
+    and spikes), vertex editing with welding and edge splitting, all 26 polygon types, vertex colours, light baking
+    and texture coordinates;
   - sceneries: draw them at any size, colorize (hue / saturation / brightness), gradients, random variation and
     depth haze; spawn points, colliders, bot waypoints and map settings;
   - unlimited undo, symmetry with team swap, prefabs, copy / paste between maps, a live map check with one-click
-    fixes, a soldier playtest, the command palette (Ctrl+K) and a shortcut list (?);
+    fixes, **Poly Fixer** for touching polygon tips, a soldier playtest, the command palette (Ctrl+K);
+  - tool keys you can reassign (**F1** or **?**; picking a taken letter swaps the two tools), **F4** hides the side
+    panels;
+  - **projects** (`.smaproj`) keep the map together with a drawn route, generator settings and the jump profile;
+    **Export .pms** writes the playable map;
   - saving checks the engine limits, rebuilds collision data only where the geometry changed, backs up files it
     overwrites and keeps recovery drafts.
+- **Map generators and climb tools** — new maps from local example maps, climb tunnels, timed climbs, courses and
+  arenas, with a simulated soldier that checks the route from the start to the flag (see below).
 - **Server map packs** — ZIP, folder or `.smap`, split by prefix or mode, default game files left out, map list
   for the server, CRC32 manifest, saved presets, letter-case fix for Linux servers, safe extraction of downloaded
   archives.
 - **Clean-up** — duplicates, unused sceneries, letter case of file names (Linux). Files are moved to a backup with
   a restore list, never deleted.
+- **Clean archive** — writes a verified, portable copy of a whole map collection (for example the SMA archive plus
+  the maps installed in the game): assets are resolved in their original package, deduplicated by SHA-256, PMS
+  references rewritten, and maps with missing files get a `missing/<map>.txt` report.
+  Guide: [clean archive and map comparison](CZYSTE-ARCHIWUM.md) (in Polish).
 - **Two languages** — English (default) and Polish; switch in **Settings** (gear icon) → *Language / Język*.
+
+## Map generators and climb tools
+
+- **New map → Map from examples** builds a separate, editable map from one to eight local PMS maps: the map selected
+  in the library, maps added by name or tag, or a sample of the filtered results. **Compose a new layout** matches
+  openings, joins sections and carries over scenery and material colours; **Reshape the first map** varies its
+  silhouette and keeps its waypoint links. Sky, terrain texture and palette can each come from a different
+  reference.
+- **New map → Courses and arenas** — platform time trial (Relaxed, Time trial or Expert, with a profile measured on
+  your local maps), CTF, Trenchwars and a symmetric arena. The preview draws a simulated run from the Alpha spawn to
+  the Bravo flag, with its time at 60 ticks per second.
+- **New map → Climb tunnel** — draw your own route from the start to the flag, start from **Spiral**, **Rolling
+  hills** or a tested course, or let **Automatic route** build one from direction, length, difficulty and seed.
+  Width, rock palette, surface densities, obstacles and **cave chambers** (alcoves, galleries, shafts, ice, rest
+  areas) are adjustable while you watch the preview; **Pilot run** simulates a soldier and shows the path, the
+  finish time or where it stopped.
+- **New map → Timed climb** builds a course for a target time such as **1:00**, tests section variants and
+  reports the time of a continuous run from the Alpha spawn to the Bravo flag.
+- **Tunnel (T)** in the editor draws a tunnel directly on a map. For each section you can move its bend, change the
+  landing height, bounce and local width, check the section or the whole route, rebuild it, or **compare two to four
+  variants** between the same gates. **All splits** shows section times of one continuous run, and **Route time
+  planner** moves a route towards a target time. Every change is one undo step.
+- **Library style and comparison** — gaps, rise, landing width, rebound, exposed edges and jet fuel of your
+  favourites, a tag or a source, compared by median and outer percentiles.
+- **Climb movement library** — five small practice maps with measured approach, speed and landing ranges;
+  after a stalled run, **Test targeted repairs from start** measures alternative local fixes on the whole route.
+- **Compare with player runs** — record your own runs (game version, time, finish or stop, split times) against
+  the exact route; JSON export / import moves them between browsers.
+- **Polygon: Laser Draw → Stroke mode** turns a drawn line into a platform route with jumps, deadly pits, hurt
+  zones and bounce pads weighted by your climb profile.
+
+The simulation is an estimate for the generated route on the way to the flag; edited courses, flag returns and race
+times in the game still need a playtest.
+
+## Local administration
+
+On the first start the browser opens the local administrator setup: choose a login and a password of at least
+12 characters. Administration is available at `/admin` and from **Settings**; everything still runs only on this
+computer (loopback). In **Settings → Local administration** you can install a Font Awesome web ZIP (with
+`webfonts/fa-solid-900.woff2`) whose Solid icons are then used by the editor tool rail.
+
+To restart a running server, use **Restart Soldat Map Studio.bat** (Windows) or `bash restart.sh` (Linux) with the
+same `PORT`. A lost administrator login can be reset locally with `node scripts/restart.mjs --reset-admin` (type
+`RESET` to confirm): the old account file is backed up and the setup address is printed. A restart ends
+administrator sessions.
 
 ## Requirements
 
@@ -108,7 +170,10 @@ npm run build
 npm start
 ```
 
-Then open `http://127.0.0.1:4321`. Another port: set the `PORT` environment variable (e.g. `PORT=4400 npm start`).
+Then open `http://127.0.0.1:4321` (on the first start, `http://127.0.0.1:4321/admin` sets up the local
+administrator). Another port: set the `PORT` environment variable (e.g. `PORT=4400 npm start`). `npm start` runs the
+server under a small supervisor: **Restart Soldat Map Studio** works only with it (not with `npm run dev`), and the
+interface is rebuilt before the restart when its sources changed.
 
 ## For developers
 
@@ -116,6 +181,10 @@ Then open `http://127.0.0.1:4321`. Another port: set the `PORT` environment vari
 |---|---|
 | `npm run dev` | server with auto-restart + Vite interface with hot reload (`http://localhost:5173`) |
 | `npm test` | automated tests (`node:test`) |
+| `npm run quality:climb` | six tunnel fixtures, PMS round-trips, geometry, times, pilot traces and splits in `exports/climb-quality.json` |
+| `npm run quality:courses` | seeded checks for platform, CTF, trench and symmetric courses |
+| `npm run quality:history` | 100 edits, undo and redo at 500, 2500 and 5000 polygons with retained heap and p95 commit time |
+| `/scripts/editor-frames.html` on the local Vite dev server | 60 measured frames per size with the WebGL viewport and editor overlay. Keep the tab in the foreground to measure refresh cadence. |
 | `npm run typecheck` | TypeScript type check |
 | `npm run test:pms` | reads every map in the game folder (parser test on a real collection) |
 
@@ -151,9 +220,11 @@ distribution or use a virtual environment.
 ## Where the data lives
 
 - `data/` — settings (`config.json` with this computer's paths), the map index, thumbnails, backups
-  (`data/backups/`), the server log (`data/logs/`), editor recovery drafts (`data/editor-drafts/`) and prefabs.
+  (`data/backups/`), the server log (`data/logs/`), editor recovery drafts (`data/editor-drafts/`), prefabs, the
+  local administrator account (`data/admin/`) and short-lived restart tokens (`data/runtime/`).
 - `exports/` — packs, map screenshots and `_f`/`_o`/`_a` maps when they are not saved into the game folder;
-  `exports/edited_maps/` holds editor saves made there.
+  `exports/edited_maps/` holds editor saves made there, `exports/guarded-maps/` the wall protection maps and
+  `exports/clean-archives/` the clean archives.
 
 Both folders are local and never go into the repository. The server listens only on `127.0.0.1` and rejects
 requests from other websites, so other computers on the network and web pages cannot reach it.

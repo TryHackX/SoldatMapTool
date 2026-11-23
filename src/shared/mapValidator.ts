@@ -1,3 +1,6 @@
+
+import { findPolyJunctions } from './polyJunctions';
+import { TriangleGrid } from './triangleGrid';
 import { hasInwardNormals, polygonSignedArea2 } from './pmsCompiler';
 import {
   checkSoldatMapLimits,
@@ -42,7 +45,7 @@ export interface MapValidationIssue {
   selection?: ValidationSelectionTarget;
   focusBounds?: PmsBounds;
   focusPoint?: { x: number; y: number; radius?: number };
-  fix?: { kind: ValidationFixKind; polygons: number[] };
+  fix?: { kind: ValidationFixKind; polygons: number[] } | { kind: 'seal_junction'; x: number; y: number; polygons: number[] };
 }
 
 const MAX_BURIED_SPAWNS_REPORTED = 12;
@@ -112,21 +115,6 @@ function polygonGroupIssue(
   };
 }
 
-function pointInTriangleInclusive(
-  px: number,
-  py: number,
-  a: { x: number; y: number },
-  b: { x: number; y: number },
-  c: { x: number; y: number }
-): boolean {
-  const d1 = (px - b.x) * (a.y - b.y) - (a.x - b.x) * (py - b.y);
-  const d2 = (px - c.x) * (b.y - c.y) - (b.x - c.x) * (py - c.y);
-  const d3 = (px - a.x) * (c.y - a.y) - (c.x - a.x) * (py - a.y);
-  const hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
-  const hasPos = d1 > 0 || d2 > 0 || d3 > 0;
-  return !(hasNeg && hasPos);
-}
-
 function pointToSegmentDist(
   px: number,
   py: number,
@@ -147,50 +135,7 @@ function pointToSegmentDist(
   return { dist: Math.hypot(px - cx, py - cy), cx, cy, t };
 }
 
-/** Coarse uniform grid of triangles for point queries (numeric keys, no string building per lookup) */
-class TriangleGrid {
-  private readonly cells = new Map<number, number[]>();
-  private readonly big: number[] = [];
-  constructor(
-    private readonly polys: ReadonlyArray<PmsPolygon>,
-    indices: ReadonlyArray<number>,
-    private readonly cell = 64
-  ) {
-    for (const i of indices) {
-      const [a, b, c] = polys[i].vertices;
-      const gx0 = Math.floor(Math.min(a.x, b.x, c.x) / cell);
-      const gx1 = Math.floor(Math.max(a.x, b.x, c.x) / cell);
-      const gy0 = Math.floor(Math.min(a.y, b.y, c.y) / cell);
-      const gy1 = Math.floor(Math.max(a.y, b.y, c.y) / cell);
-      if (!Number.isFinite(gx0 + gx1 + gy0 + gy1)) continue;
-      if ((gx1 - gx0 + 1) * (gy1 - gy0 + 1) > 1024) {
-        this.big.push(i);
-        continue;
-      }
-      for (let gx = gx0; gx <= gx1; gx++) {
-        for (let gy = gy0; gy <= gy1; gy++) {
-          const key = gx * 1_000_003 + gy;
-          let list = this.cells.get(key);
-          if (!list) this.cells.set(key, (list = []));
-          list.push(i);
-        }
-      }
-    }
-  }
 
-  /** First triangle of the grid containing the point (edges included), or -1 */
-  public findContaining(x: number, y: number): number {
-    const key = Math.floor(x / this.cell) * 1_000_003 + Math.floor(y / this.cell);
-    for (const list of [this.cells.get(key), this.big]) {
-      if (!list) continue;
-      for (const i of list) {
-        const [a, b, c] = this.polys[i].vertices;
-        if (pointInTriangleInclusive(x, y, a, b, c)) return i;
-      }
-    }
-    return -1;
-  }
-}
 
 /**
  * Runs validation checks on an editor map document:
@@ -457,7 +402,13 @@ export function validateMapDocument(
         messageKey: 'CTF map has no Alpha team spawn points (type 1).',
       });
     }
-    if (!hasBravoSpawn) {
+    // A single generated climb with its own Alpha-to-flag markers is a one-team time trial.
+    // An imported CTF or a tunnel added to a larger arena still gets the team-roster check.
+    const tunnel = map.editorTunnels?.length === 1 ? map.editorTunnels[0] : undefined;
+    const soloClimb = tunnel?.faces.length === map.polygons.length && !!tunnel.spawnpoints?.length &&
+      [1, 5, 6].every(team => tunnel.spawnpoints!.some(p => p.active && p.team === team &&
+        activeSpawns.some(s => s.team === team && s.x === p.x && s.y === p.y)));
+    if (!hasBravoSpawn && !soloClimb) {
       issues.push({
         id: 'ctf_missing_bravo_spawn',
         severity: 'warning',
@@ -523,7 +474,16 @@ export function validateMapDocument(
   }
 
   // 6. Narrow gaps between walls facing each other across open air (hints, on request)
-  if (includeHints) issues.push(...findNarrowGaps(map));
+  if (includeHints) {
+    for (const { x, y, polygons } of findPolyJunctions(map.polygons).slice(0, 20)) {
+      issues.push({ id: 'junction_' + x + '_' + y, severity: 'hint',
+        messageKey: 'Poly Fixer · {n} triangles meet at ({x}, {y}).',
+        messageParams: { n: polygons.length, x: Math.round(x), y: Math.round(y) },
+        focusBounds: boundsAroundPoint(x, y), focusPoint: {x, y, radius: 10},
+        selection: {...emptyTarget(), polygons}, fix: {kind: 'seal_junction', polygons, x, y} });
+    }
+    issues.push(...findNarrowGaps(map));
+  }
 
   return issues;
 }

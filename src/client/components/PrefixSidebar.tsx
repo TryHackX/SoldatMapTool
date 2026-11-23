@@ -221,7 +221,7 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
     },
     {
       mode: 'duplicates',
-      label: t('CRC32 duplicates'),
+      label: t('Verified duplicates'),
       count: duplicateMapsCount,
       icon: <Copy className="w-3.5 h-3.5 text-orange-400" />,
       accent: duplicateMapsCount > 0 ? 'text-orange-300' : undefined,

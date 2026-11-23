@@ -9,6 +9,7 @@ import {
 } from '@shared/pmsParser';
 import { t } from '../i18n';
 import { getAssetCacheEpoch, loadSoldatAssetImage } from './assetLoader';
+import { mapAssetSource, renderNameKey } from './mapAssetSource';
 import { RenderLayerVisibility } from './types';
 
 const VERTEX_SHADER_SRC = `#version 300 es
@@ -105,7 +106,7 @@ interface PreparedGpuMap {
   preferClassicBmp: boolean;
   skipGeometry: boolean;
   hasPropFilter: boolean;
-  textureNameLower: string;
+  textureKey: string;
   whiteTex: WebGLTexture;
   mainTex: WebGLTexture;
   edgeTex: WebGLTexture | null;
@@ -700,8 +701,8 @@ export class SoldatWebGLRenderer {
     const preferClassicBmp = Boolean(options?.preferClassicBmp);
     if (prev.preferClassicBmp !== preferClassicBmp) return false;
 
-    const nextTexLower = (nextMap.texture || 'default.bmp').toLowerCase();
-    if (prev.textureNameLower !== nextTexLower) return false;
+    const source=mapAssetSource(nextMap);
+    if (prev.textureKey !== renderNameKey(nextMap.texture || 'default.bmp',source)) return false;
 
     const bmpFlag = preferClassicBmp ? '1' : '0';
     const activeSet = new Set<CachedGpuTextureEntry>();
@@ -713,7 +714,7 @@ export class SoldatWebGLRenderer {
       if (!p.active || p.level > 2 || p.style <= 0 || p.style > nextMap.scenery.length) continue;
       const scIdx = p.style - 1;
       if (sceneryByIndex.has(scIdx)) continue;
-      const scKey = `scen:${bmpFlag}:${nextMap.scenery[scIdx].filename.toLowerCase()}`;
+      const scKey = `scen:${bmpFlag}:${renderNameKey(nextMap.scenery[scIdx].filename,source)}`;
       const cached = this.gpuTextureCache.get(scKey);
       if (!cached || !cached.sceneryInfo) {
         return false;
@@ -779,6 +780,7 @@ export class SoldatWebGLRenderer {
     options?: {
       preferClassicBmp?: boolean;
       skipGeometry?: boolean;
+      requireSceneryImages?: boolean;
       propFilter?: (prop: PmsProp, arrayIdx: number) => boolean;
     }
   ): Promise<boolean> {
@@ -789,11 +791,12 @@ export class SoldatWebGLRenderer {
     const skipGeometry = Boolean(options?.skipGeometry);
     const propFilter = options?.propFilter;
     const texFilename = map.texture || 'default.bmp';
-    const texLower = texFilename.toLowerCase();
+    const source=mapAssetSource(map);
+    const textureKey=renderNameKey(texFilename,source);
     const bmpFlag = preferClassicBmp ? '1' : '0';
 
-    const mainKey = `main:${bmpFlag}:${texLower}`;
-    const edgeKey = `edge:${bmpFlag}:${texLower}`;
+    const mainKey = `main:${bmpFlag}:${textureKey}`;
+    const edgeKey = `edge:${bmpFlag}:${textureKey}`;
 
     // Identify all used scenery indices and which textures are not yet in the GPU cache
     const usedSceneryIndices = new Set<number>();
@@ -820,28 +823,28 @@ export class SoldatWebGLRenderer {
     const needMainFetch = !skipGeometry && !isCached(mainKey);
     const needEdgeFetch = !skipGeometry && !isCached(edgeKey);
     const uncachedSceneryIndices = Array.from(usedSceneryIndices).filter((scIdx) => {
-      const scKey = `scen:${bmpFlag}:${map.scenery[scIdx].filename.toLowerCase()}`;
+      const scKey = `scen:${bmpFlag}:${renderNameKey(map.scenery[scIdx].filename,source)}`;
       return !isCached(scKey);
     });
 
     const [mainImg, edgeImg, ...sceneryImgs] = await Promise.all([
       !needMainFetch
         ? Promise.resolve(null)
-        : loadSoldatAssetImage('textures', texFilename, false, preferClassicBmp).then(
-            (img) => img ?? loadSoldatAssetImage('textures', 'default.bmp', false, preferClassicBmp)
+        : loadSoldatAssetImage('textures', texFilename, false, preferClassicBmp,false,source).then(
+            (img) => img ?? loadSoldatAssetImage('textures', 'default.bmp', false, preferClassicBmp,false,source)
           ),
       !needEdgeFetch
         ? Promise.resolve(null)
-        : loadSoldatAssetImage('textures/edges', texFilename, true, preferClassicBmp).then(
+        : loadSoldatAssetImage('textures/edges', texFilename, true, preferClassicBmp,false,source).then(
             (img) =>
-              img ?? loadSoldatAssetImage('textures/edges', 'default.bmp', true, preferClassicBmp)
+              img ?? loadSoldatAssetImage('textures/edges', 'default.bmp', true, preferClassicBmp,false,source)
           ),
       ...uncachedSceneryIndices.map(async (scIdx) => {
         const asset = await loadSoldatAssetImage(
           'scenery-gfx',
           map.scenery[scIdx].filename,
           true,
-          preferClassicBmp
+          preferClassicBmp,false,source
         );
         return { scIdx, asset };
       }),
@@ -849,6 +852,10 @@ export class SoldatWebGLRenderer {
 
     if (gl.isContextLost() || seq !== this.loadSeq) return false;
 
+    if (options?.requireSceneryImages) {
+      const missing = sceneryImgs.find(item => !item.asset);
+      if (missing) throw new Error(t('Could not decode scenery for optimization: {file}',{file:map.scenery[missing.scIdx].filename}));
+    }
     const activeTexturesSet = new Set<CachedGpuTextureEntry>();
 
     let mainEntry = skipGeometry ? undefined : cache.get(mainKey);
@@ -915,7 +922,7 @@ export class SoldatWebGLRenderer {
     if (edgeEntry && edgeEntry.width > 0) activeTexturesSet.add(edgeEntry);
 
     for (const { scIdx, asset } of sceneryImgs) {
-      const scKey = `scen:${bmpFlag}:${map.scenery[scIdx].filename.toLowerCase()}`;
+      const scKey = `scen:${bmpFlag}:${renderNameKey(map.scenery[scIdx].filename,source)}`;
       const existing = cache.get(scKey);
       if (existing && (!existing.placeholder || !asset)) continue;
       if (asset) {
@@ -968,7 +975,7 @@ export class SoldatWebGLRenderer {
 
     const sceneryTexMap = new Map<number, SceneryTextureInfo>();
     for (const scIdx of usedSceneryIndices) {
-      const scKey = `scen:${bmpFlag}:${map.scenery[scIdx].filename.toLowerCase()}`;
+      const scKey = `scen:${bmpFlag}:${renderNameKey(map.scenery[scIdx].filename,source)}`;
       const entry = cache.get(scKey);
       if (entry && entry.sceneryInfo) {
         activeTexturesSet.add(entry);
@@ -1030,7 +1037,7 @@ export class SoldatWebGLRenderer {
       preferClassicBmp,
       skipGeometry,
       hasPropFilter: Boolean(propFilter),
-      textureNameLower: texLower,
+      textureKey,
       whiteTex: this.whiteTexture,
       mainTex: mainEntry ? mainEntry.tex : this.fallbackCheckerTexture,
       edgeTex,

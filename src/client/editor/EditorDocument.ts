@@ -1,4 +1,5 @@
 import { EditorPrefabElementBundle } from '@shared/apiTypes';
+import { pruneUnusedScenery } from '@shared/sceneryDependencies';
 import {
   computeMapBounds,
   createPolygonFromPoints,
@@ -46,6 +47,7 @@ export interface EditorDocumentSnapshot {
   sourceBaseName: string | null;
   currentBaseName: string;
   hasSavedOnce: boolean;
+  projectFile: boolean;
   map: PmsMapData;
   savedMap: PmsMapData;
   selection: EditorSelection;
@@ -1281,12 +1283,11 @@ export function selectSimilarObjects(
   sel: EditorSelection,
   can?: SelectableFilter
 ): EditorSelection {
-  const stem = (name: string) => name.trim().toLowerCase().replace(/\.[^./\\]+$/, '');
   const out = emptySelection();
   if (sel.props.length > 0) {
-    const stems = new Set(sel.props.map((i) => map.props[i]).filter(Boolean).map((p) => stem(map.scenery[p.style - 1]?.filename ?? '')));
+    const names = new Set(sel.props.map(i => map.scenery[(map.props[i]?.style ?? 0) - 1]?.filename).filter(Boolean));
     map.props.forEach((p, i) => {
-      if (isPropRenderable(p, map.scenery.length) && stems.has(stem(map.scenery[p.style - 1].filename)) && (can?.prop(i) ?? true)) {
+      if (isPropRenderable(p, map.scenery.length) && names.has(map.scenery[p.style - 1].filename) && (can?.prop(i) ?? true)) {
         out.props.push(i);
       }
     });
@@ -1344,28 +1345,20 @@ export function toggleWaypointConnection(
     return map;
   }
 
+  const from = map.waypoints[fromZeroIdx], to = map.waypoints[toZeroIdx];
+  const add = !from.connections.includes(toZeroIdx + 1);
+  const hasReverse = to.connections.includes(fromZeroIdx + 1);
+  // A full endpoint must not turn an attempted two-way addition into a removal or a one-way link.
+  if (add && (from.connections.length >= 20 || (bidirectional && !hasReverse && to.connections.length >= 20))) return map;
   const nextWaypoints = [...map.waypoints];
-  const toggleOneWay = (srcIdx: number, dstOneBased: number, forceAdd?: boolean): boolean => {
+  const setLink = (srcIdx: number, dstOneBased: number) => {
     const wp = nextWaypoints[srcIdx];
-    const has = wp.connections.includes(dstOneBased);
-    const shouldHave = forceAdd !== undefined ? forceAdd : !has;
-    let nextConns: number[];
-    if (shouldHave) {
-      if (has) return true;
-      if (wp.connections.length >= 20) return false;
-      nextConns = [...wp.connections, dstOneBased];
-    } else {
-      nextConns = wp.connections.filter((c) => c !== dstOneBased);
-    }
+    const nextConns = add ? [...wp.connections, dstOneBased] : wp.connections.filter(c => c !== dstOneBased);
     const { raw: _raw, ...rest } = wp;
     nextWaypoints[srcIdx] = { ...rest, connections: nextConns };
-    return shouldHave;
   };
-
-  const added = toggleOneWay(fromZeroIdx, toZeroIdx + 1);
-  if (bidirectional) {
-    toggleOneWay(toZeroIdx, fromZeroIdx + 1, added);
-  }
+  setLink(fromZeroIdx, toZeroIdx + 1);
+  if (bidirectional && hasReverse !== add) setLink(toZeroIdx, fromZeroIdx + 1);
   return { ...map, waypoints: nextWaypoints };
 }
 
@@ -1421,6 +1414,7 @@ export class EditorDocument {
     sourceBaseName?: string | null;
     initialBaseName?: string;
     draftId?: string;
+    projectFile?: boolean;
     startDirty?: boolean; // a recovered draft holds work that was never saved
   }) {
     const sourceBaseName = opts.sourceBaseName ?? null;
@@ -1437,6 +1431,7 @@ export class EditorDocument {
       sourceBaseName,
       currentBaseName: suggestedName,
       hasSavedOnce: false,
+      projectFile: opts.projectFile === true,
       map: opts.map,
       // A shallow copy differs from `map` (unsaved) but shares its arrays, so geometry and scenery count as untouched
       savedMap: opts.startDirty ? { ...opts.map } : opts.map,
@@ -1476,6 +1471,15 @@ export class EditorDocument {
 
   public canRedo(): boolean {
     return this.state.redoStack.length > 0;
+  }
+
+  public removeUnusedScenery() {
+    const map=this.state.map;
+    const {props,scenery,removedCount}=pruneUnusedScenery(map);
+    const snapshot=removedCount
+      ? this.commit({label:'Remove unused scenery entries',nextMap:{...map,props,scenery}})
+      : this.state;
+    return {snapshot,removedCount};
   }
 
   public setSelection(nextSelection: EditorSelection): EditorDocumentSnapshot {
@@ -1631,41 +1635,36 @@ export class EditorDocument {
     savedMap: PmsMapData,
     savedBaseName: string,
     newMapId?: string | null,
-    savedFromMap?: PmsMapData
+    savedFromMap?: PmsMapData,
+    format: 'pms' | 'project' = 'pms'
   ): EditorDocumentSnapshot {
-    // Edited while the save request was running: keep the newer work (still unsaved), only remember the file
-    if (savedFromMap && savedFromMap !== this.state.map) {
-      this.state = {
-        ...this.state,
-        savedMap,
-        currentBaseName: savedBaseName,
-        sourceMapId: newMapId ?? this.state.sourceMapId,
-        sourceBaseName: savedBaseName,
-        hasSavedOnce: true,
-        revision: this.state.revision + 1,
-      };
-      return this.state;
-    }
-    // Also update the top undo entry's `afterMap` if it was normalized on save so Undo/Redo stays seamless
-    let nextUndo = this.state.undoStack;
-    if (nextUndo.length > 0) {
-      nextUndo = [...nextUndo];
-      nextUndo[nextUndo.length - 1] = {
-        ...nextUndo[nextUndo.length - 1],
-        afterMap: savedMap,
-      };
-    }
+    const source = savedFromMap ?? this.state.map;
+    const projectOnlyData = Boolean(source.editorTunnels?.length || source.editorSketch ||
+      this.state.savedMap.editorTunnels?.length || this.state.savedMap.editorSketch);
+    // A game export is independent of the editable file and its recovery baseline.
+    if (format === 'pms' && (this.state.projectFile || projectOnlyData)) return this.state;
 
+    const fileIdentity = format === 'project' ? {
+      projectFile: true, currentBaseName: savedBaseName,
+    } : {
+      currentBaseName: savedBaseName, sourceMapId: newMapId ?? this.state.sourceMapId,
+      sourceBaseName: savedBaseName, hasSavedOnce: true,
+    };
+    // The save may finish after another edit or while a redo is available. Replace
+    // every reference to the saved revision so returning to it also clears dirty.
+    const updateHistory = (entries: EditorHistoryEntry[]) => source === savedMap ? entries : entries.map(entry =>
+      entry.beforeMap === source || entry.afterMap === source ? {
+        ...entry,
+        beforeMap: entry.beforeMap === source ? savedMap : entry.beforeMap,
+        afterMap: entry.afterMap === source ? savedMap : entry.afterMap,
+      } : entry
+    );
+    const map = this.state.map === source ? savedMap : this.state.map;
     this.state = {
-      ...this.state,
-      map: savedMap,
-      savedMap,
-      currentBaseName: savedBaseName,
-      sourceMapId: newMapId ?? this.state.sourceMapId,
-      sourceBaseName: savedBaseName,
-      hasSavedOnce: true,
-      selection: sanitizeSelectionForMap(this.state.selection, savedMap),
-      undoStack: nextUndo,
+      ...this.state, ...fileIdentity, map, savedMap,
+      selection: map === savedMap ? sanitizeSelectionForMap(this.state.selection, map) : this.state.selection,
+      undoStack: updateHistory(this.state.undoStack),
+      redoStack: updateHistory(this.state.redoStack),
       revision: this.state.revision + 1,
     };
     return this.state;

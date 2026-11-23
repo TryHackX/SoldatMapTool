@@ -1,3 +1,4 @@
+import { useToolKeys } from '../shortcutBindings';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Command, Search, X } from 'lucide-react';
 import { t } from '../../i18n';
@@ -66,6 +67,7 @@ export const EditorCommandPalette: React.FC<EditorCommandPaletteProps> = ({
   onSelectRightTab,
   extraActions,
 }) => {
+  const keys = useToolKeys();
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -83,7 +85,7 @@ export const EditorCommandPalette: React.FC<EditorCommandPaletteProps> = ({
       id: `tool_${tool.id}`,
       label: t(tool.labelEn),
       category: t('Tools'),
-      shortcut: tool.shortcut,
+      shortcut: keys[tool.id],
       run: () => onSelectTool(tool.id),
     }));
 
@@ -92,7 +94,7 @@ export const EditorCommandPalette: React.FC<EditorCommandPaletteProps> = ({
         id: 'act_save',
         label: t('Save map (.pms)'),
         category: t('File'),
-        shortcut: 'Ctrl+S',
+        shortcut: 'Ctrl+Shift+S',
         run: onOpenSave,
       },
       {
@@ -216,7 +218,14 @@ export const EditorCommandPalette: React.FC<EditorCommandPaletteProps> = ({
         run: () => onChangeLayers({ ...layers, showWaypoints: !layers.showWaypoints }),
       },
       {
-        id: 'panel_validation',
+          id: 'poly_fixer',
+          label: t('Poly Fixer'),
+
+          category: t('Panels'),
+          run: () => onSelectRightTab('poly_fixer'),
+        },
+        {
+          id: 'panel_validation',
         label: t('Open live map validation report'),
         category: t('Panels'),
         run: () => onSelectRightTab('validation'),
@@ -231,6 +240,7 @@ export const EditorCommandPalette: React.FC<EditorCommandPaletteProps> = ({
 
     return [...toolActions, ...coreActions, ...(extraActions ?? [])];
   }, [
+    keys,
     extraActions,
     layers,
     onChangeLayers,

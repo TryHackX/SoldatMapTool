@@ -21,6 +21,22 @@ function writeZip(build: (zip: AdmZip) => void): string {
   return file;
 }
 
+test('extracting a pack restores replaced files when a later destination cannot be written', t => {
+  const archive = writeZip(zip => {
+    zip.addFile('a.pms', Buffer.from('replacement'));
+    zip.addFile('b.pms', Buffer.from('new'));
+    zip.addFile('c.pms', Buffer.from('last'));
+  });
+  const dest = tempDir('sms-restore-');
+  t.after(() => fs.rmSync(dest, {recursive:true, force:true}));
+  t.after(() => fs.rmSync(path.dirname(archive), {recursive:true, force:true}));
+  fs.writeFileSync(path.join(dest,'a.pms'), 'original');
+  fs.mkdirSync(path.join(dest,'c.pms'));
+  assert.throws(() => extractZipSafely(archive,dest));
+  assert.equal(fs.readFileSync(path.join(dest,'a.pms'),'utf8'),'original');
+  assert.deepEqual(fs.readdirSync(dest).sort(), ['a.pms','c.pms']);
+});
+
 test('safe extraction writes regular files and skips symbolic links stored in the archive', () => {
   const archive = writeZip((zip) => {
     zip.addFile('maps/ctf_a.pms', Buffer.from(buildSyntheticPms({ props: 1 })));
@@ -116,6 +132,8 @@ test('ZIP pack build (archiver 8) contains the maps and every generated file', a
     'maps/ctf_beta.pms',
     'maps_crc32_Test_Pack.txt',
     'mapslist_Test_Pack.txt',
+    'missing/ctf_alpha.txt',
+    'missing/ctf_beta.txt',
   ]);
   const crc = new AdmZip(result.outputPath).readAsText('maps_crc32_Test_Pack.txt');
   assert.ok(crc.includes('ctf_alpha;') && crc.includes('ctf_beta;'));

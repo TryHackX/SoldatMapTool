@@ -96,6 +96,9 @@ export interface PmsWaypoint {
 }
 
 export interface PmsMapData {
+  // Editor project data travels in .smaproj and recovery drafts. The PMS codec only writes game records.
+  editorTunnels?: import('./tunnelProject').TunnelProject[];
+  editorSketch?: import('./tunnelSketch').TunnelSketch;
   version: number;
   mapName: string;
   texture: string;
@@ -190,6 +193,9 @@ export interface PmsSummaryData {
   polyTypeCounts: Record<number, number>;
   propCount: number;
   activePropCount: number;
+  invalidActivePropStyles?: number;
+  invalidSectorReferences?: number;
+  gameplayOffsets?: { props: number; waypoints: number; waypointCount: number };
   propLevelCounts: [number, number, number];
   scenery: PmsSceneryDef[];
   colliderCount: number;
@@ -1148,7 +1154,7 @@ function readTailSectionCount(
 /**
  * Fast, low-allocation summary parser for indexing hundreds of PMS maps in milliseconds.
  */
-export function parsePmsSummary(input: ArrayBuffer | Uint8Array): PmsSummaryData {
+export function parsePmsSummary(input: ArrayBuffer | Uint8Array, options?: { inspectSectorReferences?: boolean }): PmsSummaryData {
   const br = new BinaryReader(input);
 
   const version = br.readInt32();
@@ -1201,9 +1207,18 @@ export function parsePmsSummary(input: ArrayBuffer | Uint8Array): PmsSummaryData
     throw new Error(`Invalid sectorsNum: ${sectorsNum}`);
   }
   const totalSectors = (2 * sectorsNum + 1) * (2 * sectorsNum + 1);
+  let invalidSectorReferences = 0;
   for (let i = 0; i < totalSectors; i++) {
     const m = br.readUint16();
-    br.skip(m * 2);
+    if (options?.inspectSectorReferences) {
+      if (br.pos + m * 2 > br.length) throw new Error('Truncated PMS sector polygon list');
+      for (let k = 0; k < m; k++) {
+        const ref = br.readUint16();
+        if (ref === 0 || ref > polygonCount) invalidSectorReferences++;
+      }
+    } else {
+      br.skip(m * 2);
+    }
   }
   if (br.pos + 4 > br.length) {
     throw new Error('Truncated PMS file: sector table runs past end of file');
@@ -1217,6 +1232,7 @@ export function parsePmsSummary(input: ArrayBuffer | Uint8Array): PmsSummaryData
     throw new Error(`Truncated PMS file: prop table needs ${propCount * PROP_RECORD_SIZE} bytes`);
   }
   // Store lightweight prop tuples temporarily to validate against sceneryCount
+  const propsOffset = br.pos;
   const rawProps: Array<{
     active: boolean;
     style: number;
@@ -1267,9 +1283,11 @@ export function parsePmsSummary(input: ArrayBuffer | Uint8Array): PmsSummaryData
   let fBottom = pBottom;
   let activePropCount = 0;
   const propLevelCounts: [number, number, number] = [0, 0, 0];
+  let invalidActivePropStyles = 0;
 
   for (let i = 0; i < propCount; i++) {
     const p = rawProps[i];
+    if (p.active && p.level <= 2 && (p.style < 1 || p.style > sceneryCount)) invalidActivePropStyles++;
     if (p.active && p.level <= 2 && p.style > 0 && p.style <= sceneryCount) {
       activePropCount++;
       propLevelCounts[p.level as 0 | 1 | 2]++;
@@ -1327,11 +1345,13 @@ export function parsePmsSummary(input: ArrayBuffer | Uint8Array): PmsSummaryData
     }
   }
 
+  const waypointCountOffset = br.pos;
   const waypointSection =
     spawnSection < 0
       ? -1
       : readTailSectionCount(br, WAYPOINT_RECORD_SIZE, 20000, 'bot waypoints', parseWarnings);
   const waypointCount = Math.max(0, waypointSection);
+  const waypointsOffset = br.pos;
   let activeWaypointCount = 0;
   if (waypointCount > 0) {
     for (let i = 0; i < waypointCount; i++) {
@@ -1366,6 +1386,9 @@ export function parsePmsSummary(input: ArrayBuffer | Uint8Array): PmsSummaryData
     propCount,
     activePropCount,
     propLevelCounts,
+    ...(invalidActivePropStyles ? { invalidActivePropStyles } : {}),
+    ...(invalidSectorReferences ? { invalidSectorReferences } : {}),
+    ...(options?.inspectSectorReferences ? { gameplayOffsets: { props: propsOffset, waypoints: waypointsOffset, waypointCount: waypointCountOffset } } : {}),
     scenery,
     colliderCount,
     activeColliderCount,
@@ -1614,18 +1637,42 @@ export function patchPmsPropsAndScenery(
   return out;
 }
 
-/**
- * Full standalone `.pms` binary serializer from a parsed `PmsMapData` structure.
- */
+function sectorListBytes(sectors: Uint16Array[] | undefined, count: number) {
+  let size = count * 2;
+  for (let i = 0; i < count; i++) size += (sectors?.[i]?.length ?? 0) * 2;
+  return size;
+}
+
+function writeSectorLists(view: DataView, pos: number, sectors: Uint16Array[] | undefined, count: number) {
+  for (let i = 0; i < count; i++) {
+    const refs = sectors?.[i];
+    view.setUint16(pos, refs?.length ?? 0, true);
+    pos += 2;
+    if (refs) for (let j = 0; j < refs.length; j++, pos += 2) view.setUint16(pos, refs[j], true);
+  }
+  return pos;
+}
+
+/** Replace only sector membership lists in the original PMS used to parse the map. */
+export function patchPmsSectorLists(bytes: Uint8Array, map: PmsMapData, lists: Uint16Array[]) {
+  const count = (2 * map.sectorsNum + 1) ** 2;
+  if (map.sectorsPolys?.length !== count || lists.length !== count) throw new Error('Sector count mismatch');
+  const start = 92 + map.polygons.length * POLYGON_RECORD_SIZE + 8;
+  const end = start + sectorListBytes(map.sectorsPolys, count);
+  if (end + 4 > bytes.length) throw new Error('Truncated sector table');
+  const out = new Uint8Array(bytes.length - (end - start) + sectorListBytes(lists, count));
+  out.set(bytes.subarray(0, start));
+  const next = writeSectorLists(new DataView(out.buffer), start, lists, count);
+  out.set(bytes.subarray(end), next);
+  return out;
+}
+
+/** Full standalone PMS binary serializer from a parsed map. */
 export function serializePms(map: PmsMapData): Uint8Array {
   // 0 is a valid sector count / division: only fall back when the value is missing
   const sectorsNum = Number.isFinite(map.sectorsNum) ? Math.max(0, map.sectorsNum) : 25;
   const totalSectors = (2 * sectorsNum + 1) * (2 * sectorsNum + 1);
-  let sectorsPayloadBytes = 0;
-  for (let i = 0; i < totalSectors; i++) {
-    const s = map.sectorsPolys?.[i];
-    sectorsPayloadBytes += 2 + (s ? s.length * 2 : 0);
-  }
+  const sectorsPayloadBytes = sectorListBytes(map.sectorsPolys, totalSectors);
 
   const headerAndPolysLen = 88 + 4 + map.polygons.length * 121 + 8 + sectorsPayloadBytes;
   const propsAndScenery = encodePropsAndSceneryBlock(map.props, map.scenery);
@@ -1756,18 +1803,7 @@ export function serializePms(map: PmsMapData): Uint8Array {
   view.setInt32(pos, Number.isFinite(map.sectorsDivision) ? map.sectorsDivision : 128, true);
   view.setInt32(pos + 4, sectorsNum, true);
   pos += 8;
-  for (let i = 0; i < totalSectors; i++) {
-    const s = map.sectorsPolys?.[i];
-    const m = s ? s.length : 0;
-    view.setUint16(pos, m, true);
-    pos += 2;
-    if (s) {
-      for (let k = 0; k < m; k++) {
-        view.setUint16(pos, s[k], true);
-        pos += 2;
-      }
-    }
-  }
+  pos = writeSectorLists(view, pos, map.sectorsPolys, totalSectors);
 
   bytes.set(propsAndScenery, pos);
   pos += propsAndScenery.byteLength;

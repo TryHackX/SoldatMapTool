@@ -23,9 +23,12 @@ export function useModalDismiss(
   onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void;
   onClick: (e: React.MouseEvent<HTMLDivElement>) => void;
   role: 'dialog';
+  ref: React.RefObject<HTMLDivElement | null>;
+  tabIndex: -1;
   'aria-modal': true;
 } {
   const mouseDownOnBackdropRef = useRef(false);
+  const backdrop = useRef<HTMLDivElement>(null);
   const modalIdRef = useRef(0);
   if (modalIdRef.current === 0) modalIdRef.current = nextModalId++;
 
@@ -40,10 +43,25 @@ export function useModalDismiss(
     if (!open) return;
     const id = modalIdRef.current;
     openModalStack.push(id);
+    const root = backdrop.current, opener = document.activeElement;
+    function controls() {
+      return root ? Array.from(root.querySelectorAll<HTMLElement>('button,input,select,textarea,summary,a[href],[tabindex]'))
+        .filter(el => !el.matches(':disabled,[tabindex="-1"]') && el.getClientRects().length > 0) : [];
+    }
+    if (root && !root.contains(opener)) (controls()[0] ?? root).focus({preventScroll:true});
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
       if (openModalStack[openModalStack.length - 1] !== id) return;
+      if (e.key === 'Tab' && root && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        const items = controls();
+        const active = document.activeElement, first = items[0], last = items.at(-1);
+        if (!first || !root.contains(active) || active===root || (e.shiftKey ? active===first : active===last)) {
+          e.preventDefault();
+          ((e.shiftKey ? last : first) ?? root).focus();
+        }
+        return;
+      }
+      if (e.key !== 'Escape') return;
       if (disabledRef.current) return;
       e.preventDefault();
       e.stopPropagation();
@@ -54,7 +72,10 @@ export function useModalDismiss(
     return () => {
       window.removeEventListener('keydown', handleKeyDown, true);
       const idx = openModalStack.lastIndexOf(id);
+      const wasTop = idx===openModalStack.length-1;
       if (idx >= 0) openModalStack.splice(idx, 1);
+      if (wasTop && opener instanceof HTMLElement && opener.isConnected &&
+        (document.activeElement===document.body || root?.contains(document.activeElement))) opener.focus({preventScroll:true});
     };
   }, [open]);
 
@@ -75,6 +96,8 @@ export function useModalDismiss(
     onMouseDown,
     onClick,
     role: 'dialog',
+    ref: backdrop,
+    tabIndex: -1,
     'aria-modal': true,
   };
 }

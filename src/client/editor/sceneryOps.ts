@@ -56,11 +56,6 @@ export function adjustPropsTint(map: PmsMapData, indices: ReadonlyArray<number>,
   return mapSelectedProps(map, indices, (p) => ({ ...withoutRaw(p), color: { ...adjustColor(p.color, adjust), a: p.color.a } }));
 }
 
-export function setPropsAlpha(map: PmsMapData, indices: ReadonlyArray<number>, alpha: number): PmsMapData {
-  const a = clampByte(alpha);
-  return mapSelectedProps(map, indices, (p) => (p.alpha === a ? p : { ...withoutRaw(p), alpha: a }));
-}
-
 export type PropGradientAxis = 'x' | 'y' | 'radial';
 
 export interface PropGradientOptions {
@@ -203,24 +198,29 @@ export function applyDepthHaze(map: PmsMapData, opts: DepthHazeOptions): PmsMapD
   });
 }
 
-/** File name without extension, lower case: "Tree.BMP" and "tree.png" are the same scenery for the game */
+/** Group the usual BMP/HD PNG pair, preserving case-sensitive files in Linux packages. */
 export function sceneryStem(filename: string): string {
-  return filename.trim().toLowerCase().replace(/\.[^./\\]+$/, '');
+  const pair = /\.(?:bmp|png)$/.exec(filename);
+  return pair ? 'pair:' + filename.slice(0, pair.index) : 'file:' + filename;
 }
 
 /**
- * Indices of all props drawing the given scenery file. Case-insensitive, and an image matches its .bmp / .png twin
- * (the game loads "x.png" for a map that names "x.bmp").
+ * Prefer the exact case used by the map. A legacy spelling can still resolve when it has only one match.
  */
 export function propsUsingScenery(map: PmsMapData, filename: string): number[] {
   const stem = sceneryStem(filename);
   const styles = new Set<number>();
-  map.scenery.forEach((s, i) => {
-    if (sceneryStem(s.filename) === stem) styles.add(i + 1);
-  });
+  const legacy = (name: string) => sceneryStem(name.toLowerCase());
+  let matches = map.scenery.filter(s => sceneryStem(s.filename) === stem);
+  if (!matches.length) {
+    matches = map.scenery.filter(s => legacy(s.filename) === legacy(filename));
+    if (new Set(matches.map(s => sceneryStem(s.filename))).size > 1) return [];
+  }
+  const names = new Set(matches.map(s => s.filename));
+  map.scenery.forEach((s, i) => { if (names.has(s.filename)) styles.add(i + 1); });
   const out: number[] = [];
   map.props.forEach((p, i) => {
-    if (styles.has(p.style)) out.push(i);
+    if (isPropRenderable(p, map.scenery.length) && styles.has(p.style)) out.push(i);
   });
   return out;
 }

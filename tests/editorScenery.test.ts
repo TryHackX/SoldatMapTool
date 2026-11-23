@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { computePropAabb, parsePmsFull, PmsMapData } from '../src/shared/pmsParser';
 import { adjustColor, hexToRgb, hsvToRgb, parseHexColor, rgbToHex, rgbToHsv } from '../src/client/editor/colorTools';
-import { computePropQuadCenter, stretchSinglePropLocal } from '../src/client/editor/EditorDocument';
+import { computePropQuadCenter, emptySelection, selectSimilarObjects, stretchSinglePropLocal } from '../src/client/editor/EditorDocument';
 import type { GizmoHandleKind } from '../src/client/editor/types';
 import {
   applyDepthHaze,
@@ -117,6 +117,17 @@ test('scenery usage lookups and image replacement', () => {
   const swapped = replacePropsScenery(map, trees, 'bush.png');
   for (const i of trees) assert.equal(swapped.scenery[swapped.props[i].style - 1].filename, 'bush.png');
   assert.deepEqual(propsUsingScenery(swapped, 'tree.bmp'), []);
+});
+
+test('bulk scenery operations keep case variants and inactive instances separate', () => {
+  const map = sceneryMap();
+  map.scenery = ['Tree.png', 'tree.png', 'Tree.tga'].map((filename, i) => ({ ...map.scenery[0], filename, index: i + 1 }));
+  map.props = [1, 2, 3, 1].map((style, i) => ({ ...map.props[0], style, active: i !== 3, index: i }));
+  assert.deepEqual(propsUsingScenery(map, 'Tree.png'), [0]);
+  assert.deepEqual(propsUsingScenery(map, 'tree.bmp'), [1]);
+  assert.deepEqual(propsUsingScenery(map, 'TREE.PNG'), []);
+  assert.deepEqual(selectSimilarObjects(map, { ...emptySelection(), props: [0] }).props, [0]);
+  assert.deepEqual([...sceneryUsageCounts(map).values()], [1, 1, 1]);
 });
 
 test('every stretch handle scales its own side and keeps the opposite side anchored', () => {

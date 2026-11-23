@@ -32,6 +32,7 @@ import {
   extractSelectionBundle,
 } from '../EditorDocument';
 import { propsUsingScenery, sceneryStem, sceneryUsageCounts } from '../sceneryOps';
+import { mapAssetSource } from '../../renderer/mapAssetSource';
 import { mergeSelections } from '../spatialIndex';
 import { memoIgnoringCallbacks } from '../memoIgnoringCallbacks';
 import { NumberInput } from './EditorFields';
@@ -116,6 +117,7 @@ const EditorLeftDockPanel: React.FC<EditorLeftDockProps> = ({
   const [assetLimit, setAssetLimit] = useState(120);
   const [assetUsedOnly, setAssetUsedOnly] = useState(false);
   const [loadedDims, setLoadedDims] = useState<Record<string, string>>({});
+  const assetSource = mapAssetSource(map);
 
   // Prefabs state
   const [prefabs, setPrefabs] = useState<EditorPrefabItem[]>([]);
@@ -926,14 +928,14 @@ const EditorLeftDockPanel: React.FC<EditorLeftDockProps> = ({
               {filteredAssets.slice(0, assetLimit).map((item) => {
                 const isSelected =
                   assetCategory === 'scenery-gfx'
-                    ? placement.sceneryFilename.toLowerCase() === item.name.toLowerCase()
-                    : map.texture.toLowerCase() === item.name.toLowerCase();
+                    ? sceneryStem(placement.sceneryFilename) === sceneryStem(item.name)
+                    : map.texture === item.name;
                 const thumbUrl = `/api/assets?category=${encodeURIComponent(
                   assetCategory
                 )}&name=${encodeURIComponent(item.name)}&convert=png${
                   assetCategory === 'scenery-gfx' ? '&colorkey=1' : ''
-                }`;
-                const dimKey = `${assetCategory}:${item.name}`;
+                }${assetSource ? '&mapId=' + encodeURIComponent(assetSource.mapId) + '&scope=' + encodeURIComponent(assetSource.key) : ''}`;
+                const dimKey = thumbUrl;
                 const tooLongForPms = assetCategory === 'textures' && item.name.length > 24;
                 const usedCount = assetCategory === 'scenery-gfx' ? sceneryUsage.get(sceneryStem(item.name)) ?? 0 : 0;
                 return (
@@ -951,7 +953,7 @@ const EditorLeftDockPanel: React.FC<EditorLeftDockProps> = ({
                     }}
                     title={
                       assetCategory === 'scenery-gfx'
-                        ? t('Select {name} for Scenery tool [E]', { name: item.name })
+                        ? t('Select {name} for Scenery tool', { name: item.name })
                         : tooLongForPms
                         ? t('Texture file name exceeds PMS 24-character limit ({name})', { name: item.name })
                         : t('Set map main texture to {name}', { name: item.name })

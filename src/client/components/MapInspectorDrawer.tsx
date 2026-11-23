@@ -48,7 +48,7 @@ interface MapInspectorDrawerProps {
   inPack: boolean;
   onTogglePack: () => void;
   onSelectMapById?: (mapId: string) => void;
-  onOpenWorkshop?: (tab: 'fix' | 'optimize') => void;
+  onOpenWorkshop?: (tab: 'fix' | 'optimize' | 'walls') => void;
   onEditMap?: () => void;
   onUpdateUserData: (mapId: string, patch: MapUserDataPatch) => void;
   knownTags: string[];
@@ -281,6 +281,8 @@ export const MapInspectorDrawer: React.FC<MapInspectorDrawerProps> = ({
               <Layers className="w-3.5 h-3.5 text-teal-400 shrink-0" />
               <span>Optimize Scen. (_o)</span>
             </button>
+            <button type="button" className="col-span-2 rounded-md border border-zinc-700 py-1.5 text-xs text-amber-200 hover:bg-zinc-800"
+              onClick={()=>onOpenWorkshop('walls')}>{t('Wall protection')}</button>
           </div>
         )}
 
@@ -329,7 +331,7 @@ export const MapInspectorDrawer: React.FC<MapInspectorDrawerProps> = ({
           <div className="bg-orange-500/10 border border-orange-500/35 rounded-md p-2 text-[11px] text-orange-200 space-y-1">
             <div className="flex items-center gap-1.5 font-semibold">
               <Copy className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-              {t('Identical CRC32 duplicates ({count}):', { count: map.duplicateMapIds.length })}
+              {t('Verified map copies ({count})', { count: map.duplicateMapIds.length })}
             </div>
             <div className="flex flex-wrap gap-1">
               {map.duplicateMapIds.map((dupId) => (

@@ -46,8 +46,8 @@ export const PACKS_PL: PlDictionary = {
   'Skip default Soldat textures and sceneries (readonly.txt)': 'Pomiń domyślne tekstury i scenerie Soldata (readonly.txt)',
   'Recommended — does not duplicate files every player already has':
     'Zalecane — nie duplikuje plików, które każdy gracz już posiada',
-  'Skip unused (“dead”) sceneries from the .pms header': 'Pomiń nieużywane („martwe”) scenerie z nagłówka .pms',
-  'Removes junk left behind by PolyWorks / MapMaker': 'Usuwa śmieci pozostawione przez PolyWorks / MapMaker',
+  'Remove unused scenery entries from packed maps': 'Usuń nieużywane wpisy scenerii z pakowanych map',
+  'Rewrites the scenery table in the packed PMS and skips the unused graphics.': 'Czyści tabelę scenerii w kopii PMS i pomija nieużywane grafiki w paczce.',
   'Fix letter case for Linux servers': 'Napraw wielkość liter pod serwery Linux',
   'File names in the ZIP exactly as in the .pms; a file that maps spell in several ways goes into the pack under each name':
     'Nazwy plików w ZIP dokładnie jak w .pms; plik zapisany w mapach na kilka sposobów trafia do paczki pod każdą nazwą',
@@ -80,6 +80,7 @@ export const PACKS_PL: PlDictionary = {
     'Kolizje nazw plików ({count}) — spakowana zostanie tylko jedna wersja:',
   'Warning: missing files detected on disk ({count})': 'Uwaga: Wykryto brakujące pliki na dysku ({count})',
   '[{map}] missing {file}': '[{map}] brak {file}',
+  'The pack includes these maps with a file list in missing/<map>.txt.': 'Te mapy trafią do paczki z wykazem braków w missing/<nazwa_mapy>.txt.',
   'Archive contents preview ({count})': 'Podgląd zawartości archiwum ({count})',
   'recalculating...': 'przeliczanie...',
   'Filter by path...': 'Filtruj ścieżkę...',
@@ -211,12 +212,12 @@ export const PACKS_PL: PlDictionary = {
   'Files are moved to {path} (with a RESTORE.txt list) — nothing is deleted.':
     'Pliki są przenoszone do {path} (z listą PRZYWRACANIE.txt) — nic nie jest kasowane.',
   'Close clean-up': 'Zamknij porządki',
-  'CRC32 duplicates': 'Duplikaty CRC32',
+  'Verified duplicates': 'Potwierdzone duplikaty',
   'Unused sceneries': 'Nieużywane scenerie',
   'Letter case (Linux)': 'Wielkość liter (Linux)',
   'Refresh list': 'Odśwież listę',
   'Loading duplicate groups...': 'Wczytywanie grup duplikatów...',
-  'No maps in the collection share the same CRC32 checksum.': 'W kolekcji nie ma map o identycznej sumie CRC32.',
+  'No matching copies with identical map and artwork content were found.': 'Nie znaleziono kopii o identycznych danych map i grafik.',
   '{n} group of identical maps|{n} groups of identical maps': [
     '{n} grupa identycznych map',
     '{n} grupy identycznych map',
