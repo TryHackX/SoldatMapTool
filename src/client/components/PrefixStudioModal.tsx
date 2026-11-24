@@ -287,7 +287,7 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
               <Download className="w-3.5 h-3.5" /> {t('Export JSON')}
             </button>
             <label className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-200 flex items-center gap-1.5 cursor-pointer">
-              <Upload className="w-3.5 h-3.5" /> Import JSON
+              <Upload className="w-3.5 h-3.5" /> {t('Import JSON')}
               <input type="file" accept=".json" onChange={handleImportJson} className="hidden" />
             </label>
             <button
@@ -488,7 +488,7 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
                     </span>
                   </div>
                   <div className="text-[11px] font-mono text-zinc-400 mt-0.5">
-                    Prefix: <span className="text-emerald-300">{liveTestResult.prefix}</span>
+                    {t('Prefix:')} <span className="text-emerald-300">{liveTestResult.prefix}</span>
                     {liveTestResult.subprefix
                       ? ` • ${t('Series: {subprefix}', { subprefix: liveTestResult.subprefix })}`
                       : ''}

@@ -127,7 +127,11 @@ export const EditorNewMapModal: React.FC<EditorNewMapModalProps> = ({
     >
       <form
         onSubmit={handleSubmit}
-
+        // With unsaved edits, creating discards them and their recovery draft: Enter in a field must not do that,
+        // only a click on "Discard changes and create"
+        onKeyDown={(e) => {
+          if (hasUnsavedChanges && e.key === 'Enter' && e.target instanceof HTMLInputElement) e.preventDefault();
+        }}
         className="flex w-full max-w-4xl max-h-[92vh] flex-col overflow-hidden bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl"
       >
         <div className="px-5 py-3.5 border-b border-zinc-800 flex items-center justify-between">

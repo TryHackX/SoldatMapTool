@@ -58,6 +58,30 @@ test('the prefab library is never rewritten from a file that could not be read',
   assert.deepEqual(service.listPrefabs().map((p) => p.name), ['second']);
 });
 
+test('duplicate checks keep digests between scans but read a changed file again', async () => {
+  const base = tempDir('sms-dup-digest-');
+  const root = path.join(base, 'Soldat');
+  fs.mkdirSync(path.join(root, 'maps'), { recursive: true });
+  const one = buildSyntheticPms({}), two = buildSyntheticPms({ colliders: 1 });
+  const file = (name: string) => path.join(root, 'maps', name + '.pms');
+  fs.writeFileSync(file('ctf_a'), one);
+  fs.writeFileSync(file('ctf_b'), two);
+  fs.writeFileSync(file('ctf_c'), one);
+  const cache = path.join(base, 'cache');
+  fs.mkdirSync(path.join(cache, 'thumbnails'), { recursive: true });
+  const scanner = new SoldatMapScanner(root, [], [], cache, path.join(cache, 'thumbnails'));
+  await scanner.scanAsync(true);
+  const counts = () => ['ctf_a', 'ctf_b', 'ctf_c'].map((id) => scanner.getMapEntry(id)?.duplicateCount);
+  assert.deepEqual(counts(), [2, 1, 2]);
+
+  // ctf_a now holds the bytes of ctf_b: its digest from the first scan must not be reused
+  fs.writeFileSync(file('ctf_a'), two);
+  const later = new Date(Date.now() + 5000);
+  fs.utimesSync(file('ctf_a'), later, later);
+  await scanner.scanAsync(true);
+  assert.deepEqual(counts(), [2, 2, 1]);
+});
+
 test('the map list and README of a pack name each packed map file once', async () => {
   const base = tempDir('sms-pack-list-');
   const root = path.join(base, 'Soldat');

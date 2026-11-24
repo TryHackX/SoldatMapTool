@@ -164,6 +164,12 @@ export const BROWSER_PL: PlDictionary = {
   'Group for {prefix}': 'Grupa dla {prefix}',
   'Invalid built-in prefix assignments.': 'Nieprawidłowe przypisania prefiksów wbudowanych.',
   'Restart Map Studio to apply built-in prefix changes.': 'Uruchom ponownie Map Studio, aby zastosować zmiany prefiksów wbudowanych.',
+  Vanilla: 'Domyślna',
+  'Custom ({n})': 'Własne ({n})',
+  Batch: 'Seria',
+  'Import JSON': 'Import JSON',
+  'Prefix:': 'Prefiks:',
+  '+Pack': '+Paczka',
   '(no prefix)': '(brak)',
   'Saving the rules instantly reclassifies every map in memory (even 50,000+ maps, without re-reading the disk).':
     'Zapisanie reguł natychmiast przeklasyfikuje wszystkie mapy w pamięci (nawet 50 000+ map bez ponownego czytania dysku).',

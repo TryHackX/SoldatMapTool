@@ -178,9 +178,9 @@ const MapGridCard: React.FC<{
         <div className="flex items-center justify-between text-[10px] text-zinc-400">
           <span>
             {map.isVanillaMap ? (
-              <span className="text-sky-400">Vanilla</span>
+              <span className="text-sky-400">{t('Vanilla')}</span>
             ) : (
-              <span className="text-emerald-400">Custom ({map.customAssetsCount})</span>
+              <span className="text-emerald-400">{t('Custom ({n})', { n: map.customAssetsCount })}</span>
             )}
           </span>
           <span className="font-mono">{map.polygonCount} poly</span>
@@ -287,6 +287,8 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
   // Keyboard navigation: Up / Down / PageUp / PageDown / Space (toggle pack)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      // ↑/↓ already used to walk through the objects in the map's inspector
+      if (e.defaultPrevented) return;
       if (document.querySelector('[role="dialog"]')) return;
       // Keys typed into fields or used to activate a focused control are not list shortcuts
       const target = e.target as HTMLElement | null;
@@ -670,7 +672,7 @@ export const MapBrowserPanel: React.FC<MapBrowserPanelProps> = ({
               className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-200 border border-emerald-500/30 disabled:opacity-40 transition-colors cursor-pointer"
             >
               <Camera className="w-3 h-3" />
-              Batch
+              {t('Batch')}
             </button>
           </div>
         </div>

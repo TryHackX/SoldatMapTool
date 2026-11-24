@@ -123,6 +123,7 @@ const EditorLeftDockPanel: React.FC<EditorLeftDockProps> = ({
   const [prefabs, setPrefabs] = useState<EditorPrefabItem[]>([]);
   const [prefabName, setPrefabName] = useState('');
   const [savingPrefab, setSavingPrefab] = useState(false);
+  const [prefabError, setPrefabError] = useState('');
 
   const loadPrefabs = useCallback(async () => {
     try {
@@ -159,20 +160,34 @@ const EditorLeftDockPanel: React.FC<EditorLeftDockProps> = ({
       });
       if (res.ok) {
         setPrefabName('');
+        setPrefabError('');
         await loadPrefabs();
+      } else {
+        const body = await res.json().catch(() => null);
+        setPrefabError(body?.error || t('Could not save the prefab.'));
       }
+    } catch {
+      setPrefabError(t('Could not save the prefab.'));
     } finally {
       setSavingPrefab(false);
     }
   };
 
   const handleDeletePrefab = async (id: string) => {
+    const name = prefabs.find((p) => p.id === id)?.name ?? '';
+    if (!window.confirm(t('Delete the prefab "{name}"? This cannot be undone.', { name }))) return;
     try {
-      await fetch(`/api/editor/prefabs/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      const res = await fetch(`/api/editor/prefabs/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setPrefabError(body?.error || t('Could not delete the prefab.'));
+        return;
+      }
+      setPrefabError('');
       if (activePrefab?.id === id) onSelectPrefab(null);
       await loadPrefabs();
     } catch {
-      // Ignore
+      setPrefabError(t('Could not delete the prefab.'));
     }
   };
 
@@ -1055,6 +1070,7 @@ const EditorLeftDockPanel: React.FC<EditorLeftDockProps> = ({
               onSubmit={handleSaveSelectionAsPrefab}
               className="bg-zinc-950/80 border border-zinc-800 rounded-lg p-2.5 space-y-2"
             >
+              {prefabError && <p role="alert" className="text-[11px] text-red-300">{prefabError}</p>}
               <div className="text-[11px] font-semibold text-zinc-200 flex items-center gap-1.5">
                 <FolderKanban className="w-3.5 h-3.5 text-cyan-400" />
                 <span>{t('Save Selection as Prefab')}</span>

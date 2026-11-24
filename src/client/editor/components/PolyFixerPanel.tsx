@@ -82,11 +82,19 @@ export function PolyFixerPanel({ map, onCommit, onSelect, onFrame, onMark }: Pro
     onMark({x:j.x,y:j.y,radius:5});
     onSelect({...emptySelection(),polygons:j.polygons});
   },[onFrame,onMark,onSelect]);
+  // Every rescan after an edit or undo makes new contact objects. The camera and the selection follow the chosen
+  // contact only when it really changes (a jump in the middle of a vertex drag also split it into two undo steps),
+  // and the last contact stays shown while the rescan is pending.
+  const shown = current ?? (scan && scan.tolerance === tolerance ? scan.hits[Math.min(cursor, Math.max(0, scan.hits.length - 1))] : undefined);
+  const shownKey = shown ? shown.x + '|' + shown.y + '|' + shown.polygons.join(',') : '';
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
   useEffect(() => {
-    if (current) locate(current);
+    const contact = shownRef.current;
+    if (contact) locate(contact);
     else onMark(null);
     return () => onMark(null);
-  },[current,locate,onMark]);
+  },[shownKey,locate,onMark]);
 
   function fix(all:boolean) {
     if (!current) return;

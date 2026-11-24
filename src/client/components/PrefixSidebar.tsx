@@ -509,7 +509,7 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
                         })}
                         className="opacity-0 group-hover:opacity-100 px-1.5 py-0.5 rounded bg-violet-500/20 hover:bg-violet-500/40 text-violet-200 text-[10px] font-medium transition-opacity cursor-pointer"
                       >
-                        +Pack
+                        {t('+Pack')}
                       </button>
                       <span className="font-mono text-[10px] bg-zinc-800/90 text-zinc-300 px-1.5 py-0.5 rounded">
                         {grp.count.toLocaleString(locale)}
@@ -546,7 +546,7 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
                                 }}
                                 className="opacity-0 group-hover:opacity-100 px-1 py-0.2 rounded bg-violet-500/20 hover:bg-violet-500/40 text-violet-200 text-[9px] cursor-pointer"
                               >
-                                +Pack
+                                {t('+Pack')}
                               </button>
                               <span className="font-mono text-[10px] text-zinc-500">
                                 {p.count.toLocaleString(locale)}
@@ -602,7 +602,7 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
                       title={t('Add all "{label}" maps ({count}) to the pack', { label: prefixLabel(p), count: p.count })}
                       className="opacity-0 group-hover:opacity-100 px-1.5 py-0.5 rounded bg-violet-500/20 hover:bg-violet-500/40 text-violet-200 text-[10px] font-medium transition-opacity cursor-pointer"
                     >
-                      +Pack
+                      {t('+Pack')}
                     </button>
                     <span className="font-mono text-[10px] bg-zinc-800/90 text-zinc-400 px-1.5 py-0.5 rounded">
                       {p.count.toLocaleString(locale)}
@@ -661,7 +661,7 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
                         }}
                         className="opacity-0 group-hover:opacity-100 px-1.5 py-0.5 rounded bg-violet-500/20 hover:bg-violet-500/40 text-violet-200 text-[10px] cursor-pointer"
                       >
-                        +Pack
+                        {t('+Pack')}
                       </button>
                       <span className="font-mono text-[10px] bg-zinc-800/90 text-zinc-400 px-1.5 py-0.5 rounded">
                         {s.count}

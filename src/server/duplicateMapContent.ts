@@ -1,13 +1,24 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import type { MapIndexEntry } from '../shared/apiTypes';
 import type { SoldatAssetResolver } from './assetResolver';
 import { diskPathKey } from './diskPath';
 
-async function fileDigest(file: string, cache: Map<string,string>) {
-  const key = diskPathKey(file);
-  const cached = cache.get(key);
-  if (cached) return cached;
+/** Digests are keyed by path, size and modification time, so a cache kept between scans never serves a changed file */
+async function fileDigest(file: string, cache: Map<string,string>, previous?: ReadonlyMap<string,string>) {
+  let key: string;
+  try {
+    const info = await stat(file);
+    key = diskPathKey(file) + '|' + info.size + '|' + info.mtimeMs;
+  } catch {
+    return null;
+  }
+  const cached = cache.get(key) ?? previous?.get(key);
+  if (cached) {
+    cache.set(key, cached);
+    return cached;
+  }
   const hash = createHash('sha256');
   try {
     for await (const chunk of createReadStream(file)) hash.update(chunk);
@@ -37,10 +48,10 @@ function graphics(map: MapIndexEntry, resolver: SoldatAssetResolver, root?: stri
 
 /** CRC and size shortlist only. Unreadable files never establish identity. */
 export async function confirmedDuplicateGroups(entries: MapIndexEntry[], resolver: SoldatAssetResolver,
-  digests = new Map<string,string>()): Promise<MapIndexEntry[][]> {
+  digests = new Map<string,string>(), previous?: ReadonlyMap<string,string>): Promise<MapIndexEntry[][]> {
   const byMap = new Map<string, MapIndexEntry[]>();
   for (const entry of entries) {
-    const hash = await fileDigest(entry.fullPath, digests);
+    const hash = await fileDigest(entry.fullPath, digests, previous);
     if (!hash) continue;
     const group = byMap.get(hash) ?? [];
     group.push(entry);
@@ -66,7 +77,7 @@ export async function confirmedDuplicateGroups(entries: MapIndexEntry[], resolve
       let readable = true;
       for (const i of varyingSlots) {
         const file = pack.files[i];
-        const hash = file ? await fileDigest(file, digests) : null;
+        const hash = file ? await fileDigest(file, digests, previous) : null;
         if (file && !hash) { readable = false; break; }
         hashes.push(hash);
       }

@@ -116,6 +116,8 @@ export async function runOptimizeBatch(
     const record = (item: Omit<OptimizeBatchItemResult, 'mapId' | 'baseName'>) => {
       summary.items.push({ mapId: c.id, baseName: c.baseName, ...item });
       summary.processed++;
+      // A skipped map (existing output, nothing to merge) breaks a run of failures just like a success
+      if (item.status !== 'failed') consecutiveFailures = 0;
     };
 
     report(0, t('Preparing the merging plan...'));

@@ -91,6 +91,8 @@ export const EditorDraftRecoveryBanner: React.FC<EditorDraftRecoveryBannerProps>
 
   const handleDiscard = async (draftId: string) => {
     if(pending.current) return;
+    // The draft may be the only copy of work recovered after a crash
+    if(!window.confirm(t('Delete this recovery draft? This cannot be undone.'))) return;
     const controller=new AbortController();pending.current=controller;
     setBusyId(draftId);setError('');
     try {

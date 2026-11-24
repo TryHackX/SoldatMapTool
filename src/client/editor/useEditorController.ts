@@ -908,6 +908,8 @@ export function useEditorController(params: {
     }): Promise<EditorSaveResponse> => {
       const doc = docRef.current;
       if (!doc) throw new Error(t('No map is open in the editor.'));
+      // One save at a time: a quick save finishing after a Save as would point the document back to the old file
+      if (savingRef.current) throw new Error(t('Wait for the current save to finish.'));
       const st = doc.getSnapshot();
       const prepared = prepareMapForSave(st.map, {
         geometryDirty: doc.isGeometryDirty(),
@@ -1206,7 +1208,9 @@ export function useEditorController(params: {
       // Let focused controls keep native activation, tab navigation and radio/slider movement.
       if (e.key==='Tab' || isSliderKey(e)) return;
       const control=e.target instanceof Element && e.target.closest('button,input,select,textarea,summary,a[href],[role="button"]');
-      if (control && (e.code==='Space' || e.key==='Enter' || e.target instanceof HTMLInputElement && e.target.type==='radio' && e.key.startsWith('Arrow'))) return;
+      // A button that only kept focus after a mouse click (no focus ring) must not swallow Space: Space still pans
+      const clickedButton=!!control && control.matches('button,summary,[role="button"]') && !control.matches(':focus-visible');
+      if (control && ((e.code==='Space' && !clickedButton) || e.key==='Enter' || e.target instanceof HTMLInputElement && e.target.type==='radio' && e.key.startsWith('Arrow'))) return;
 
       if (e.code === 'Space' && !isEditableTarget(e.target)) {
         // Space must not press the last clicked dock button again or scroll a panel
@@ -1239,6 +1243,8 @@ export function useEditorController(params: {
           setSaveModalOpen(true);
         } else if (!savingRef.current) {
           void quickSave();
+        } else {
+          notify('info', t('Wait for the current save to finish.'));
         }
         return;
       }
@@ -1294,6 +1300,13 @@ export function useEditorController(params: {
           e.preventDefault();
           return;
         }
+      }
+
+      // A drag rebuilds the map from the copy taken when it started: undo, paste, duplicate, delete or a nudge made
+      // during it would vanish or come back on the next pointer move
+      if (activeDragRef.current && (mod || e.key === 'Delete' || e.key === 'Backspace' || e.key.startsWith('Arrow'))) {
+        e.preventDefault();
+        return;
       }
 
       if (mod && e.key.toLowerCase() === 'z') {
@@ -1844,6 +1857,8 @@ export function useEditorController(params: {
       // 6. Collider Placement Tool
       if (activeTool === 'collider') {
         const nextIdx = snapshot.map.colliders.length;
+        // Placing and the following size drag share one id, so they are one undo step
+        const colliderTx = `col_create_${Date.now()}`;
         commitMutation(
           'Place collider',
           {
@@ -1859,11 +1874,12 @@ export function useEditorController(params: {
               },
             ],
           },
-          { ...emptySelection(), colliders: [nextIdx] }
+          { ...emptySelection(), colliders: [nextIdx] },
+          colliderTx
         );
         activeDragRef.current = {
           kind: 'collider_rim',
-          txId: `col_create_${Date.now()}`,
+          txId: colliderTx,
           colliderIndex: nextIdx,
           baseMap: docRef.current!.getSnapshot().map,
           armDistance: 6 / Math.max(0.02, info.zoom),

@@ -1,5 +1,43 @@
 # Changelog
 
+## 2.8.3 — 2026-11-24
+
+### Map editor
+- A move, rotate, scale, brush or UV drag stays one undo step however long you pause during it. Placing a collider
+  and dragging its size is one step, and Re-roll replaces the previous roll.
+- Space pans the map again after you click a toolbar button (since 2.8.0 it pressed the button again). Buttons reached
+  with Tab still react to Space.
+- Saves run one at a time: Save as during a quick save no longer points the document back to the old file, and
+  Ctrl+S during a save shows a message.
+- Deleting a recovery draft or a prefab asks for confirmation, and prefab save and delete errors are shown.
+- Enter in the New map dialog no longer discards unsaved changes; only the "Discard changes and create" button does.
+- Undo, paste, duplicate, delete and arrow nudges are ignored during a drag (their result used to vanish or come back).
+- Align no longer pushes spawns, colliders and waypoints a few units further on every click.
+- Picking a header value that is already set (the texture in use, the same jet amount) no longer adds an undo step,
+  and other header edits keep the in-game jet value stored in the file.
+- Poly Fixer no longer moves the camera and resets the selection after every edit while its tab is open.
+- The History panel and the new messages are translated in the Polish interface.
+
+### Library, viewport and workshop
+- A screenshot taken in the editor uses the editor's map for the file name and size, not the map selected in the
+  browser.
+- The workshop's overwrite confirmation is cleared when you change an option that picks the output file (archive
+  mode, name length, destination).
+- ↑/↓ in the object inspector no longer also switches the map in the list.
+- The loading overlay stays until the new map is on the GPU, so the previous map is no longer shown under the new name.
+- Edit map opens the selected map, not the previous one, while the new file is still loading.
+- Batch optimization counts errors in a row correctly when maps are skipped in between.
+- Asset thumbnails in the map details come from the map's own package.
+- Missing Polish texts in the library, the prefix manager and the workshop.
+
+### Server
+- Duplicate checks keep file digests between scans (by path, size and modification time), so saving or fixing a map
+  no longer re-reads every duplicate candidate.
+- A clean archive export still works after the app folder was moved or renamed.
+
+### Tests
+- 358 automated tests (1 new).
+
 ## 2.8.2 — 2026-11-24
 
 ### Built-in prefixes

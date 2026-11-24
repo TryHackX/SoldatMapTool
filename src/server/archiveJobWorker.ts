@@ -42,6 +42,9 @@ process.once('message', async ({job,work,soldatRoot,target}:Request) => {
   try {
     if (job.status === 'exporting') {
       const plan = JSON.parse(await fs.readFile(path.join(work,'plan.json'),'utf8')) as ArchiveCleanPlan;
+      // The plan stores the absolute work folder of the analysis: use the current one, so an export still
+      // finds its blobs after the app folder was moved or renamed
+      plan.workDir = work;
       await fs.mkdir(path.dirname(target),{recursive:true});
       const result = await exportCleanArchive(plan,target,{signal:controller.signal,onProgress});
       process.send?.({status:'complete',outputPath:result.directory,versionsReport:plan.mapNamesByDate===true});

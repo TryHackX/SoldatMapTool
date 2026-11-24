@@ -154,6 +154,8 @@ export class SoldatMapScanner {
   private extraSources: ExtraMapSource[];
   private customRules: CustomPrefixRule[];
   private classifier: ReturnType<typeof createMapClassifier>;
+  /** SHA-256 of duplicate candidates from the previous scan: saves, fixes and library actions rescan often */
+  private duplicateDigests = new Map<string, string>();
   private thumbDir: string;
   private sqliteCache: MapSqliteCache;
   private resolver: SoldatAssetResolver;
@@ -676,10 +678,12 @@ export class SoldatMapScanner {
           arr.push(item);
         }
         const nextDuplicateGroups: MapIndexEntry[][] = [];
-        const duplicateDigests = new Map<string,string>();
+        // Only files seen in this scan are kept for the next one, so the cache cannot grow without bound
+        const previousDigests = this.duplicateDigests, duplicateDigests = new Map<string,string>();
+        this.duplicateDigests = duplicateDigests;
         for (const candidates of byIdentity.values()) {
           if (candidates.length < 2) continue;
-          for (const group of await confirmedDuplicateGroups(candidates.map(g => g.full), this.resolver, duplicateDigests)) {
+          for (const group of await confirmedDuplicateGroups(candidates.map(g => g.full), this.resolver, duplicateDigests, previousDigests)) {
             const ids = group.map(g => g.id);
             for (const entry of group) {
               entry.duplicateCount = group.length;

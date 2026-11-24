@@ -56,8 +56,11 @@ export interface EditorDocumentSnapshot {
   revision: number;
 }
 
-// A transaction (drag, slider, repeated key) continues the previous undo step only within this pause
+// A transaction (slider, repeated key) continues the previous undo step only within this pause
 const TRANSACTION_MERGE_WINDOW_MS = 2000;
+// Ids made for a single gesture end with its start time (`obj_move_1732400000000`): a gesture stays one undo step
+// however long the pointer rests, while shared ids (arrow keys, wheel, colour pickers) keep the pause limit
+const GESTURE_TRANSACTION = /_\d{13}$/;
 
 export function emptySelection(): EditorSelection {
   return {
@@ -740,8 +743,10 @@ export function alignSelection(
   mode: AlignmentMode
 ): PmsMapData {
   const summary = computeSelectionSummary(map, sel);
-  if (!summary.bounds || summary.totalObjects < 2) return map;
-  const targetBounds = summary.bounds;
+  // Align against the same boxes that are moved (points for spawns, colliders and waypoints), not the padded
+  // selection frame, or every click would push point objects a few units further
+  const targetBounds = summary.totalObjects < 2 ? null : computeSelectionExactBounds(map, sel);
+  if (!targetBounds) return map;
   const targetCx = (targetBounds.left + targetBounds.right) * 0.5;
   const targetCy = (targetBounds.top + targetBounds.bottom) * 0.5;
 
@@ -1378,14 +1383,14 @@ export function updateMapHeader(
 ): PmsMapData {
   const nextJet =
     patch.startJet !== undefined ? Math.max(0, Math.round(patch.startJet)) : map.startJet;
-  return {
+  const next: PmsMapData = {
     ...map,
     ...(patch.mapName !== undefined ? { mapName: patch.mapName.slice(0, 38) } : {}),
     ...(patch.texture !== undefined ? { texture: patch.texture.slice(0, 24) } : {}),
     ...(patch.bgColorTop !== undefined ? { bgColorTop: { ...patch.bgColorTop } } : {}),
     ...(patch.bgColorBtm !== undefined ? { bgColorBtm: { ...patch.bgColorBtm } } : {}),
-    startJet: nextJet,
-    startJetGame: Math.floor((119 * nextJet) / 100),
+    // The in-game jet value is derived only when the jet amount is set, so other header edits keep the file's byte
+    ...(patch.startJet !== undefined ? { startJet: nextJet, startJetGame: Math.floor((119 * nextJet) / 100) } : {}),
     ...(patch.grenadePacks !== undefined
       ? { grenadePacks: Math.max(0, Math.min(12, Math.round(patch.grenadePacks))) }
       : {}),
@@ -1399,6 +1404,13 @@ export function updateMapHeader(
       ? { steps: Math.max(0, Math.min(2, Math.round(patch.steps))) }
       : {}),
   };
+  const sameColor = (a: RgbaColor, b: RgbaColor) => a.r === b.r && a.g === b.g && a.b === b.b && a.a === b.a;
+  // Picking the value that is already set (the texture in use, an equal jet preset) is not an edit
+  const unchanged = next.mapName === map.mapName && next.texture === map.texture &&
+    sameColor(next.bgColorTop, map.bgColorTop) && sameColor(next.bgColorBtm, map.bgColorBtm) &&
+    next.startJet === map.startJet && next.startJetGame === map.startJetGame && next.grenadePacks === map.grenadePacks &&
+    next.medikits === map.medikits && next.weather === map.weather && next.steps === map.steps;
+  return unchanged ? map : next;
 }
 
 /**
@@ -1529,7 +1541,7 @@ export class EditorDocument {
       top.afterMap === this.state.map &&
       top.afterMap !== this.state.savedMap &&
       selectionsEqual(top.afterSelection, this.state.selection) &&
-      Date.now() - top.timestamp <= TRANSACTION_MERGE_WINDOW_MS
+      (GESTURE_TRANSACTION.test(params.transactionId) || Date.now() - top.timestamp <= TRANSACTION_MERGE_WINDOW_MS)
     ) {
       const updatedTop: EditorHistoryEntry = {
         ...top,

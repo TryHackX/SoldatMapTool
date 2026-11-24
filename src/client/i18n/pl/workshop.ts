@@ -433,4 +433,7 @@ export const WORKSHOP_PL: PlDictionary = {
     'Zapisywanie {name}.pms oraz {n} warstw PNG...',
   ],
   'Scenery optimization finished!': 'Zakończono optymalizację scenerii!',
+  'Open output folder': 'Otwórz folder wyników',
+  'The map or its sceneries changed since the plan was prepared — prepare the preview or plan again.':
+    'Mapa lub jej scenerie zmieniły się od przygotowania planu — przygotuj podgląd lub plan ponownie.',
 };

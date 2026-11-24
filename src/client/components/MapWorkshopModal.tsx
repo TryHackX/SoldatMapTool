@@ -179,6 +179,12 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
     setPendingOptOverwrite(null);
   }, [open, currentMapEntry?.id]);
 
+  // An overwrite confirmation covers the file that was checked: options that change the output (archive mode,
+  // name length, destination) make the next click check the new target again
+  useLayoutEffect(() => {
+    setPendingFixOverwrite(null);
+  }, [maxBaseLength, fixDestination, fixCustomFolder]);
+
   // A preview / plan belongs to one map; switching maps discards them
   useEffect(() => {
     setOptPreview(null);
@@ -263,6 +269,9 @@ export const MapWorkshopModal: React.FC<MapWorkshopModalProps> = ({
       optCustomFolder,
     ]
   );
+  useLayoutEffect(() => {
+    setPendingOptOverwrite(null);
+  }, [optOptions]);
 
   // Load live Optimize Sceneries plan when modal is on `optimize` tab (destination is irrelevant for the plan)
   const planOptionsKey = currentMapEntry ? optimizeOptionsKey(currentMapEntry.id, optOptions) : '';

@@ -265,6 +265,8 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   const [transform, setTransform] = useState<ViewTransform>({ centerX: 0, centerY: 0, zoom: 0.5 });
   const [sprites, setSprites] = useState<ObjectSpritesBundle | null>(null);
   const [mapReadyOnGpu, setMapReadyOnGpu] = useState(false);
+  // The loading overlay stays until the new map is on the GPU, but never hides a failed load
+  const [gpuLoadFailed, setGpuLoadFailed] = useState(false);
   const [glRestoreTick, setGlRestoreTick] = useState(0);
   const [contextLost, setContextLost] = useState(false);
 
@@ -534,8 +536,9 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         onClearPreviewMode();
       }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    // Capture phase: the map list also listens on window for ↑/↓ and must see these keys as already handled
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [rulerMode, ruler, previewModeBanner, onClearPreviewMode, inspection]);
 
   // The inspected objects belong to one map version
@@ -646,6 +649,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
   useEffect(() => {
     if (!mapData || !rendererRef.current) {
       setMapReadyOnGpu(false);
+      setGpuLoadFailed(!!mapData);
       prevMapIdentityRef.current = null;
       return;
     }
@@ -656,6 +660,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
 
     if (isDifferentMap) {
       setMapReadyOnGpu(false);
+      setGpuLoadFailed(false);
       setRuler(null);
       fitMapToViewport(mapData);
     } else if (
@@ -681,6 +686,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       })
       .catch((err) => {
         console.warn('[MapViewport] Could not load the map onto the GPU:', err);
+        if (!cancelled) setGpuLoadFailed(true);
       });
 
     return () => {
@@ -1707,7 +1713,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         />
 
         {/* Loading / Error Overlays */}
-        {loading && (
+        {(loading || (mapData && !mapReadyOnGpu && !contextLost && !gpuLoadFailed)) && (
           <div className="absolute inset-0 bg-zinc-950/50 backdrop-blur-[2px] flex items-center justify-center z-10 pointer-events-none">
             <div className="bg-zinc-900 border border-zinc-700 px-4 py-2 rounded-lg text-xs text-zinc-200 shadow-xl">
               {t('Loading the map and textures onto the GPU...')}

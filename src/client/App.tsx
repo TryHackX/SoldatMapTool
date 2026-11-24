@@ -9,6 +9,7 @@ import {
   ScanProgressStatus,
 } from '@shared/apiTypes';
 import { PmsMapData } from '@shared/pmsParser';
+import { computeMapBounds } from '@shared/pmsCompiler';
 import { isSameMapFamily, stripDerivedSuffix } from '@shared/mapFamily';
 import { BuiltinPrefixOverrides, CustomPrefixRule } from '@shared/prefixUtils';
 import { parseSearchQuery } from '@shared/searchQuery';
@@ -917,9 +918,21 @@ export const App: React.FC = () => {
   const projectInput=useRef<HTMLInputElement>(null);
   const openProjectPicker=()=>projectInput.current?.click();
 
+  // While the editor is open the screenshot shows its map, so the file name and the size estimate come from it
+  // too, not from the map selected in the browser (a new map has no browser entry at all)
+  const editorSnapshot = editor.isOpen ? editor.snapshot : null;
+  const editorScreenshotEntry = useMemo(() => {
+    if (!screenshotModalState.open || !editorSnapshot) return null;
+    const { polyBounds, fullBounds } = computeMapBounds(editorSnapshot.map);
+    const source = activeMapDetails?.baseName === editorSnapshot.currentBaseName ? activeMapDetails : null;
+    return { id: source?.id ?? '', baseName: editorSnapshot.currentBaseName, polyBounds, fullBounds,
+      prefix: source?.prefix ?? '', modeGroupName: source?.modeGroupName ?? '' } as MapIndexEntry;
+  }, [screenshotModalState.open, editorSnapshot, activeMapDetails]);
+
   const handleEditCurrentMap = useCallback(() => {
     const targetData = loadedMap?.data;
-    if (!targetData) return;
+    // The details drawer can already show a newly selected map whose file is still loading
+    if (!targetData || loadedMap.id !== activeMapId) return;
     const baseName =
       (loadedDetails && loadedDetails.id === loadedMap.id
         ? loadedDetails.baseName
@@ -929,7 +942,7 @@ export const App: React.FC = () => {
       sourceMapId: loadedMap.id,
       sourceBaseName: baseName,
     });
-  }, [loadedMap, loadedDetails, editor]);
+  }, [loadedMap, loadedDetails, editor, activeMapId]);
 
   const knownEditorAssetSets = useMemo(() => {
     if (!editor.assetCatalog) return { textures: null, sceneries: null };
@@ -1624,8 +1637,8 @@ export const App: React.FC = () => {
         open={screenshotModalState.open}
         initialBatchMode={screenshotModalState.batch}
         onClose={() => setScreenshotModalState((s) => ({ ...s, open: false }))}
-        currentMapEntry={activeMapDetails}
-        currentMapData={editor.isOpen && editor.snapshot ? editor.snapshot.map : activeMapData}
+        currentMapEntry={editorScreenshotEntry ?? activeMapDetails}
+        currentMapData={editorSnapshot ? editorSnapshot.map : activeMapData}
         currentLayers={layers}
         batchCount={packMapIds.size > 0 ? packMapIds.size : totalFiltered}
         batchSourceLabel={packMapIds.size > 0 ? t('from the pack selection') : t('from the current filter')}

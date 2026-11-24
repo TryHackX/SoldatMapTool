@@ -181,7 +181,7 @@ export const MapInspectorDrawer: React.FC<MapInspectorDrawerProps> = ({
                 : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
             }`}
           >
-            {map.isVanillaMap ? 'Vanilla' : 'Custom'}
+            {map.isVanillaMap ? t('Vanilla') : t('Custom')}
           </span>
         </div>
 
@@ -519,7 +519,7 @@ export const MapInspectorDrawer: React.FC<MapInspectorDrawerProps> = ({
             <div>
               <SectionTitle title={t('Main texture')} />
               <div className="mt-1 space-y-1">
-                <AssetRowCard asset={map.textureInfo} />
+                <AssetRowCard asset={map.textureInfo} mapId={map.id} />
                 {map.textureInfo.edgeDiskName && (
                   <div className="text-[10px] font-mono text-emerald-300/80 px-2">
                     {t('+ edges: textures/edges/{name}', { name: map.textureInfo.edgeDiskName })}
@@ -549,7 +549,7 @@ export const MapInspectorDrawer: React.FC<MapInspectorDrawerProps> = ({
               ) : (
                 <div className="space-y-1.5">
                   {uniqueSceneryAssets.map((sc) => (
-                    <AssetRowCard key={sc.referencedName} asset={sc} />
+                    <AssetRowCard key={sc.referencedName} asset={sc} mapId={map.id} />
                   ))}
                 </div>
               )}
@@ -561,13 +561,13 @@ export const MapInspectorDrawer: React.FC<MapInspectorDrawerProps> = ({
   );
 };
 
-const AssetRowCard: React.FC<{ asset: ResolvedAssetInfo }> = ({ asset }) => {
+const AssetRowCard: React.FC<{ asset: ResolvedAssetInfo; mapId: string }> = ({ asset, mapId }) => {
   // Sceneries are shown with the in-game #00FF00 color key applied (transparent instead of a green box)
   const previewUrl =
     asset.status !== 'missing' && asset.referencedName
       ? `/api/assets?category=${encodeURIComponent(asset.category)}&name=${encodeURIComponent(
           asset.referencedName
-        )}&convert=png${asset.category === 'scenery-gfx' ? '&colorkey=1' : ''}`
+        )}&convert=png${asset.category === 'scenery-gfx' ? '&colorkey=1' : ''}&mapId=${encodeURIComponent(mapId)}`
       : null;
 
   const badge = getStatusBadge(asset.status);
