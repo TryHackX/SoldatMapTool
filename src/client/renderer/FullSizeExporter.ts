@@ -321,9 +321,12 @@ export async function generateFullSizeScreenshot(
         }
 
         let tileTargetCanvas = glCanvas;
-        const isBottomRightTile = ry === rows - 1 && cx === cols - 1;
+        // The name label sits in the bottom-right corner of the whole image and can span several tiles (the last
+        // column can be only a few pixels wide), so every tile near that corner draws its part of it
+        const watermarkTile = settings.includeWatermark && outWidth >= 260 && outHeight >= 60 &&
+          pxLeft + tileW > outWidth - WATERMARK_REACH_PX && pxTop + tileH > outHeight - 60;
 
-        if (hasAnyOverlayEnabled(settings.layers) || (settings.includeWatermark && isBottomRightTile)) {
+        if (hasAnyOverlayEnabled(settings.layers) || watermarkTile) {
           compCanvas.width = tileW;
           compCanvas.height = tileH;
           const ctx = compCanvas.getContext('2d')!;
@@ -347,8 +350,11 @@ export async function generateFullSizeScreenshot(
             ctx.drawImage(ovCanvas, 0, 0);
           }
 
-          if (settings.includeWatermark && isBottomRightTile && tileW >= 260 && tileH >= 60) {
-            drawMapWatermark(ctx, tileW, tileH, mapBaseName, map.mapName, outWidth, outHeight);
+          if (watermarkTile) {
+            ctx.save();
+            ctx.translate(-pxLeft, -pxTop);
+            drawMapWatermark(ctx, outWidth, outHeight, mapBaseName, map.mapName, outWidth, outHeight);
+            ctx.restore();
           }
 
           tileTargetCanvas = compCanvas;
@@ -503,6 +509,9 @@ function triggerBlobDownload(blob: Blob, fileName: string): void {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
+
+/** How far from the right edge the name label can reach in a tiled export (a long name and title, 13 px font) */
+const WATERMARK_REACH_PX = 1024;
 
 function drawMapWatermark(
   ctx: CanvasRenderingContext2D,

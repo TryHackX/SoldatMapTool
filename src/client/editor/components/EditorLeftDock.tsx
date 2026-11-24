@@ -192,7 +192,9 @@ const EditorLeftDockPanel: React.FC<EditorLeftDockProps> = ({
   };
 
   // Build Outliner items
+  // Built only while the Outliner tab is shown: on a 5000-polygon map the list cost a few ms on every drag frame
   const outlinerItems = useMemo(() => {
+    if (activeTab !== 'outliner') return [];
     const q = outlinerQuery.trim().toLowerCase();
     const list: Array<{
       kind: 'polygon' | 'prop' | 'spawn' | 'collider' | 'waypoint';
@@ -315,7 +317,7 @@ const EditorLeftDockPanel: React.FC<EditorLeftDockProps> = ({
     }
 
     return list;
-  }, [map, selection, outlinerQuery, outlinerCategory]);
+  }, [map, selection, outlinerQuery, outlinerCategory, activeTab]);
 
   // Filtered Asset Browser items
   // Distinct scenery images (a .bmp and its .png twin are one image) for the tab label

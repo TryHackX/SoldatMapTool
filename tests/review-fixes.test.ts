@@ -98,18 +98,18 @@ function zipFile(build: (zip: AdmZip) => void): string {
   return file;
 }
 
-test('archives with unsupported compression are refused before anything is written', () => {
+test('archives with unsupported compression are refused before anything is written', async () => {
   const archive = zipFile((zip) => {
     zip.addFile('maps/a.pms', Buffer.from('aaaa'));
     const lzma = zip.addFile('maps/b.pms', Buffer.from('bbbb'));
     lzma.header.method = 14; // LZMA (7-Zip)
   });
   const dest = path.join(tempDir('sms-review-x-'), 'out');
-  assert.throws(() => extractZipSafely(archive, dest), ZipSafetyError);
+  await assert.rejects(extractZipSafely(archive, dest), ZipSafetyError);
   assert.equal(fs.existsSync(dest), false);
 });
 
-test('a corrupted entry leaves the destination untouched (decompression happens in a staging folder)', () => {
+test('a corrupted entry leaves the destination untouched (decompression happens in a staging folder)', async () => {
   const marker = 'SECOND-ENTRY-PAYLOAD-0123456789';
   const archive = zipFile((zip) => {
     const a = zip.addFile('maps/first.pms', Buffer.from('first-entry'));
@@ -124,19 +124,19 @@ test('a corrupted entry leaves the destination untouched (decompression happens 
   fs.writeFileSync(archive, bytes);
 
   const dest = path.join(tempDir('sms-review-crc-'), 'out');
-  assert.throws(() => extractZipSafely(archive, dest));
+  await assert.rejects(extractZipSafely(archive, dest));
   assert.equal(fs.existsSync(path.join(dest, 'maps', 'first.pms')), false);
   assert.deepEqual(fs.existsSync(dest) ? fs.readdirSync(dest) : [], [], 'no staging folder is left behind');
 });
 
-test('extreme compression ratios are treated as a zip bomb', () => {
+test('extreme compression ratios are treated as a zip bomb', async () => {
   const archive = zipFile((zip) => zip.addFile('maps/zeros.pms', Buffer.alloc(200_000)));
   const dest = path.join(tempDir('sms-review-bomb-'), 'out');
-  assert.throws(
-    () => extractZipSafely(archive, dest, { ...ZIP_LIMITS, maxCompressionRatio: 5, ratioFloorBytes: 0 }),
+  await assert.rejects(
+    extractZipSafely(archive, dest, { ...ZIP_LIMITS, maxCompressionRatio: 5, ratioFloorBytes: 0 }),
     ZipSafetyError
   );
-  assert.equal(extractZipSafely(archive, dest).files, 1);
+  assert.equal((await extractZipSafely(archive, dest)).files, 1);
 });
 
 // ---------------- packs ----------------

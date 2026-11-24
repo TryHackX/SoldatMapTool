@@ -139,6 +139,7 @@ export const SOLDAT_MAP_LIMITS = {
   maxScenery: 500,
   maxColliders: 128,
   maxSpawnpoints: 255,
+  maxWaypoints: 5000, // OpenSoldat MapFile.pas refuses the map above MAX_WAYPOINTS
 } as const;
 
 export interface MapLimitViolation {
@@ -158,6 +159,8 @@ export function checkSoldatMapLimits(counts: {
   sceneryCount: number;
   colliderCount: number;
   spawnCount: number;
+  /** Checked when given (callers that only count geometry may leave it out) */
+  waypointCount?: number;
 }): MapLimitViolation[] {
   const out: MapLimitViolation[] = [];
   const push = (key: keyof typeof SOLDAT_MAP_LIMITS, value: number, label: string) => {
@@ -171,6 +174,7 @@ export function checkSoldatMapLimits(counts: {
   push('maxScenery', counts.sceneryCount, 'Scenery entries');
   push('maxColliders', counts.colliderCount, 'Colliders');
   push('maxSpawnpoints', counts.spawnCount, 'Spawn points');
+  if (counts.waypointCount !== undefined) push('maxWaypoints', counts.waypointCount, 'Bot waypoints');
   return out;
 }
 
@@ -1421,6 +1425,16 @@ function readVec3(br: BinaryReader): PmsVec3 {
     y: br.readFloat32(),
     z: br.readFloat32(),
   };
+}
+
+/** True when `str` fits a ShortString[maxSize] as it is: not cut, and no character turned into '?' */
+export function fitsPascalShortString(str: string, maxSize: number): boolean {
+  if (str.length > maxSize) return false;
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+    if (code >= 0x80 && !WIN1250_ENCODE_MAP.has(code)) return false;
+  }
+  return true;
 }
 
 /**

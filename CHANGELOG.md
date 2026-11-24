@@ -1,5 +1,47 @@
 # Changelog
 
+## 2.8.4 — 2026-11-25
+
+### Wall protection
+- Deadly strips go only into walls that stop both players and bullets. Walls of type 2 (Only Players Collide) are
+  left out, because a strip inside them would start stopping the shots and grenades that fly through.
+- One-way walls and boosters (all collision normals pointing the same way) get no strips, so players can still cross
+  them in their direction; the clearance is measured from their edges.
+
+### Map editor
+- Opening the Climb tunnel tool no longer marks an untouched map as changed. The automatic jump profile from the
+  library used to add an undo step and switch Ctrl+S to the project save, and undo could loop on a sketch without a
+  profile.
+- An unapplied tunnel section edit is discarded when you leave the tool, so undo and redo in other tools act on the
+  map.
+- Every tunnel setting is its own undo step, while moving one slider still merges into one. Undoing the insert of
+  another tunnel shows its sketch again.
+- Pressing again on the selected object drags that object; the object below is picked only by a click without moving.
+- Fields for several selected objects show "—" when their values differ, and a typed value applies to all of them.
+  Waypoint flags show a mixed state.
+- The Outliner list is built only while its tab is open, so drags on large maps are faster.
+- The map check reports one-way walls as a hint and no longer offers a fix that turned them into solid walls.
+- The map check reports scenery file names longer than 50 characters or with characters the map format cannot store.
+
+### Library, packs and screenshots
+- Checking and extracting downloaded ZIP packs reads the archive in place and inflates files in the background:
+  large packs no longer freeze the app, and archives over 2 GB work.
+- Search words such as `is:constructor` are treated as text instead of matching internal names.
+- Maps with more than 5,000 bot waypoints are marked as maps the game won't load, and the editor refuses to save them.
+- The pack builder clears a preview error after a successful preview and no longer shows a stale preview.
+- A tiled 100% screenshot draws the name label on every tile it covers.
+- The map comparison view recovers after a graphics card reset.
+- The previous `_o` preview keeps its tiles while a new one is baked.
+- Clean archive: a resumed export of a plan made by an older version keeps the short map names option.
+
+### CTF reachability tool (`soldat_map_dots.py`)
+- Walls of types 20 and 22 block the dots, and each team's own walls (Alpha Players, Bravo Players) block only that
+  team.
+- The image height is capped at 8,192 px, so very tall maps no longer need gigabytes of memory.
+
+### Tests
+- 359 automated tests (1 new).
+
 ## 2.8.3 — 2026-11-24
 
 ### Map editor

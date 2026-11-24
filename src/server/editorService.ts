@@ -220,6 +220,7 @@ export class SoldatMapEditorService {
       sceneryCount: parsed.scenery.length,
       colliderCount: parsed.colliders.length,
       spawnCount: parsed.spawnpoints.length,
+      waypointCount: parsed.waypoints.length,
     });
     if (violations.length > 0) {
       throw new WorkshopError(

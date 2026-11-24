@@ -10,6 +10,15 @@ import type { PaceResult } from './tunnelPacePlanner';
 import { applyTunnelPacePlan } from './applyTunnelPacePlan';
 import { useTunnelFullRun } from './useTunnelFullRun';
 import type { TunnelTrialResult } from './tunnelTrial';
+
+/**
+ * A sketch saved without a jump profile uses the profile read from the local library in this session. Reading it
+ * is not an edit: as an undo step it made every opened map dirty, and undoing it brought the profile-less sketch
+ * back, which loaded the profile and committed again.
+ */
+function withSessionProfile(own: TunnelSettings, brush: TunnelSettings): TunnelSettings {
+  return own.profile || !brush.profile ? own : { ...own, profile: brush.profile, profileSource: brush.profileSource };
+}
 import type { RepairReport, RepairRequest } from './climbStopRepair';
 
 interface SectionComparison {
@@ -34,7 +43,9 @@ export function useTunnelWorkspace(docRef: RefObject<EditorDocument | null>, sna
   const brushRef = useRef(brush);
   const map = snapshot?.map;
   const tunnels = map?.editorTunnels;
-  const index = chosen !== null && tunnels?.length ? Math.min(chosen, tunnels.length-1) : null;
+  // After undoing the insert of another tunnel, its restored sketch is shown again instead of the last tunnel
+  const index = chosen !== null && tunnels?.length && !(chosen >= tunnels.length && map?.editorSketch)
+    ? Math.min(chosen, tunnels.length-1) : null;
   const project = index === null ? undefined : tunnels?.[index];
   const knotIndex = Math.max(1, Math.min(selectedKnot, (project?.knots.length ?? 3)-2));
   const comparing = active && inspectorOpen && comparison !== null && comparison.map === map &&
@@ -54,7 +65,8 @@ export function useTunnelWorkspace(docRef: RefObject<EditorDocument | null>, sna
   const modified = Boolean(manualChanges && point && originalPoint && (point.x!==originalPoint.x || point.y!==originalPoint.y ||
     landingHeight!==originalSection?.landingHeight || landingReach!==(originalSection?.landingReach ?? 0) || bounce!==(originalSection?.bounce ?? null) || widthOffset!==savedWidthOffset));
   const sketch = map?.editorSketch;
-  const settings = sketch?.settings ?? brush;
+  const sketchSettings = sketch?.settings;
+  const settings = useMemo(() => sketchSettings ? withSessionProfile(sketchSettings, brush) : brush, [sketchSettings, brush]);
   const method = sketch?.method ?? 'draw';
   const path = sketch?.path ?? NO_PATH;
 
@@ -166,13 +178,14 @@ export function useTunnelWorkspace(docRef: RefObject<EditorDocument | null>, sna
 
   const setSettings = useCallback((action: SetStateAction<TunnelSettings>) => {
     const sketch = docRef.current?.getSnapshot().map.editorSketch;
-    const prev = sketch?.settings ?? brushRef.current;
+    const prev = sketch ? withSessionProfile(sketch.settings, brushRef.current) : brushRef.current;
     const value = typeof action==='function' ? action(prev) : action;
     if (value===prev) return;
-    // Reading a local profile for an unused brush should not dirty an existing PMS.
-    const onlyProfileLoaded = !sketch && value.profile && !prev.profile &&
-      (Object.keys(value) as (keyof TunnelSettings)[]).every(k=> k==='profile' || prev[k]===value[k]);
-    if (!onlyProfileLoaded) editSketch({settings:value}, 'Tunnel settings', 'tunnel-settings');
+    const keys = (Object.keys({...prev, ...value}) as (keyof TunnelSettings)[]).filter(k => prev[k] !== value[k]);
+    // Reading a local profile (automatically or on request) when none is set is not an edit of the map
+    const onlyProfileLoaded = !!value.profile && !prev.profile && keys.every(k => k==='profile' || k==='profileSource');
+    // Moves of one slider merge into one undo step; a different control or a click on a toggle makes its own
+    if (!onlyProfileLoaded) editSketch({settings:value}, 'Tunnel settings', 'tunnel-settings:' + keys.sort().join(','));
     brushRef.current=value;
     setBrush(value);
   },[docRef,editSketch]);
@@ -183,6 +196,9 @@ export function useTunnelWorkspace(docRef: RefObject<EditorDocument | null>, sna
     editSketch({method:'draw',path},'Edit tunnel sketch');
   },[docRef,editSketch]);
   const cancel = useCallback(()=>{ setPending(null); setComparison(null); setPaceSource(null); },[]);
+  // An unapplied section edit is drawn only in the Climb tunnel tool: leaving the tool discards it, so undo and redo
+  // in another tool act on the map instead of on an invisible preview
+  useEffect(() => { if (!active) cancel(); }, [active, cancel]);
 
   const applyPlan = useCallback((result: PaceResult, settings: PaceSettings) => {
     const doc = docRef.current;

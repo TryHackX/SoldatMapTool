@@ -12,6 +12,7 @@ export const PACKS_PL: PlDictionary = {
 
   // PackBuilderModal.tsx
   'Pack preview error (HTTP {status}).': 'Błąd podglądu paczki (HTTP {status}).',
+  'Could not load the pack preview.': 'Nie udało się wczytać podglądu paczki.',
   'Failed to build the pack.': 'Błąd tworzenia paczki.',
   'Failed to read the archive.': 'Błąd odczytu archiwum.',
   'Failed to extract the archive.': 'Błąd wypakowywania archiwum.',

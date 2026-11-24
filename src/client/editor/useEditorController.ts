@@ -179,6 +179,8 @@ type ActivePointerDrag =
       startWorldX: number;
       startWorldY: number;
       moved: boolean;
+      /** A repeated press on the selected object: becomes "pick the object below" if it ends without moving */
+      pendingCycle?: { selection: EditorSelection; x: number; y: number; cycle: number };
     }
   | {
       kind: 'rotate';
@@ -2085,16 +2087,21 @@ export function useEditorController(params: {
       if (objHits.length > 0 && activeTool === 'select') {
         let pickIdx = 0;
         const prevClick = lastClickPickRef.current;
-        if (
-          prevClick &&
+        const repeatPress =
+          !!prevClick &&
           !info.shiftKey &&
           !info.altKey &&
-          Math.hypot(info.clientX - prevClick.x, info.clientY - prevClick.y) <= 4
-        ) {
-          pickIdx = (prevClick.cycle + 1) % objHits.length;
+          Math.hypot(info.clientX - prevClick.x, info.clientY - prevClick.y) <= 4;
+        if (repeatPress) {
+          pickIdx = (prevClick!.cycle + 1) % objHits.length;
         }
-        lastClickPickRef.current = { x: info.clientX, y: info.clientY, cycle: pickIdx };
         const chosen = objHits[pickIdx];
+        const hitSelected = (hit: typeof chosen) =>
+          (hit.kind === 'polygon' && snapshot.selection.polygons.includes(hit.index)) ||
+          (hit.kind === 'prop' && snapshot.selection.props.includes(hit.index)) ||
+          (hit.kind === 'spawn' && snapshot.selection.spawns.includes(hit.index)) ||
+          (hit.kind === 'collider' && snapshot.selection.colliders.includes(hit.index)) ||
+          (hit.kind === 'waypoint' && snapshot.selection.waypoints.includes(hit.index));
 
         const singleSel: EditorSelection = {
           ...emptySelection(),
@@ -2105,12 +2112,25 @@ export function useEditorController(params: {
           ...(chosen.kind === 'waypoint' ? { waypoints: [chosen.index] } : {}),
         };
 
-        const isChosenAlreadySelected =
-          (chosen.kind === 'polygon' && snapshot.selection.polygons.includes(chosen.index)) ||
-          (chosen.kind === 'prop' && snapshot.selection.props.includes(chosen.index)) ||
-          (chosen.kind === 'spawn' && snapshot.selection.spawns.includes(chosen.index)) ||
-          (chosen.kind === 'collider' && snapshot.selection.colliders.includes(chosen.index)) ||
-          (chosen.kind === 'waypoint' && snapshot.selection.waypoints.includes(chosen.index));
+        // Pressing again on the object that is already selected may start a drag of it: the object below is picked
+        // only when the press ends without moving (a click), so a drag keeps the object the user grabbed
+        const held = repeatPress && pickIdx > 0 ? objHits[prevClick!.cycle % objHits.length] : null;
+        if (held && hitSelected(held)) {
+          activeDragRef.current = {
+            kind: 'move',
+            txId: `obj_move_${Date.now()}`,
+            baseMap: snapshot.map,
+            selection: cloneSelection(snapshot.selection),
+            startWorldX: info.worldX,
+            startWorldY: info.worldY,
+            moved: false,
+            pendingCycle: { selection: singleSel, x: info.clientX, y: info.clientY, cycle: pickIdx },
+          };
+          return true;
+        }
+        lastClickPickRef.current = { x: info.clientX, y: info.clientY, cycle: pickIdx };
+
+        const isChosenAlreadySelected = hitSelected(chosen);
 
         let nextSel = snapshot.selection;
         if (info.altKey) {
@@ -2565,6 +2585,12 @@ export function useEditorController(params: {
   const handlePointerUp = useCallback((info: Parameters<ViewportEditorBridge['onPointerUp']>[0]) => {
     const drag = activeDragRef.current;
     activeDragRef.current = null;
+    // A repeated click that did not become a drag picks the next object under the cursor (see the press handler)
+    if (drag?.kind === 'move' && drag.pendingCycle && !drag.moved && !info.cancelled) {
+      const { selection, x, y, cycle } = drag.pendingCycle;
+      lastClickPickRef.current = { x, y, cycle };
+      updateSelection(selection);
+    }
     if (drag?.kind === 'lasso' && drag.points.length >= 3 && spatialIndex) {
       const lassoSel = spatialIndex.selectInLasso(drag.points, layers, locks, activeTool === 'vertex', selectionFilter);
       updateSelection(mergeSelections(drag.baseSelection, lassoSel, drag.mode));

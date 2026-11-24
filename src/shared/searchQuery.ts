@@ -202,6 +202,11 @@ function plainText(raw: string): SearchTerm | null {
   return value ? { kind: 'text', value, negate } : null;
 }
 
+/** Own keys only: a typed word such as `constructor` or `__proto__` must not reach Object.prototype */
+function lookup<T>(table: Record<string, T>, key: string): T | undefined {
+  return Object.hasOwn(table, key) ? table[key] : undefined;
+}
+
 function parseToken(raw: string): SearchTerm | null {
   const m = TOKEN_RE.exec(raw.toLowerCase());
   if (!m) return plainText(raw);
@@ -213,24 +218,24 @@ function parseToken(raw: string): SearchTerm | null {
 
   if (op === ':') {
     if (FLAG_KEYS.has(key)) {
-      const flag = FLAG_VALUES[value];
+      const flag = lookup(FLAG_VALUES, value);
       return flag ? { kind: 'flag', flag, negate } : plainText(raw);
     }
     if (WEATHER_KEYS.has(key)) {
-      const w = WEATHER_VALUES[value];
+      const w = lookup(WEATHER_VALUES, value);
       return w !== undefined ? { kind: 'weather', value: w, negate } : plainText(raw);
     }
     // "props:300" = "props=300" (also for "scen", which is a scenery name only when the value is not a number)
-    const numField = NUMERIC_KEYS[key];
+    const numField = lookup(NUMERIC_KEYS, key);
     if (numField && /^\d+(\.\d+)?$/.test(value)) {
       return { kind: 'num', field: numField, op: '=', value: Number(value), negate };
     }
-    const textField = TEXT_KEYS[key];
+    const textField = lookup(TEXT_KEYS, key);
     if (textField) return { kind: 'field', field: textField, value, negate };
     return plainText(raw);
   }
 
-  const numField = NUMERIC_KEYS[key];
+  const numField = lookup(NUMERIC_KEYS, key);
   if (!numField || !/^\d+(\.\d+)?$/.test(value)) return plainText(raw);
   return { kind: 'num', field: numField, op: op as SearchCompareOp, value: Number(value), negate };
 }

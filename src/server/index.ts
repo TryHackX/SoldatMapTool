@@ -14,8 +14,7 @@ import { REVIEW_MODES, type ReviewMode } from '../shared/climbReview';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import AdmZip from 'adm-zip';
-import { extractZipSafely, isZipSymlink, ZIP_LIMITS, zipEntryProblem, ZipSafetyError } from './zipSafety';
+import { extractZipSafely, withSafeZipMembers, ZIP_LIMITS, ZipSafetyError } from './zipSafety';
 import sharp from 'sharp';
 import { SoldatMapScanner } from './soldatScanner';
 import { AssetCategory } from './assetResolver';
@@ -723,15 +722,13 @@ app.post('/api/packs/build', async (req, res) => {
   }
 });
 
-app.post('/api/packs/inspect-archive', (req, res) => {
+app.post('/api/packs/inspect-archive', async (req, res) => {
   try {
     const archivePath = String(req.body?.archivePath || '').trim();
     if (!archivePath || !fs.existsSync(archivePath)) {
       res.status(404).json({ error: t('The specified archive file was not found.') });
       return;
     }
-    const zip = new AdmZip(archivePath);
-    const entries = zip.getEntries();
     const maps: Array<{
       name: string;
       title: string;
@@ -741,43 +738,36 @@ app.post('/api/packs/inspect-archive', (req, res) => {
     }> = [];
     const files: Array<{ path: string; size: number }> = [];
 
-    if (entries.length > ZIP_LIMITS.maxEntries) {
-      throw new ZipSafetyError(
-        t('The archive has {count} entries (limit {limit}).', { count: entries.length, limit: ZIP_LIMITS.maxEntries })
-      );
-    }
-
-    // Only plausible map files are decompressed for the preview: a crafted archive may declare gigabytes, point
-    // thousands of entries at the same compressed data, or use encryption / unsupported compression
-    const seenDataOffsets = new Set<number>();
-    let previewBytes = 0;
-    for (const e of entries) {
-      if (e.isDirectory || isZipSymlink(e)) continue;
-      files.push({ path: e.entryName, size: e.header.size });
-      if (
-        e.entryName.toLowerCase().endsWith('.pms') &&
-        e.header.size <= ZIP_LIMITS.maxPmsPreviewBytes &&
-        previewBytes + e.header.size <= ZIP_LIMITS.maxPreviewTotalBytes &&
-        !seenDataOffsets.has(e.header.offset) &&
-        !zipEntryProblem(e)
-      ) {
-        seenDataOffsets.add(e.header.offset);
-        previewBytes += e.header.size;
-        try {
-          const data = e.getData();
-          const summary = parsePmsSummary(data);
-          maps.push({
-            name: path.basename(e.entryName, path.extname(e.entryName)),
-            title: summary.mapName,
-            polygons: summary.polygonCount,
-            props: summary.activePropCount,
-            texture: summary.texture,
-          });
-        } catch {
-          // Ignore malformed PMS inside archive
+    // The central directory is read in place (no copy of the archive in memory) and the reader rejects overlapping
+    // records. Only plausible map files are decompressed for the preview: a crafted archive may declare gigabytes or
+    // use encryption / unsupported compression.
+    await withSafeZipMembers(archivePath, async (members) => {
+      let previewBytes = 0;
+      for (const member of members) {
+        if (member.directory || member.problem === 'Link or special ZIP member') continue;
+        files.push({ path: member.name, size: member.size });
+        if (
+          member.name.toLowerCase().endsWith('.pms') &&
+          !member.problem &&
+          member.size <= ZIP_LIMITS.maxPmsPreviewBytes &&
+          previewBytes + member.size <= ZIP_LIMITS.maxPreviewTotalBytes
+        ) {
+          previewBytes += member.size;
+          try {
+            const summary = parsePmsSummary(await member.read());
+            maps.push({
+              name: path.basename(member.name, path.extname(member.name)),
+              title: summary.mapName,
+              polygons: summary.polygonCount,
+              props: summary.activePropCount,
+              texture: summary.texture,
+            });
+          } catch {
+            // Ignore malformed PMS inside archive
+          }
         }
       }
-    }
+    });
 
     res.json({
       archivePath,
@@ -808,7 +798,7 @@ app.post('/api/packs/extract-archive', async (req, res) => {
       : path.join(EXPORTS_PACKS_DIR, 'extracted', baseArchiveName);
 
     // Validates every entry first (zip-slip, sizes), skips symbolic links, never writes through a link
-    const extracted = extractZipSafely(archivePath, destDir);
+    const extracted = await extractZipSafely(archivePath, destDir);
     console.log(
       `[Soldat Map Studio] Extracted ${extracted.files} files from ${path.basename(archivePath)} to ${destDir}` +
         (extracted.skippedLinks > 0 ? ` (skipped links: ${extracted.skippedLinks})` : '')

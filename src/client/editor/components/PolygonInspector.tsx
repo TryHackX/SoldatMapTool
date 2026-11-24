@@ -183,6 +183,7 @@ export function PolygonInspector({snapshot,colors,onCommitMutation,onPolygonDraw
                   min={0}
                   max={20}
                   value={selectedPolys.find((p) => p.polyType === 18)?.bounciness ?? 1.5}
+                  mixed={new Set(selectedPolys.filter((p) => p.polyType === 18).map((p) => p.bounciness)).size > 1}
                   onChange={(e) => {
                     const val = Math.max(0, Number(e.target.value));
                     const nextPolygons = [...map.polygons];

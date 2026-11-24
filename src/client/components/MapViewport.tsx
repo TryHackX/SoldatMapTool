@@ -357,6 +357,8 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     return () => document.removeEventListener('mousedown', close);
   }, [compareMenuOpen]);
 
+  // A GPU reset also takes the comparison canvas: its renderer is rebuilt once the context comes back
+  const [compareRestoreTick, setCompareRestoreTick] = useState(0);
   useEffect(() => {
     const canvas = compareCanvasRef.current;
     if (!compare || !canvas) return;
@@ -364,20 +366,34 @@ export const MapViewport: React.FC<MapViewportProps> = ({
     compareRendererRef.current = renderer;
     setCompareReady(false);
     let cancelled = false;
+    let restored = false;
     renderer
       .loadMap(compare.data, { preferClassicBmp: layers.preferClassicBmp })
       .then((applied) => {
         if (!cancelled && applied) setCompareReady(true);
       })
       .catch((err) => console.warn('[MapViewport] Could not load the comparison map:', err));
+    const onContextLost = (ev: Event) => {
+      ev.preventDefault();
+      setCompareReady(false);
+    };
+    const onContextRestored = () => {
+      restored = true;
+      setCompareRestoreTick((t) => t + 1);
+    };
+    canvas.addEventListener('webglcontextlost', onContextLost, false);
+    canvas.addEventListener('webglcontextrestored', onContextRestored, false);
     return () => {
       cancelled = true;
-      renderer.destroy(true);
+      canvas.removeEventListener('webglcontextlost', onContextLost, false);
+      canvas.removeEventListener('webglcontextrestored', onContextRestored, false);
+      // After a restore the canvas keeps its new context for the next renderer, so it must not be lost again
+      renderer.destroy(!restored);
       if (compareRendererRef.current === renderer) compareRendererRef.current = null;
       setCompareReady(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compare?.key, compare?.data, layers.preferClassicBmp]);
+  }, [compare?.key, compare?.data, layers.preferClassicBmp, compareRestoreTick]);
 
   const [inspection, setInspection] = useState<{
     worldX: number;

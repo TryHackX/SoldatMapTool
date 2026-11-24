@@ -794,6 +794,8 @@ export async function exportCleanArchive(plan: ArchiveCleanPlan, destination: st
         } finally { input.destroy(); }
         await recoverIndexedMapDates(plan.sourceRoot,plan.maps,options.signal);
         nameLatestMapVariants(plan.maps);
+        // Naming by date starts from the full names again, so the short names chosen for the analysis follow it
+        if (plan.shortMapNames) shortenArchiveMapNames(plan.maps);
         plan.mapNamesByDate=true;
     }
     options.signal?.throwIfAborted();

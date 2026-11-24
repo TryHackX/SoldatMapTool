@@ -5,6 +5,7 @@ import { hasInwardNormals, polygonSignedArea2 } from './pmsCompiler';
 import {
   checkSoldatMapLimits,
   computePropAabb,
+  fitsPascalShortString,
   isPropRenderable,
   PmsBounds,
   PmsMapData,
@@ -92,6 +93,14 @@ function boundsAroundPolygons(polys: ReadonlyArray<PmsPolygon>, pad = 60): PmsBo
   top -= pad;
   bottom += pad;
   return { left, right, top, bottom, width: Math.max(1, right - left), height: Math.max(1, bottom - top) };
+}
+
+/** All three stored normals point the same way: a one-way wall or booster that players cross in one direction */
+export function isOneWayPolygon(poly: Pick<PmsPolygon, 'normals'>): boolean {
+  const [a, b, c] = poly.normals;
+  const same = (p: { x: number; y: number }, q: { x: number; y: number }) =>
+    Math.abs(p.x - q.x) < 1e-3 && Math.abs(p.y - q.y) < 1e-3;
+  return (Math.abs(a.x) > 1e-6 || Math.abs(a.y) > 1e-6) && same(a, b) && same(a, c);
 }
 
 function centroid(p: PmsPolygon): { x: number; y: number } {
@@ -190,6 +199,17 @@ export function validateMapDocument(
       messageParams: { name: map.texture },
     });
   }
+  // Scenery file names are stored as cp1250 ShortString[50]: a longer name is cut and other characters become "?",
+  // so the game would look for a different file
+  map.scenery.forEach((sc, i) => {
+    if (fitsPascalShortString(sc.filename, 50)) return;
+    issues.push({
+      id: 'limit_scenery_name_' + i,
+      severity: 'error',
+      messageKey: 'Scenery file name "{name}" is longer than 50 characters or uses characters the map format cannot store.',
+      messageParams: { name: sc.filename },
+    });
+  });
 
   // 2. Polygon geometry health: grouped per kind, so a map with many old quirks shows one line each
   let maxAbs = 0;
@@ -203,6 +223,7 @@ export function validateMapDocument(
   const estDiv = map.polygons.length === 0 ? 128 : Math.max(1, Math.floor((maxAbs + 100) / 25));
 
   const outwardNormals: number[] = [];
+  const oneWayWalls: number[] = [];
   const degenerate: number[] = [];
   const duplicates: number[] = [];
   const giant: number[] = [];
@@ -218,7 +239,8 @@ export function validateMapDocument(
     }
     // The game tests points against the stored normals (either winding works if they point inward)
     if (poly.polyType !== 3 && poly.polyType !== 24 && poly.polyType !== 25 && !hasInwardNormals(poly)) {
-      outwardNormals.push(i);
+      // All three normals pointing one way is the classic one-way wall or booster: deliberate, so no repair
+      (isOneWayPolygon(poly) ? oneWayWalls : outwardNormals).push(i);
     }
 
     // A true duplicate repeats the same corners with the same type, colours and texture coordinates;
@@ -252,6 +274,19 @@ export function validateMapDocument(
             : '{count} polygons have collision normals pointing outward: players pass through them in the game. "Fix" recomputes them.',
         messageParams: { num: outwardNormals[0] + 1, count: outwardNormals.length },
         fix: { kind: 'repair_normals', polygons: outwardNormals },
+      })
+    );
+  }
+  if (oneWayWalls.length > 0) {
+    issues.push(
+      polygonGroupIssue(map, oneWayWalls, {
+        id: 'poly_one_way',
+        severity: 'hint',
+        messageKey:
+          oneWayWalls.length === 1
+            ? 'Polygon #{num} is a one-way wall: all its collision normals point the same way, so players cross it in one direction.'
+            : '{count} polygons are one-way walls: all their collision normals point the same way, so players cross them in one direction.',
+        messageParams: { num: oneWayWalls[0] + 1, count: oneWayWalls.length },
       })
     );
   }

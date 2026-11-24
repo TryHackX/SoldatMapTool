@@ -46,13 +46,16 @@ const toNumber = (v: unknown): number | null => {
  * Drop-in replacement for `<input type="number">` in the editor docks. Typing is free (a lone "-" or "0." is
  * fine, nothing snaps back while typing); the value is applied when leaving the field (Enter does that too) and
  * on each arrow-key step (Shift = ×10), so one edit is one undo step. Escape restores the current value.
+ * `mixed`: the selected objects differ, so the field shows "—" and a typed value is applied to all of them even when
+ * it equals the value of the first one.
  */
 export const NumberInput: React.FC<
   InputPassThrough & {
     value: number | string;
     onChange: (e: FieldChange) => void;
+    mixed?: boolean;
   }
-> = ({ value, onChange, onFocus, onBlur, onKeyDown, min, max, step, ...rest }) => {
+> = ({ value, onChange, onFocus, onBlur, onKeyDown, min, max, step, mixed = false, placeholder, ...rest }) => {
   const [draft, setDraft] = useState<string | null>(null);
   const cancelRef = useRef(false);
   // Only typed text is applied on blur: a field merely focused must not write back a value changed meanwhile
@@ -68,7 +71,7 @@ export const NumberInput: React.FC<
     const n = toNumber(text.trim().replace(',', '.'));
     if (n === null) return; // empty or not a number: keep the old value
     const next = clamp(n);
-    if (next !== Number(value)) onChange({ target: { value: String(next) } });
+    if (mixed || next !== Number(value)) onChange({ target: { value: String(next) } });
   };
 
   return (
@@ -76,10 +79,11 @@ export const NumberInput: React.FC<
       {...rest}
       type="text"
       inputMode="decimal"
-      value={draft ?? String(value)}
+      value={draft ?? (mixed ? '' : String(value))}
+      placeholder={mixed ? '—' : placeholder}
       onFocus={(e) => {
         typedRef.current = false;
-        setDraft(String(value));
+        setDraft(mixed ? '' : String(value));
         onFocus?.(e);
       }}
       onChange={(e) => {
@@ -109,7 +113,7 @@ export const NumberInput: React.FC<
           const next = clamp(base + (e.key === 'ArrowUp' ? 1 : -1) * unit * (e.shiftKey ? 10 : 1));
           const rounded = Number(next.toFixed(6)); // no float noise from steps like 0.1
           setDraft(String(rounded));
-          if (rounded !== Number(value)) onChange({ target: { value: String(rounded) } });
+          if (mixed || rounded !== Number(value)) onChange({ target: { value: String(rounded) } });
         }
         onKeyDown?.(e);
       }}

@@ -21,7 +21,7 @@ function writeZip(build: (zip: AdmZip) => void): string {
   return file;
 }
 
-test('extracting a pack restores replaced files when a later destination cannot be written', t => {
+test('extracting a pack restores replaced files when a later destination cannot be written', async t => {
   const archive = writeZip(zip => {
     zip.addFile('a.pms', Buffer.from('replacement'));
     zip.addFile('b.pms', Buffer.from('new'));
@@ -32,12 +32,12 @@ test('extracting a pack restores replaced files when a later destination cannot 
   t.after(() => fs.rmSync(path.dirname(archive), {recursive:true, force:true}));
   fs.writeFileSync(path.join(dest,'a.pms'), 'original');
   fs.mkdirSync(path.join(dest,'c.pms'));
-  assert.throws(() => extractZipSafely(archive,dest));
+  await assert.rejects(extractZipSafely(archive,dest));
   assert.equal(fs.readFileSync(path.join(dest,'a.pms'),'utf8'),'original');
   assert.deepEqual(fs.readdirSync(dest).sort(), ['a.pms','c.pms']);
 });
 
-test('safe extraction writes regular files and skips symbolic links stored in the archive', () => {
+test('safe extraction writes regular files and skips symbolic links stored in the archive', async () => {
   const archive = writeZip((zip) => {
     zip.addFile('maps/ctf_a.pms', Buffer.from(buildSyntheticPms({ props: 1 })));
     zip.addFile('scenery-gfx/tree.png', Buffer.from('png-bytes'));
@@ -46,7 +46,7 @@ test('safe extraction writes regular files and skips symbolic links stored in th
     link.attr = (0o120777 << 16) >>> 0;
   });
   const dest = path.join(tempDir('sms-extract-'), 'out');
-  const result = extractZipSafely(archive, dest);
+  const result = await extractZipSafely(archive, dest);
   assert.equal(result.files, 2);
   assert.equal(result.skippedLinks, 1);
   assert.ok(fs.existsSync(path.join(dest, 'maps', 'ctf_a.pms')));
@@ -54,7 +54,7 @@ test('safe extraction writes regular files and skips symbolic links stored in th
   assert.equal(fs.existsSync(path.join(dest, 'maps', 'link.pms')), false);
 });
 
-test('safe extraction refuses zip-slip paths before writing anything', () => {
+test('safe extraction refuses zip-slip paths before writing anything', async () => {
   const archive = writeZip((zip) => {
     zip.addFile('maps/ok.pms', Buffer.from('ok'));
     const evil = zip.addFile('maps/evil.txt', Buffer.from('evil'));
@@ -62,22 +62,22 @@ test('safe extraction refuses zip-slip paths before writing anything', () => {
   });
   const base = tempDir('sms-slip-');
   const dest = path.join(base, 'a', 'b');
-  assert.throws(() => extractZipSafely(archive, dest), ZipSafetyError);
+  await assert.rejects(extractZipSafely(archive, dest), ZipSafetyError);
   assert.equal(fs.existsSync(path.join(dest, 'maps', 'ok.pms')), false, 'validation happens before any write');
   assert.equal(fs.existsSync(path.join(base, 'evil.txt')), false);
 });
 
-test('safe extraction enforces size limits from the archive headers', () => {
+test('safe extraction enforces size limits from the archive headers', async () => {
   const archive = writeZip((zip) => {
     zip.addFile('maps/big.pms', Buffer.alloc(2048, 1));
   });
   const dest = tempDir('sms-size-');
-  assert.throws(() => extractZipSafely(archive, dest, { ...ZIP_LIMITS, maxEntryBytes: 1024 }), ZipSafetyError);
-  assert.throws(() => extractZipSafely(archive, dest, { ...ZIP_LIMITS, maxTotalBytes: 1024 }), ZipSafetyError);
-  assert.equal(extractZipSafely(archive, dest).files, 1);
+  await assert.rejects(extractZipSafely(archive, dest, { ...ZIP_LIMITS, maxEntryBytes: 1024 }), ZipSafetyError);
+  await assert.rejects(extractZipSafely(archive, dest, { ...ZIP_LIMITS, maxTotalBytes: 1024 }), ZipSafetyError);
+  assert.equal((await extractZipSafely(archive, dest)).files, 1);
 });
 
-test('safe extraction never writes through a link that already exists in the destination', (t) => {
+test('safe extraction never writes through a link that already exists in the destination', async (t) => {
   const base = tempDir('sms-junction-');
   const outside = path.join(base, 'outside');
   const dest = path.join(base, 'dest');
@@ -91,7 +91,7 @@ test('safe extraction never writes through a link that already exists in the des
     return;
   }
   const archive = writeZip((zip) => zip.addFile('maps/evil.pms', Buffer.from('evil')));
-  assert.throws(() => extractZipSafely(archive, dest), ZipSafetyError);
+  await assert.rejects(extractZipSafely(archive, dest), ZipSafetyError);
   assert.equal(fs.existsSync(path.join(outside, 'evil.pms')), false);
 });
 

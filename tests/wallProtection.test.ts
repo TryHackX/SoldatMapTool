@@ -37,6 +37,16 @@ test('the hidden core spans the joint, stays back from every playable side and s
   assert.equal(stripsFor(saved,settings).length,0);
 });
 
+test('walls that let bullets or players through get no Deadly strips',()=>{
+  // Only Players Collide (type 2) stops players but not bullets: a Deadly strip inside it would start stopping shots
+  const bulletsPass=fixture([...makeQuadPolys(-170,-40,0,40,{polyType:2}),...makeQuadPolys(0,-40,170,40,{polyType:2})]);
+  assert.equal(stripsFor(bulletsPass,settings).length,0);
+  // Stored normals that all point one way make a one-way wall that players can cross
+  const oneWay=fixture(wall().polygons.map(p=>({...p,normals:p.normals.map(n=>({...n,x:1,y:0})) as PmsPolygon['normals']})));
+  assert.equal(stripsFor(oneWay,settings).length,0);
+  assert.ok(stripsFor(wall(),settings).length>0);
+});
+
 test('narrow, passable and team-only walls remain open, including missing collision sectors',()=>{
   for(const polys of [makeQuadPolys(-160,0,160,5),... [1,3,11,18,24].map(polyType=>makeQuadPolys(-160,0,160,100,{polyType}))])
     assert.equal(stripsFor(fixture(polys),settings).length,0);

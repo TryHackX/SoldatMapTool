@@ -1,7 +1,7 @@
 import { open } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { crc32, inflateRaw } from 'node:zlib';
-import { ZIP_LIMITS } from './zipSafety';
+import { ZIP_LIMITS } from './zipLimits';
 
 const inflate = promisify(inflateRaw);
 export const cp437 = 'ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ';

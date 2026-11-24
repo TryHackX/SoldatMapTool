@@ -676,7 +676,9 @@ export interface OptimizePreview {
   optionsKey: string; // JSON of the options the preview was baked with (stale detection)
 }
 
-let activePreviewPrefix: string | null = null;
+// The map view can still show the previous preview while a new one is baked and not shown yet, so the two newest
+// previews keep their tiles (a GPU reset or the BMP 1.6 switch reloads them); older ones are freed
+const retainedPreviewPrefixes: string[] = [];
 
 export function optimizeOptionsKey(mapId: string, options: OptimizeMapOptions): string {
   const { destination: _d, customOutputFolder: _c, ...renderRelevant } = options;
@@ -698,9 +700,9 @@ export async function buildOptimizePreview(
   const plan = await fetchOptimizePlan(mapId, options, signal);
   const tiles = await bakeSceneryTiles(mapData, plan, options, onProgress, signal);
 
-  if (activePreviewPrefix) clearVirtualAssets(activePreviewPrefix);
   const prefix = `__preview_${Date.now().toString(36)}__`;
-  activePreviewPrefix = prefix;
+  retainedPreviewPrefixes.push(prefix);
+  while (retainedPreviewPrefixes.length > 2) clearVirtualAssets(retainedPreviewPrefixes.shift()!);
   for (const t of tiles) registerVirtualAsset('scenery-gfx', `${prefix}${t.tileFileName}`, t.png);
   const previewMap = composeOptimizedMap(mapData, plan, tiles, (t) => `${prefix}${t.tileFileName}`);
 

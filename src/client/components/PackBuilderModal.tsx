@@ -83,6 +83,9 @@ export const PackBuilderModal: React.FC<PackBuilderModalProps> = ({
   const [fileTreeFilter, setFileTreeFilter] = useState('');
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
+  // Kept apart from build errors: a later successful preview clears it, and a failed one never leaves the old
+  // preview on screen for the new options
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [buildResult, setBuildResult] = useState<{
     outputPath: string;
     fileName: string;
@@ -203,13 +206,18 @@ export const PackBuilderModal: React.FC<PackBuilderModalProps> = ({
         .then(async (r) => {
           const data = await r.json().catch(() => ({}));
           if (!r.ok || data.error) {
-            setBuildError(data.error || t('Pack preview error (HTTP {status}).', { status: r.status }));
+            setPreviewError(data.error || t('Pack preview error (HTTP {status}).', { status: r.status }));
             setPreview(null);
             return;
           }
+          setPreviewError(null);
           setPreview(data);
         })
-        .catch(() => {})
+        .catch(() => {
+          if (controller.signal.aborted) return;
+          setPreviewError(t('Could not load the pack preview.'));
+          setPreview(null);
+        })
         .finally(() => {
           // An aborted (superseded) request must not hide the spinner of the request that replaced it
           if (!controller.signal.aborted) setLoadingPreview(false);
@@ -753,9 +761,9 @@ export const PackBuilderModal: React.FC<PackBuilderModalProps> = ({
               </div>
 
               {/* Build Result Banner */}
-              {buildError && (
+              {(buildError || previewError) && (
                 <div className="bg-red-950/80 border border-red-700 rounded-lg px-3 py-2 text-xs text-red-200">
-                  {buildError}
+                  {buildError || previewError}
                 </div>
               )}
 

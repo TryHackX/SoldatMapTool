@@ -156,6 +156,7 @@ export const SERVER_PL: Record<string, string | readonly [string, string, string
   'Scenery entries': 'Wpisy scenerii',
   Colliders: 'Collidery',
   'Spawn points': 'Spawny',
+  'Bot waypoints': 'Waypointy botów',
 
   // zipSafety.ts — archive extraction
   'File {file} is encrypted — such archives are not supported.':
@@ -213,4 +214,5 @@ export const SERVER_PL: Record<string, string | readonly [string, string, string
   'Prefab has no elements.': 'Prefabrykat nie zawiera żadnych obiektów.',
   'You can save at most {max} prefabs.': 'Można zapisać najwyżej {max} prefabrykatów.',
   'Unexpected server error.': 'Nieoczekiwany błąd serwera.',
+  'The archive is damaged or unsafe: {reason}': 'Archiwum jest uszkodzone lub niebezpieczne: {reason}',
 };

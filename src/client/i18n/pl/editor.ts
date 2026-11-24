@@ -571,6 +571,12 @@ export const EDITOR_PL: PlDictionary = {
     'Przekroczony limit silnika — Punkty botów: {value} / {limit}',
   'Main texture name "{name}" exceeds 24 characters.':
     'Nazwa głównej tekstury „{name}” przekracza 24 znaki.',
+  'Polygon #{num} is a one-way wall: all its collision normals point the same way, so players cross it in one direction.':
+    'Poligon nr {num} to ściana jednokierunkowa: wszystkie jego normalne kolizji wskazują jedną stronę, więc gracze przechodzą przez niego w jednym kierunku.',
+  '{count} polygons are one-way walls: all their collision normals point the same way, so players cross them in one direction.':
+    'Ściany jednokierunkowe: {count}. Wszystkie normalne kolizji tych poligonów wskazują jedną stronę, więc gracze przechodzą przez nie w jednym kierunku.',
+  'Scenery file name "{name}" is longer than 50 characters or uses characters the map format cannot store.':
+    'Nazwa pliku scenerii „{name}” ma ponad 50 znaków albo zawiera znaki, których format mapy nie zapisze.',
   'Polygon #{num} has collision normals pointing outward: players pass through it in the game. "Fix" recomputes them.':
     'Poligon #{num} ma normalne kolizji skierowane na zewnątrz: w grze gracze przez niego przenikają. „Napraw” przeliczy je od nowa.',
   '{count} polygons have collision normals pointing outward: players pass through them in the game. "Fix" recomputes them.':

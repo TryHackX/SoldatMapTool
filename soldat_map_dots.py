@@ -20,8 +20,15 @@ from PIL import Image, ImageDraw
 # 24: Background             | 25: Background Transition
 # ==============================================================================
 
-# Polygons that stop the player (walls, floors, ice, bouncy)
-SOLID_POLY_TYPES = {0, 2, 4, 7, 8, 18}
+# Polygons that stop every player: walls, floors, ice, bouncy, hurting walls (20 hurts flag carriers) and 22,
+# which stops players without the flag (the walk starts at a spawn, so nobody carries a flag yet)
+SOLID_POLY_TYPES = {0, 2, 4, 7, 8, 18, 20, 22}
+
+# Walls that stop only one team's players: Alpha Players (11) and Bravo Players (13)
+TEAM_SOLID_POLY_TYPES = {1: {11}, 2: {13}}
+
+# Tall maps (towers, climb maps) would otherwise make a canvas tens of thousands of pixels high
+MAX_IMAGE_HEIGHT = 8192
 
 # Deadly polygons (obstacles, never counted as an area players can move in)
 DEADLY_POLY_TYPES = {5, 6, 9, 19}
@@ -322,6 +329,10 @@ def render_map_and_dots(
     world_w = max_x - min_x
     world_h = max_y - min_y
     scale = target_width / world_w
+    if world_h * scale > MAX_IMAGE_HEIGHT:
+        # The height is capped and the width follows, so the template keeps the map's proportions
+        scale = MAX_IMAGE_HEIGHT / world_h
+        target_width = max(1, int(round(world_w * scale)))
     target_height = int(round(world_h * scale))
 
     def to_px(wx: float, wy: float) -> tuple[int, int]:
@@ -381,18 +392,26 @@ def render_map_and_dots(
 
     # 4. Reachability for each CTF team separately.
     # Red = reachable from Alpha, blue = from Bravo, purple = both teams.
-    blocked_mask = np.array(mask_img, dtype=bool)
+    # Each team's own walls (Alpha Players / Bravo Players) stop only that team
+    team_masks = {}
+    for team, types in TEAM_SOLID_POLY_TYPES.items():
+        team_img = mask_img.copy()
+        team_draw = ImageDraw.Draw(team_img)
+        for poly in polygons:
+            if poly["type"] in types:
+                team_draw.polygon([to_px(v[0], v[1]) for v in poly["verts"]], fill=1, outline=1)
+        team_masks[team] = np.array(team_img, dtype=bool)
     alpha_points = []
     bravo_points = []
     if draw_dots:
         alpha_spawns = [s for s in spawns_px if s[2] == 1]
         bravo_spawns = [s for s in spawns_px if s[2] == 2]
         alpha_points = compute_reachable_grid(
-            blocked_mask=blocked_mask, spawns_px=alpha_spawns, step_px=step_px,
+            blocked_mask=team_masks[1], spawns_px=alpha_spawns, step_px=step_px,
             max_climb_px=max_climb_px, clearance_px=clearance_px,
         ) if alpha_spawns else []
         bravo_points = compute_reachable_grid(
-            blocked_mask=blocked_mask, spawns_px=bravo_spawns, step_px=step_px,
+            blocked_mask=team_masks[2], spawns_px=bravo_spawns, step_px=step_px,
             max_climb_px=max_climb_px, clearance_px=clearance_px,
         ) if bravo_spawns else []
 

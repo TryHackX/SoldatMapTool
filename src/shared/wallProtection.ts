@@ -4,7 +4,7 @@ import { simplifyPolylineRdp } from './imageTracer';
 import {joinWallRuns,straightenWallRuns} from './wallRuns';
 import {bridgeWallParts,medialWallSegments} from './wallMedialAxis';
 import { pointInTriInclusive } from './polygonGeometry';
-import { compileMapSectors, createPolygonFromPoints, triangleOverlapsBox } from './pmsCompiler';
+import { compileMapSectors, createPolygonFromPoints, hasInwardNormals, triangleOverlapsBox } from './pmsCompiler';
 import { checkSoldatMapLimits, SOLDAT_MAP_LIMITS, type PmsMapData, type PmsPolygon } from './pmsParser';
 
 export type WallPoint = { x: number; y: number };
@@ -13,7 +13,7 @@ export type WallScope = 'all' | 'painted';
 export type WallSettings = { clearance: number; width: number; strokes: WallStroke[]; scope?: WallScope; repairInteriorCells?: boolean };
 export type WallPlan = { polygons: PmsPolygon[]; sectorRepairs: {sector:number; polygon:number}[] };
 export const defaultWallSettings: WallSettings = { clearance: 2, width: 1, strokes: [] };
-export const WALL_PLAN_VERSION=4;
+export const WALL_PLAN_VERSION=5;
 export function wallScope(settings:Pick<WallSettings,'scope'|'strokes'>):WallScope {
   return settings.scope ?? (settings.strokes.length && settings.strokes[0].mode!=='exclude' ? 'painted':'all');
 }
@@ -253,8 +253,13 @@ export function planWallProtection(map: Terrain, options: WallSettings): WallPla
   const ids = map.polygons.map(():number[]=>[]);
   map.sectorsPolys?.forEach((list,k)=>{ for (const id of new Set(list)) ids[id-1]?.push(k); });
   for (const [i,p] of map.polygons.entries()) {
-    const solid = [0,2,4].includes(p.polyType);
-    if (!solid && p.polyType!==5 && p.polyType!==6) continue;
+    // Walls are only what stops players and bullets alike (OpenSoldat Sprites.pas / Bullets.pas): normal and ice
+    // polygons whose stored normals point inwards. Type 2 lets bullets through, so a Deadly strip inside it would
+    // start stopping shots. Normals pointing one way make a one-way wall players can cross: such a polygon is kept
+    // free of strips like an existing Deadly area, and the clearance is measured from its edge.
+    const playerWall = p.polyType===0 || p.polyType===4;
+    const solid = playerWall && hasInwardNormals(p);
+    if (!playerWall && p.polyType!==5 && p.polyType!==6) continue;
     if (!p.vertices.every(validPoint)) throw Error('Invalid wall coordinates');
     const tri = p.vertices.map(scaled);
     const area = C.Clipper.Area(tri);

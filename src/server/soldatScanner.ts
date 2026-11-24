@@ -803,6 +803,7 @@ export class SoldatMapScanner {
       sceneryCount: summary.scenery.length,
       colliderCount: summary.colliderCount,
       spawnCount: summary.spawnCount,
+      waypointCount: summary.waypointCount,
     });
     const parseWarnings = summary.parseWarnings ?? [];
 

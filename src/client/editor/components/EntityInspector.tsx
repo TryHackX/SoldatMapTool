@@ -90,6 +90,7 @@ export function EntityInspector({snapshot,onCommitMutation,onFocusBounds}:Props)
             min={2}
             max={2000}
             value={Math.round(selectedColliders[0].radius)}
+            mixed={selectedColliders.some((c) => Math.round(c.radius) !== Math.round(selectedColliders[0].radius))}
             onChange={(e) => {
               const d = Math.max(2, Number(e.target.value));
               const nextCols = [...map.colliders];
@@ -199,7 +200,11 @@ export function EntityInspector({snapshot,onCommitMutation,onFocusBounds}:Props)
             >
               <input
                 type="checkbox"
-                checked={Boolean(selectedWaypoints[0][flag])}
+                // Checked only when every selected waypoint has the flag; partly set shows the mixed state
+                checked={selectedWaypoints.every((w) => Boolean(w[flag]))}
+                ref={(el) => {
+                  if (el) el.indeterminate = selectedWaypoints.some((w) => Boolean(w[flag])) && !selectedWaypoints.every((w) => Boolean(w[flag]));
+                }}
                 onChange={(e) => {
                   const val = e.target.checked;
                   const nextWps = [...map.waypoints];
