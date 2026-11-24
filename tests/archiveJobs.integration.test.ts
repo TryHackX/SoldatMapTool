@@ -114,7 +114,7 @@ test('fresh archive service forks analysis and export, publishes scoped PMS reso
   });
   const recoveryCsv=await (await fetch(secondEndpoint+'/recovery.csv')).text();
   assert.match(recoveryCsv,/00-late\/maps\/Arena.PMS/);
-  assert.match(recoveryCsv,/Odzyskano/);
+  assert.match(recoveryCsv,/Recovered/);
   assert.match(recoveryCsv,/original library PMS SHA-256/i);
   assert.equal(secondReady.summary?.artworkRecovery?.reviewed,1);
   const artworkCsv=await (await fetch(secondEndpoint+'/artwork.csv')).text();

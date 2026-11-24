@@ -21,7 +21,7 @@ import { missingArtwork, writeRecoveryReport } from './archiveRecoveryReport';
 import {missingArtworkText, type MissingArtwork} from './missingArtwork';
 import {scanInstalledMaps} from './archiveInstalledMaps';
 import {compareMapEditions,recoverIndexedMapDates,writeMapVersions} from './archiveMapDates';
-import type { ArchiveRecoverySummary } from '../shared/archiveCleanerTypes';
+import { MAP_VERSIONS_REPORT, type ArchiveRecoverySummary } from '../shared/archiveCleanerTypes';
 import { AssetBindings, PortableNames, fold, inspectArchiveImage, preferSource, recoverableImagePrefix, type AssetFolder, type CatalogFile, type ImageInfo } from './archiveBindings';
 export interface ArchiveCleanMap {
     sourceMtimeMs?: number;
@@ -865,7 +865,7 @@ export async function exportCleanArchive(plan: ArchiveCleanPlan, destination: st
         const { workDir, sourceRoot, ...manifest } = plan;
         await fs.writeFile(path.join(stageDir, 'report', 'plan.json'), JSON.stringify(manifest));
         await writeArchiveReviewCsv(path.join(stageDir, 'report', 'review.csv'), plan.maps, options.signal);
-        if (plan.mapNamesByDate) await writeMapVersions(path.join(stageDir,'report','wersje-map.csv'),plan.maps);
+        if (plan.mapNamesByDate) await writeMapVersions(path.join(stageDir,'report',MAP_VERSIONS_REPORT),plan.maps);
         if (plan.recovery) await fs.copyFile(path.join(workDir,'recovery.csv'),path.join(stageDir,'report','recovery.csv'));
         if (plan.artworkRecovery) await fs.copyFile(path.join(workDir,'artwork.csv'),path.join(stageDir,'report','artwork.csv'));
         await fs.copyFile(path.join(workDir, 'inputs.jsonl'), path.join(stageDir, 'report', 'inputs.jsonl'));

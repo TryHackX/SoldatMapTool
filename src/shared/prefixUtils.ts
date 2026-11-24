@@ -10,21 +10,21 @@ export interface ModeGroupDefinition {
 
 export interface CustomPrefixRule {
   id: string;
-  name: string;               // np. "Liga SCTFL", "RSCS Dodatkowe", "Mapy Klanu NS"
-  prefixes: string[];         // np. ["ctf_ns_", "sctfl_"]
-  pattern?: string;           // opcjonalny wildcard (np. "*_f", "*arena*") lub "/regex/i"
-  badgeColor: string;         // kolor hex plakietki
-  targetGroupId?: string;     // jeśli podano istniejące id grupy (np. 'rscs', 'trenchwars'), podpina pod nią; inaczej tworzy własną grupę
-  priority: number;           // wyższy = sprawdzany wcześniej
+  name: string;               // e.g. "SCTFL League", "RSCS Extra", "NS Clan Maps"
+  prefixes: string[];         // e.g. ["ctf_ns_", "sctfl_"]
+  pattern?: string;           // optional wildcard (e.g. "*_f", "*arena*") or "/regex/i"
+  badgeColor: string;         // badge colour (hex)
+  targetGroupId?: string;     // an existing group id (e.g. 'rscs', 'trenchwars') attaches the rule to that group; otherwise it gets its own group
+  priority: number;           // higher = checked earlier
   enabled: boolean;
 }
 
 export interface MapClassification {
-  prefix: string;             // np. "ctf_cs_", "tw_", "ctf_tw_", "ctf_", "__none__"
-  modeGroupId: string;        // np. "rscs", "trenchwars", "ctf", "climb", "custom:..."
+  prefix: string;             // e.g. "ctf_cs_", "tw_", "ctf_tw_", "ctf_", "__none__"
+  modeGroupId: string;        // e.g. "rscs", "trenchwars", "ctf", "climb", "custom:..."
   modeGroupName: string;
   badgeColor: string;
-  subprefix: string | null;   // np. "ctf_ns_" dla "ctf_ns_arena" gdy dopasowano ogólne "ctf_"
+  subprefix: string | null;   // e.g. "ctf_ns_" for "ctf_ns_arena" when the general "ctf_" matched
   matchedRuleId?: string;
 }
 

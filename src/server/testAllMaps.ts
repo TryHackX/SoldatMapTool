@@ -57,7 +57,7 @@ async function main() {
     },
     {
       id: 'rule_fixed',
-      name: 'Poprawione Mapy (_f)',
+      name: 'Fixed maps (_f)',
       prefixes: [],
       pattern: '*_f',
       badgeColor: '#a855f7',

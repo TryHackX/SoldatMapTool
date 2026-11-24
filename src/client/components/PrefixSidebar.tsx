@@ -371,7 +371,7 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
           </button>
         </div>
 
-        {/* 3-Tab Switcher: Tryby | Prefixy | Serie 2-czł. */}
+        {/* 3-Tab Switcher: Modes | Prefixes | Series */}
         <div className="grid grid-cols-3 gap-0.5 bg-zinc-950 border border-zinc-800 rounded-md p-0.5 mb-2 text-[11px]">
           <button
             type="button"

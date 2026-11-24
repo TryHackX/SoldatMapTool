@@ -14,14 +14,14 @@ export async function writeMapVersions(file:string,maps:readonly ArchiveCleanMap
         const key=new PortableNames().allocate(path.posix.basename(row.source),'.pms',row.outputSha256,28);
         const entries=groups.get(key)??[];entries.push(row);groups.set(key,entries);
     }
-    const lines=[['Nazwa mapy','Plik w paczce','Preferowana wersja','Data pliku (UTC)','Źródło','SHA-256 mapy w paczce'].map(csvCell).join(';')];
+    const lines=[['Map name','File in package','Preferred version','File date (UTC)','Source','Map SHA-256 in package'].map(csvCell).join(';')];
     for (const key of [...groups.keys()].sort()) {
         const rows=groups.get(key)!;
         if (new Set(rows.map(r=>r.outputSha256)).size<2) continue;
         rows.sort(compareMapEditions);
         const preferred=rows[0].outputSha256;
         for(const r of rows) {
-            lines.push([key,r.output,r.outputSha256===preferred?'tak':'',r.sourceMtimeMs?new Date(r.sourceMtimeMs).toISOString():'',r.source,r.outputSha256].map(csvCell).join(';'));
+            lines.push([key,r.output,r.outputSha256===preferred?'yes':'',r.sourceMtimeMs?new Date(r.sourceMtimeMs).toISOString():'',r.source,r.outputSha256].map(csvCell).join(';'));
         }
     }
     await fs.writeFile(file,'\uFEFF'+lines.join('\r\n')+'\r\n',{flag:'wx'});

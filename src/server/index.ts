@@ -195,7 +195,7 @@ app.use('/api/library/similar',createLibrarySimilarityRouter(scanner));
 
 function sendError(res: express.Response, err: unknown, fallbackStatus = 500): void {
   const status = err instanceof WorkshopError ? err.status : fallbackStatus;
-  if (status >= 500) console.error('[Soldat Map Studio] Błąd API:', err);
+  if (status >= 500) console.error('[Soldat Map Studio] API error:', err);
   res.status(status).json({ error: err instanceof Error ? err.message : String(err) });
 }
 
@@ -596,7 +596,7 @@ app.post('/api/library/duplicates/move', async (req, res) => {
     const response = await runLibraryOperation(async () => {
       await scanner.scanAsync(false);
       const result = await moveDuplicateMaps(scanner, mapIds, BACKUPS_DIR);
-      console.log(`[Soldat Map Studio] Duplikaty: przeniesiono ${result.moved} plików do ${result.backupDir}`);
+      console.log(`[Soldat Map Studio] Duplicates: moved ${result.moved} files to ${result.backupDir}`);
       return { ...result, meta: await scanner.scanAsync(true) };
     });
     res.json(response);
@@ -622,7 +622,7 @@ app.post('/api/library/unused-scenery/move', async (req, res) => {
     const response = await runLibraryOperation(async () => {
       await scanner.scanAsync(false);
       const result = await moveUnusedScenery(scanner, names, BACKUPS_DIR);
-      console.log(`[Soldat Map Studio] Nieużywane scenerie: przeniesiono ${result.moved} plików do ${result.backupDir}`);
+      console.log(`[Soldat Map Studio] Unused sceneries: moved ${result.moved} files to ${result.backupDir}`);
       return { ...result, meta: await scanner.scanAsync(true) };
     });
     res.json(response);
@@ -653,7 +653,7 @@ app.post('/api/library/case-mismatches/rename', async (req, res) => {
     const response = await runLibraryOperation(async () => {
       await scanner.scanAsync(true);
       const result = await renameCaseMismatches(scanner, files, BACKUPS_DIR);
-      console.log(`[Soldat Map Studio] Wielkość liter: zmieniono nazwy ${result.moved} plików (${result.backupDir})`);
+      console.log(`[Soldat Map Studio] Letter case: renamed ${result.moved} files (${result.backupDir})`);
       return { ...result, meta: await scanner.scanAsync(true) };
     });
     res.json(response);
@@ -798,8 +798,8 @@ app.post('/api/packs/extract-archive', async (req, res) => {
     // Validates every entry first (zip-slip, sizes), skips symbolic links, never writes through a link
     const extracted = extractZipSafely(archivePath, destDir);
     console.log(
-      `[Soldat Map Studio] Wypakowano ${extracted.files} plików z ${path.basename(archivePath)} do ${destDir}` +
-        (extracted.skippedLinks > 0 ? ` (pominięto dowiązań: ${extracted.skippedLinks})` : '')
+      `[Soldat Map Studio] Extracted ${extracted.files} files from ${path.basename(archivePath)} to ${destDir}` +
+        (extracted.skippedLinks > 0 ? ` (skipped links: ${extracted.skippedLinks})` : '')
     );
 
     if (registerAsSource) {
@@ -1348,17 +1348,17 @@ const server = app.listen(PORT, '127.0.0.1', () => {
       );
     })
     .catch((err) => {
-      console.error('[Soldat Map Studio] Błąd początkowego skanowania map:', err);
+      console.error('[Soldat Map Studio] Initial map scan failed:', err);
     });
 });
 
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
     console.error(
-      `[Soldat Map Studio] Port ${PORT} jest już zajęty — aplikacja prawdopodobnie już działa. Otwórz http://127.0.0.1:${PORT} albo zamknij poprzednie okno serwera.`
+      `[Soldat Map Studio] Port ${PORT} is already in use — the app is probably running already. Open http://127.0.0.1:${PORT} or close the previous server window.`
     );
   } else {
-    console.error('[Soldat Map Studio] Błąd serwera:', err);
+    console.error('[Soldat Map Studio] Server error:', err);
   }
   process.exit(1);
 });

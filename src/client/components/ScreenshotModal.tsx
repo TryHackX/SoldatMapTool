@@ -300,7 +300,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
             consecutiveFailures = 0;
           } catch (itemErr) {
             if (controller.signal.aborted) break;
-            console.warn(`Błąd renderowania mapy ${entry.baseName}:`, itemErr);
+            console.warn(`Could not render map ${entry.baseName}:`, itemErr);
             completed++;
             failed++;
             consecutiveFailures++;

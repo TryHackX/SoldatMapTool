@@ -9,7 +9,7 @@ export function missingArtworkText(items: readonly MissingArtwork[]): string {
   const line = (value: string) => value.replace(/[\r\n\t\x00-\x1f]/g,' ');
   const sections = [['Scenery','scenery'],['Textures','texture'],['Edges','edge']] as const;
   const legend=items.some(item=>item.original!==item.expected)
-    ? 'Nazwa z oryginału -> nazwa, pod którą trzeba zapisać znaleziony plik.\r\n\r\n' : '';
+    ? 'Original name -> name to save the found file under.\r\n\r\n' : '';
   return legend+sections.map(([title,category])=>{
     const entries = items.filter(item=>item.category===category).map(item=>{
       const rename=item.expected!==item.original?' -> '+line(item.expected):'';

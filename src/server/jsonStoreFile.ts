@@ -19,7 +19,7 @@ export function readJsonStoreFile(filePath: string): unknown {
   } catch {
     const backup = filePath + '.broken-' + randomUUID();
     fs.renameSync(filePath, backup);
-    console.warn(`[Soldat Map Studio] Niepoprawny JSON. Zachowano oryginał w ${backup}`);
+    console.warn(`[Soldat Map Studio] Invalid JSON. The original file was kept as ${backup}`);
     return null;
   }
 }

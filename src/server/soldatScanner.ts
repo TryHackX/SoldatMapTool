@@ -54,7 +54,7 @@ const NAME_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity:
 
 /**
  * Placeholder summary for a .pms file that cannot be parsed, so it still shows up in the index
- * (category "Nie wczytają się w grze") instead of silently disappearing.
+ * (category "Won't load in game") instead of silently disappearing.
  */
 function unreadableSummary(message: string, crc32: number): PmsSummaryData {
   const bounds = { left: -320, right: 320, top: -240, bottom: 240, width: 640, height: 480 };

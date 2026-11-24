@@ -31,22 +31,22 @@ export async function writeRecoveryReport(file:string,baseline:string,previous:r
   const handle = await fs.open(temporary,'wx');
   let published = false;
   try {
-    let text='\ufeff'+['Oryginalna paczka i plik','SHA-256 źródła','Kandydat w poprzednim raporcie','Poprzedni powód','Wynik','Weryfikacja lub pozostała przyczyna','Plik wynikowy','SHA-256 wynikowego PMS'].map(csvCell).join(';')+'\r\n';
+    let text='\ufeff'+['Original package and file','Source SHA-256','Candidate in previous report','Previous reason','Result','Verification or remaining cause','Output file','Output PMS SHA-256'].map(csvCell).join(';')+'\r\n';
     for (const {old,withCandidate} of todo) {
       signal?.throwIfAborted();
       const row=entries.get(identity(old))?.pop();
       if (withCandidate) summary.withCandidates++;
-      let result='Nadal do sprawdzenia';
-      let reason=row ? [...row.issues,...(row.repairs??[])].join(' | ') : 'W bieżącej kolekcji brak wystąpienia o tej samej ścieżce i sumie SHA-256';
-      if (!row) { summary.changedOrAbsent++; result='Zmienione lub brak w źródle'; }
+      let result='Still needs review';
+      let reason=row ? [...row.issues,...(row.repairs??[])].join(' | ') : 'No occurrence with the same path and SHA-256 in the current collection';
+      if (!row) { summary.changedOrAbsent++; result='Changed or missing in the source'; }
       else if (row.status !== 'blocked' && row.outputSha256) {
         summary.recovered++;
         if (withCandidate) summary.recoveredWithCandidates++;
-        if (oldOutputs.has(row.outputSha256)) { summary.matchedPreviousOutputs++; result='Potwierdzono mapę już obecną'; }
-        else { added.add(row.outputSha256); result='Odzyskano'; }
-        reason=row.repairs?.join(' | ') || 'Ponowny odczyt PMS i weryfikacja wszystkich wymaganych zasobów';
+        if (oldOutputs.has(row.outputSha256)) { summary.matchedPreviousOutputs++; result='Confirmed a map that is already present'; }
+        else { added.add(row.outputSha256); result='Recovered'; }
+        reason=row.repairs?.join(' | ') || 'PMS read again and all required assets verified';
       }
-      text += [old.source,old.sha256,withCandidate?'tak':'nie',old.issues.join(' | '),result,reason,row?.output,row?.outputSha256].map(csvCell).join(';')+'\r\n';
+      text += [old.source,old.sha256,withCandidate?'yes':'no',old.issues.join(' | '),result,reason,row?.output,row?.outputSha256].map(csvCell).join(';')+'\r\n';
       if (text.length>=131072) { await handle.writeFile(text,'utf8'); text=''; }
     }
     if (text) await handle.writeFile(text,'utf8');

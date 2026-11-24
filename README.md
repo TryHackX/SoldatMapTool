@@ -50,7 +50,7 @@ computer: a small Node.js server reads the game folder and the interface opens i
 - **Clean archive** — writes a verified, portable copy of a whole map collection (for example the SMA archive plus
   the maps installed in the game): assets are resolved in their original package, deduplicated by SHA-256, PMS
   references rewritten, and maps with missing files get a `missing/<map>.txt` report.
-  Guide: [clean archive and map comparison](CZYSTE-ARCHIWUM.md) (in Polish).
+  Guide: [clean archive and map comparison](CLEAN-ARCHIVE.md).
 - **Two languages** — English (default) and Polish; switch in **Settings** (gear icon) → *Language / Język*.
 
 ## Map generators and climb tools
@@ -239,7 +239,7 @@ requests from other websites, so other computers on the network and web pages ca
 
 ## Changelog
 
-Version history: [`CHANGELOG.md`](CHANGELOG.md) (in Polish).
+Version history: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## License
 

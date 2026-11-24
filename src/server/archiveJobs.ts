@@ -4,8 +4,13 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ArchiveCleanerJob } from '../shared/archiveCleanerTypes';
+import { MAP_VERSIONS_REPORT, type ArchiveCleanerJob } from '../shared/archiveCleanerTypes';
 import {writeArchiveGameZip} from './archiveGameZip';
+
+/** The map versions report of an exported clean copy. Copies exported by older versions call it wersje-map.csv. */
+function mapVersionsReport(exportDir:string):string|undefined {
+  return [MAP_VERSIONS_REPORT,'wersje-map.csv'].map(name=>path.join(exportDir,'report',name)).find(file=>fs.existsSync(file));
+}
 
 const idPattern = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 const processing = (job:ArchiveCleanerJob) => job.status==='scanning'||job.status==='exporting';
@@ -35,7 +40,7 @@ export function createArchiveJobs(cache:string,exportsDir:string,soldatRoot:()=>
       // A completed export is atomically published before its worker reports completion.
       const target=path.join(exportsDir,current.id);
       if(current.status==='exporting' && fs.existsSync(path.join(target,'report','plan.json'))){
-        current.status='complete';current.outputPath=target;current.versionsReport=fs.existsSync(path.join(target,'report','wersje-map.csv'));
+        current.status='complete';current.outputPath=target;current.versionsReport=mapVersionsReport(target)!==undefined;
       }else{
         current.error='Previous operation was interrupted. You can retry.';
         current.status=current.status==='exporting'?'ready':'failed';
@@ -127,7 +132,9 @@ export function createArchiveJobs(cache:string,exportsDir:string,soldatRoot:()=>
   router.get('/jobs/:id/versions.csv',(req,res)=>{
     const job=read(req.params.id);
     if(job?.status!=='complete' || !job.includeInstalledMaps){res.sendStatus(404);return;}
-    res.download(path.join(exportsDir,job.id,'report','wersje-map.csv'),'wersje-map.csv');
+    const report=mapVersionsReport(path.join(exportsDir,job.id));
+    if(!report){res.sendStatus(404);return;}
+    res.download(report,MAP_VERSIONS_REPORT);
   });
   router.post('/jobs/:id/library',async(req,res,next)=>{
     const job=read(req.params.id);

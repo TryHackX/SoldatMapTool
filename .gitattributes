@@ -1,4 +1,4 @@
 * text=auto
-# cmd.exe wymaga końców linii CRLF w plikach .bat, a bash — LF w skryptach .sh
+# cmd.exe needs CRLF line endings in .bat files, and bash needs LF in .sh scripts
 *.bat text eol=crlf
 *.sh text eol=lf

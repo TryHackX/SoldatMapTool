@@ -1,401 +1,422 @@
 # Changelog
 
+## 2.8.1 — 2026-11-24
+
+### Documentation and texts in English
+- `CHANGELOG.md` is now in English, for every version.
+- The clean archive guide is in English and is now called `CLEAN-ARCHIVE.md`.
+- `LICENSE` contains only the English text; the terms have not changed.
+- Server and browser console messages, code comments and the `package.json` description are in English.
+
+### Clean archive
+- The CSV reports (recovery decisions, missing artwork decisions, map versions and dates) and the legend in
+  `missing/<map>.txt` are written in English, like `review.csv`.
+- `report/wersje-map.csv` is now `report/map-versions.csv`. Clean copies exported by 2.8.0 still offer their
+  versions report for download.
+
 ## 2.8.0 — 2026-11-24
 
-### Generatory map i narzędzia climb (nowość)
-- **Nowa mapa → Z map wzorcowych:** osobna, edytowalna mapa z jednej do ośmiu lokalnych map PMS (mapa zaznaczona
-  w bibliotece, mapy dodane po nazwie lub tagu albo próbka wyników filtra).
-  - **Połącz fragmenty wzorców** dopasowuje otwarcia, łączy odcinki i przenosi scenerie oraz kolory materiałów;
-  - **Zachowaj układ przejść** zmienia sylwetkę pierwszej mapy, ale zostawia połączenia waypointów;
-  - niebo, tekstura terenu i paleta mogą pochodzić z różnych wzorców.
-- **Nowa mapa → Trasy i areny:** platformowa trasa na czas (Spokojna, Na czas lub Trudna, z profilem skoków
-  zmierzonym na Twoich lokalnych mapach climb), CTF, Trenchwars i arena symetryczna. Podgląd rysuje symulowany
-  przejazd od spawnu Alpha do flagi Bravo z czasem liczonym przy 60 tickach na sekundę.
-- **Nowa mapa → Tunel climb:**
-  - własna trasa od startu do flagi, gotowy kształt (**Spirala**, **Pagórki**, sprawdzone trasy) albo **Generuj
-    trasę** z kierunku, długości, trudności i ziarna;
-  - szerokość, paleta skał, proporcje materiałów, przeszkody i **układ komór** (wnęki, galerie, szyby, lód, miejsca
-    odpoczynku) zmieniasz na żywym podglądzie;
-  - **Przejazd pilota** symuluje żołnierza i pokazuje tor ruchu, czas albo miejsce, w którym się zatrzymał.
-- **Nowa mapa → Climb na czas:** trasa pod zadany czas, np. 1:00. Studio sprawdza warianty odcinków i podaje czas
-  ciągłego przejazdu od spawnu Alpha do flagi Bravo.
-- **Narzędzie Tunel (T)** rysuje tunel bezpośrednio na mapie:
-  - dla każdego odcinka: przesunięcie zakrętu, wysokość lądowania, odbicie i lokalna szerokość, sprawdzenie odcinka
-    lub całej trasy oraz przebudowa;
-  - **Porównaj warianty** zestawia od dwóch do czterech wariantów między tymi samymi bramkami;
-  - **Wszystkie międzyczasy** pokazuje czasy odcinków jednego ciągłego przejazdu, a **Planowanie czasu trasy**
-    przesuwa trasę w stronę docelowego czasu;
-  - każda zmiana to jeden krok cofania.
-- **Styl z biblioteki i porównanie:** odstępy, wzniesienie, szerokość lądowisk, odbicie, odsłonięte krawędzie
-  i paliwo jetpacka ulubionych map, wybranego tagu albo źródła, porównane po medianie i skrajnych percentylach.
-- **Biblioteka ruchów climb:** pięć małych map treningowych ze zmierzonymi zakresami rozbiegu, prędkości
-  i lądowania. Po zatrzymanym przejeździe **Sprawdź poprawki od startu** mierzy alternatywne lokalne poprawki na
-  całej trasie.
-- **Porównaj z przejazdami graczy:** zapis własnych przejazdów (wersja gry, czas, meta albo miejsce zatrzymania,
-  międzyczasy) dla dokładnie tej trasy. Eksport i import JSON przenosi je między przeglądarkami.
-- **Laser → Tryb rysowania „Trasa z platform”** zamienia narysowaną linię w trasę ze skokami, śmiertelnymi
-  pułapkami, raniącym podłożem i platformami odbijającymi, w proporcjach z Twojego profilu climb.
-- Symulacja to szacunek dla wygenerowanej trasy w drodze do flagi. Ręcznie zmienione trasy, powrót z flagą i czasy
-  w grze nadal wymagają testu w grze.
+### Map generators and climb tools (new)
+- **New map → Map from examples:** a separate, editable map built from one to eight local PMS maps (the map selected
+  in the library, maps added by name or tag, or a sample of the filtered results).
+  - **Compose a new layout** matches openings, joins sections and carries over scenery and material colours;
+  - **Reshape the first map** changes the silhouette of the first map but keeps its waypoint links;
+  - sky, terrain texture and palette can each come from a different reference.
+- **New map → Courses and arenas:** a platform time trial (Relaxed, Time trial or Expert, with a jump profile measured
+  on your local climb maps), CTF, Trenchwars and a symmetric arena. The preview draws a simulated run from the Alpha
+  spawn to the Bravo flag, timed at 60 ticks per second.
+- **New map → Climb tunnel:**
+  - your own route from the start to the flag, a ready shape (**Spiral**, **Rolling hills**, tested courses) or
+    **Automatic route** built from direction, length, difficulty and seed;
+  - width, rock palette, surface mix, obstacles and **cave chambers** (alcoves, galleries, shafts, ice, rest areas)
+    change in a live preview;
+  - **Pilot run** simulates a soldier and shows the path, the time or the place where the soldier stopped.
+- **New map → Timed climb:** a course for a target time such as 1:00. Map Studio tests section variants and reports
+  the time of a continuous run from the Alpha spawn to the Bravo flag.
+- **Tunnel tool (T)** draws a tunnel directly on the map:
+  - for each section: move the bend, change the landing height, bounce and local width, check the section or the
+    whole route, and rebuild it;
+  - **Compare variants** puts two to four variants side by side between the same gates;
+  - **All splits** shows the section times of one continuous run, and **Route time planner** moves the route
+    towards a target time;
+  - every change is one undo step.
+- **Library style and comparison:** gaps, rise, landing width, rebound, exposed edges and jet fuel of your favourite
+  maps, a tag or a source, compared by median and outer percentiles.
+- **Climb movement library:** five small practice maps with measured approach, speed and landing ranges. After a
+  stalled run, **Test targeted repairs from start** measures alternative local fixes on the whole route.
+- **Compare with player runs:** record your own runs (game version, time, finish or stop, split times) for exactly
+  this route. JSON export and import move them between browsers.
+- **Laser Draw → Stroke mode → Platform route** turns a drawn line into a route with jumps, deadly pits, hurt zones
+  and bounce pads, in the proportions of your climb profile.
+- The simulation is an estimate for the generated route on the way to the flag. Hand-edited routes, flag returns and
+  race times still need a playtest in the game.
 
-### Edytor map
-- **Kształty (B):** prostokąt, dowolny obrys, rampa i kolec. Przeciągnij od podstawy do czubka albo między
-  narożnikami; kierunek wynika z gestu lub wybierasz go z listy.
-- **Poly Fixer** wyszukuje styki punktowe zwykłego podłoża (narożnik na krawędzi, styk narożników), pokazuje każdy
-  na mapie z powiększeniem i nakłada wierzchołek na sąsiedni trójkąt do 2 jednostek w głąb. Naprawa pojedynczo albo
-  wszystkich naraz, z cofaniem przez Ctrl+Z. Sprawdzanie mapy zgłasza też szczeliny węższe od żołnierza.
-- **Projekty `.smaproj`** przechowują mapę razem z narysowaną trasą, ustawieniami generatora i profilem skoków;
-  **Eksportuj .pms** zapisuje grywalną mapę. Szkice odzyskiwania zapisują te same dane.
-- **Własne klawisze narzędzi** (F1 lub ?): wybór zajętej litery zamienia klawisze obu narzędzi, a jednym przyciskiem
-  wracasz do domyślnych. **F4** chowa i pokazuje panele boczne.
-- **Usuń nieużywane wpisy scenerii** porządkuje tabelę scenerii mapy (z cofaniem).
-- **Skopiuj styl do stempla scenerii** oraz Backspace cofający ostatni punkt rysunku.
-- Opcjonalne ikony Font Awesome Solid na pasku narzędzi (paczkę instaluje się w administracji lokalnej); domyślnie
-  zostają ikony Lucide.
-- Operacja, która przekroczyłaby limit 5000 poligonów, zostaje zablokowana z komunikatem.
-- Przy zapisie można ograniczyć długość nazwy pliku (patrz niżej).
+### Map editor
+- **Shapes (B):** box, free outline, ramp and spike. Drag from the base to the tip or between two corners; the
+  direction follows the gesture or is picked from a list.
+- **Poly Fixer** finds point contacts in normal terrain (corner on edge, corner to corner), shows each one on the map
+  with a close-up and overlaps the tip into the neighbouring triangle by up to 2 map units. Repair one contact or all
+  of them, with undo (Ctrl+Z). The map check also reports gaps narrower than the soldier.
+- **`.smaproj` projects** keep the map together with the drawn route, the generator settings and the jump profile;
+  **Export .pms** writes the playable map. Recovery drafts store the same data.
+- **Custom tool keys** (F1 or ?): picking a letter that is already taken swaps the keys of both tools, and one button
+  restores the defaults. **F4** hides and shows the side panels.
+- **Remove unused scenery entries** tidies the scenery table of the map (with undo).
+- **Copy Style to Scenery Stamp**, and Backspace removes the last drawing point.
+- Optional Font Awesome Solid icons on the tool rail (the icon pack is installed in local administration); the Lucide
+  icons stay the default.
+- An operation that would exceed the 5000 polygon limit is blocked with a message.
+- Saving can limit the length of the file name (see below).
 
-### Warsztat map
-- **Zabezpiecz ściany:** przezroczyste pasy Deadly wewnątrz grubych ścian (domyślnie szerokość 1 i odstęp
-  2 jednostek od powierzchni dostępnej dla gracza):
-  - dla całej mapy, tylko dla zamalowanego obszaru albo wzdłuż narysowanego pasa (Shift + przeciągnięcie daje
-    prosty pas);
-  - różowy pędzel wyklucza obszar, zielony go przywraca, a w miejscu przecięcia decyduje ostatnia kreska;
-  - podgląd pokazuje mapę z teksturami i licznik poligonów (limit 5000), a wynik trafia do osobnego PMS
-    w `exports/guarded-maps/`, także dla całej listy map;
-  - opcjonalnie uzupełnia brakujące sektory kolizji wewnątrz ścian wzdłuż ręcznego pasa.
-- **Limit długości nazwy pliku** przed `.pms`: 16 znaków (zgodność ze starszymi narzędziami serwerowymi), 24 albo
-  32, z przyciskiem **Zaproponuj krótką nazwę**. Działa w warsztacie i przy zapisie w edytorze.
-- Bezpieczniejszy zapis `_o` i `_a`: Studio czeka na przesłanie wszystkich warstw, sprawdza ich liczbę z podglądem,
-  nie nadpisuje grafiki należącej do innej mapy ani zmienionej ręcznie i zgłasza scenerię, której nie da się
-  odczytać.
+### Map workshop
+- **Wall protection:** transparent Deadly strips inside thick walls (by default 1 unit wide, with 2 units of
+  clearance from the surface players can reach):
+  - for the whole map, only the painted area, or along a strip you draw (Shift + drag gives a straight strip);
+  - the pink brush excludes an area, green brings it back, and where strokes overlap the last one wins;
+  - the preview shows the textured map and the polygon count (limit 5000), and the result goes to a separate PMS in
+    `exports/guarded-maps/`, also for a whole list of maps;
+  - optionally restores missing collision sectors inside walls along a manual strip.
+- **File name length limit** before `.pms`: 16 characters (compatibility with older server tools), 24 or 32, with a
+  **Suggest a short filename** button. It works in the workshop and when saving in the editor.
+- Safer `_o` and `_a` saving: Map Studio waits until every layer is uploaded, checks their number against the
+  preview, never overwrites a graphic that belongs to another map or was changed by hand, and reports scenery it
+  cannot read.
 
-### Biblioteka, porządki i paczki
-- **Podobne mapy:** porównanie zaznaczonych map po sylwetce terenu i grafikach scenerii. Wyszukuje wersje robocze,
-  przemianowane kopie i bliskie duplikaty, także w porównaniu z resztą biblioteki.
-- **Potwierdzone duplikaty** zamiast samego CRC32: kopia musi mieć zgodną zawartość mapy i grafik.
-- Nowe filtry wyszukiwania: `is:draft` (robocza nazwa mapy, np. wip, beta, test, szkic) i `is:draft-scenery`
-  (sceneria o roboczej nazwie).
-- **Czyste archiwum** (Porządki → Czyste archiwum, także z warsztatu map):
-  - zweryfikowana, przenośna kopia całej kolekcji, np. archiwum SMA razem z mapami zainstalowanymi w grze;
-  - zasoby są szukane w ich oryginalnych paczkach i deduplikowane po SHA-256, a odwołania w PMS przepisywane;
-  - mapy z brakami dostają raport `missing/<mapa>.txt`; raporty CSV obejmują mapy do sprawdzenia, wersje i daty
-    map oraz odzyskiwanie brakujących grafik;
-  - wynik trafia do `exports/clean-archives/`, a poradnik jest w pliku `CZYSTE-ARCHIWUM.md`.
-- **Paczki serwerowe:**
-  - **Usuń nieużywane wpisy scenerii z pakowanych map** czyści tabelę scenerii w kopii PMS i pomija nieużywane
-    grafiki;
-  - mapy z brakami mogą trafić do paczki z wykazem braków w `missing/<mapa>.txt`;
-  - przed spakowaniem Studio sprawdza, czy mapa nie zmieniła się na dysku od ostatniego skanowania.
-- Rozpakowywanie pobranych archiwów wykrywa różne pliki trafiające pod tę samą nazwę, a po błędzie przywraca
-  poprzednie pliki.
+### Library, clean-up and packs
+- **Similar maps:** compare selected maps by terrain silhouette and scenery images. It finds work-in-progress
+  versions, renamed copies and near duplicates, also against the rest of the library.
+- **Verified duplicates** instead of CRC32 alone: a copy must have matching map and artwork content.
+- New search filters: `is:draft` (a draft marker in the map name, such as wip, beta or test) and `is:draft-scenery`
+  (scenery with a draft name).
+- **Clean archive** (Clean-up → Clean archive, also from the map workshop):
+  - a verified, portable copy of a whole collection, for example the SMA archive together with the maps installed in
+    the game;
+  - assets are resolved in their original packages and deduplicated by SHA-256, and PMS references are rewritten;
+  - maps with missing files get a `missing/<map>.txt` report; CSV reports cover maps requiring review, map versions
+    and dates, and missing artwork decisions;
+  - the result goes to `exports/clean-archives/`, and the guide is in `CLEAN-ARCHIVE.md`.
+- **Server map packs:**
+  - **Remove unused scenery entries from packed maps** cleans the scenery table in the packed PMS copy and skips
+    unused graphics;
+  - maps with missing files can go into the pack with a list of what is missing in `missing/<map>.txt`;
+  - before packing, Map Studio checks that the map has not changed on disk since the last scan.
+- Extracting downloaded archives detects different files that would land under the same name, and restores the
+  previous files after an error.
 
-### Administracja lokalna i uruchamianie
-- Przy pierwszym starcie przeglądarka otwiera zakładanie lokalnego konta administratora (login i hasło od 12 znaków).
-  Panel jest pod `/admin` i w Ustawieniach, a Studio nadal działa tylko na tym komputerze.
-- `npm start` i skrypty startowe uruchamiają serwer pod nadzorcą:
-  - **Restart Soldat Map Studio.bat** (Windows) i `restart.sh` (Linux) restartują działający serwer, a przed
-    restartem interfejs jest przebudowywany, jeśli zmieniły się jego źródła;
-  - `node scripts/restart.mjs --reset-admin` resetuje zapomniane konto administratora i zostawia kopię starego
-    pliku.
-- Linki do pobierania paczek i zrzutów map są podpisane lokalnym kluczem.
+### Local administration and startup
+- On the first start the browser opens the local administrator setup (a login and a password of at least
+  12 characters). The panel is at `/admin` and in Settings, and Map Studio still runs only on this computer.
+- `npm start` and the start scripts run the server under a supervisor:
+  - **Restart Soldat Map Studio.bat** (Windows) and `restart.sh` (Linux) restart a running server, and the interface
+    is rebuilt first when its sources changed;
+  - `node scripts/restart.mjs --reset-admin` resets a forgotten administrator account and keeps a backup of the old
+    account file.
+- Download links for packs and map screenshots are signed with a local key.
 
-### Pod spodem
-- Nowe biblioteki `clipper-lib` i `earcut` (operacje na wielokątach i triangulacja).
-- Skrypty jakości `npm run quality:climb`, `quality:courses` i `quality:history` oraz pomiar klatek edytora
-  w `scripts/editor-frames.html`.
-- 353 testy automatyczne.
+### Under the hood
+- New libraries `clipper-lib` and `earcut` (polygon operations and triangulation).
+- Quality scripts `npm run quality:climb`, `quality:courses` and `quality:history`, plus editor frame timing in
+  `scripts/editor-frames.html`.
+- 353 automated tests.
 
 ## 2.7.0 — 2026-11-02
 
-### Edytor map (nowość)
-- **Otwieranie:** przycisk „Edytuj mapę” przy dowolnej mapie albo „Nowa mapa” z szablonu (pusta, arena, CTF
-  symetryczna, climb). Edycja odbywa się na tym samym podglądzie WebGL co w przeglądarce: tekstury, krawędzie i
-  warstwy scenerii wyglądają jak w grze.
-- **Poligony:**
-  - trójkąt, pas, wachlarz, kształt z automatyczną triangulacją, prostokąt i rysowanie „laserem”;
-  - edycja wierzchołków z łączeniem wspólnych wierzchołków i dzieleniem krawędzi;
-  - wszystkie 26 typów i sprężystość;
-  - kolory wierzchołków (pędzel, gradient, pipeta), wypalanie światła, kolejność rysowania;
-  - tekstury: przesuwanie, skalowanie i obrót UV, wyrównanie do świata.
-- **Scenerie:**
-  - przeglądarka zasobów: każdy obraz raz, z oznaczeniem HD i licznikiem użyć w mapie, filtr „W tej mapie”,
-    „zaznacz wszystkie”, „zamień obraz” i ostatnio stawiane;
-  - przeciągnięcie przy stawianiu rysuje scenerię w wybranym rozmiarze;
-  - Alt+kółko skaluje, Alt+Shift+kółko obraca;
-  - rozmiar w procentach z blokadą proporcji, szybkie obroty, warstwy i kolejność.
-- **Koloryzacja scenerii:**
-  - odcień, nasycenie i jasność, kolor hex, 12 presetów i ostatnio użyte kolory;
-  - przesuwanie kolorów wielu scenerii naraz z zachowaniem różnic między nimi;
-  - gradient koloru i krycia przez zaznaczenie;
-  - losowa wariacja (rozmiar, kąt, kolor, krycie, odbicie) z ponownym losowaniem;
-  - mgła głębi dla całej mapy według warstw.
-- **Pozostałe obiekty:** spawny, flagi i bonusy (wszystkie typy), kolidery, waypointy botów z połączeniami i akcjami
-  oraz ustawienia mapy (opis, tekstura, tło, paliwo jetpacka, paczki, pogoda, kroki).
-- **Zaznaczanie i przekształcenia:**
-  - klik (ponowny klik wybiera obiekt pod spodem), prostokąt, lasso i filtr typów;
-  - zaznacz podobne (Ctrl+Shift+A) i odwróć zaznaczenie (Ctrl+I);
-  - uchwyty przesuwania, obrotu i skalowania, dokładne pola X/Y/W/H, wyrównywanie;
-  - przyciąganie do siatki, wierzchołków, krawędzi i kątów.
-- **Narzędzia:**
-  - symetria z zamianą drużyn, prefaby oraz kopiuj/wklej między mapami;
-  - zamiana obrazu na poligony, generator wysp i skorupy terenu, cieniowanie reliefu;
-  - test żołnierza z jetpackiem;
-  - paleta poleceń (Ctrl+K), lista skrótów (?), chowanie paneli (Tab).
-- **Historia i szkice:** cofanie bez limitu z panelem historii (jedno przeciągnięcie to jeden krok). Szkic zapisuje
-  się w tle i po awarii można go przywrócić.
-- **Sprawdzanie mapy na bieżąco:**
-  - limity silnika, brakujące pliki, zasady CTF, spawny w ścianach;
-  - poligony z normalnymi kolizji skierowanymi na zewnątrz, z naprawą jednym kliknięciem;
-  - wskazówki (zdegenerowane i zduplikowane trójkąty, wąskie przejścia) osobno i zwinięte.
-- **Zapis:**
-  - nowy plik `<mapa>_e` albo dowolna nazwa: do folderu gry, do `exports/edited_maps/` lub do własnego folderu;
-  - Ctrl+S zapisuje ponownie w to samo miejsce, Ctrl+Shift+S to „Zapisz jako”;
-  - nadpisanie wymaga potwierdzenia i robi kopię zapasową.
-- **Wierność pliku:** mapa otwarta i zapisana bez zmian jest identyczna bajt w bajt (sprawdzone na 3880 mapach).
-  Dane kolizji (normalne, sektory) są przeliczane tylko dla zmienionych poligonów, a sama zmiana kolorów ich nie
-  rusza.
+### Map editor (new)
+- **Opening:** an "Edit map" button next to any map, or "New map" from a template (empty, arena, symmetric CTF,
+  climb). Editing happens on the same WebGL preview as in the browser: textures, edges and scenery layers look as in
+  the game.
+- **Polygons:**
+  - triangle, strip, fan, shape with automatic triangulation, rectangle and "laser" drawing;
+  - vertex editing with welding of shared vertices and edge splitting;
+  - all 26 types and bounciness;
+  - vertex colours (brush, gradient, eyedropper), light baking, draw order;
+  - textures: move, scale and rotate UVs, align to the world.
+- **Sceneries:**
+  - asset browser: each image once, with an HD badge and a count of its uses in the map, an "In this map" filter,
+    "select all", "replace image" and recently placed sceneries;
+  - dragging while placing draws the scenery at the chosen size;
+  - Alt+wheel scales, Alt+Shift+wheel rotates;
+  - size in percent with locked proportions, quick rotations, layers and order.
+- **Scenery colorize:**
+  - hue, saturation and brightness, a hex colour, 12 presets and recently used colours;
+  - shifting the colours of many sceneries at once while keeping the differences between them;
+  - a colour and opacity gradient across the selection;
+  - random variation (size, angle, colour, opacity, flip) with re-roll;
+  - depth haze for the whole map by layer.
+- **Other objects:** spawns, flags and bonuses (all types), colliders, bot waypoints with connections and actions,
+  and map settings (description, texture, background, jet fuel, grenade and medikit packs, weather, steps).
+- **Selection and transforms:**
+  - click (clicking again picks the object below), rectangle, lasso and a type filter;
+  - select similar (Ctrl+Shift+A) and invert selection (Ctrl+I);
+  - move, rotate and scale handles, exact X/Y/W/H fields, alignment;
+  - snapping to the grid, vertices, edges and angles.
+- **Tools:**
+  - symmetry with team swap, prefabs, and copy/paste between maps;
+  - image to polygons, an island and terrain shell generator, relief shading;
+  - a soldier test with jetpack;
+  - command palette (Ctrl+K), shortcut list (?), hiding the panels (Tab).
+- **History and drafts:** unlimited undo with a history panel (one drag is one step). A draft is saved in the
+  background and can be restored after a crash.
+- **Live map check:**
+  - engine limits, missing files, CTF rules, spawns inside walls;
+  - polygons with collision normals pointing outwards, with a one-click fix;
+  - hints (degenerate and duplicate triangles, narrow passages) shown separately and collapsed.
+- **Saving:**
+  - a new file `<map>_e` or any name: into the game folder, into `exports/edited_maps/` or into your own folder;
+  - Ctrl+S saves again to the same place, Ctrl+Shift+S is "Save as";
+  - overwriting needs confirmation and makes a backup.
+- **File fidelity:** a map opened and saved without changes is identical byte for byte (checked on 3880 maps).
+  Collision data (normals, sectors) is recalculated only for changed polygons, and a colour change alone does not
+  touch it.
 
-### Podgląd i wydajność
-- Pamięć tekstur GPU ma limit i zwalnia najdawniej używane tekstury. Przeglądanie setek map i podglądy `_o` nie
-  zapychają już karty graficznej.
-- „Odśwież” wczytuje tekstury od nowa, a pliki, których nie dało się wczytać, są próbowane ponownie.
-- Edytor ładuje się dopiero przy pierwszym otwarciu, więc start aplikacji jest mniejszy.
+### Preview and performance
+- GPU texture memory has a limit and frees the least recently used textures. Browsing hundreds of maps and `_o`
+  previews no longer clogs the graphics card.
+- "Refresh" reloads the textures, and files that failed to load are tried again.
+- The editor loads only when it is first opened, so the app starts with a smaller bundle.
 
 ## 2.6.0 — 2026-11-02
 
-### Archiwum map (`_a`)
-- Nowa opcja w Optimize Sceneries: „Archiwizuj mapę (`_a`)”. Warstwy są sklejane jak w `_o`, razem z domyślnymi
-  sceneriami. Każda sceneria, która zostaje osobnym propem, oraz tekstura poligonów (z krawędziami z
-  `textures/edges`) dostają kopię nazwaną od mapy, np. `<mapa>_a_s1.png` i `<mapa>_a.bmp`. Inna paczka ani
-  aktualizacja gry nie podmieni już plików, z których korzysta mapa.
-- Kopie są bajt w bajt, więc format, kolor przezroczystości i wybór HD / klasyczny zostają bez zmian.
-- Nieużywane wpisy scenerii są zawsze usuwane, a brakujące pliki zgłaszane w wyniku.
-- Po wyłączeniu wszystkich trzech warstw powstaje archiwum bez wypalania: tylko kopie plików.
-- Działa też wsadowo dla paczki lub bieżącego filtra, np. `tw_`: wybierasz jakość (np. 4×) i kafelki (2048 px) i
-  dostajesz mapy `*_a.pms`.
-- Osobny katalog `exports/archived_maps/` (maps/, scenery-gfx/, textures/). Z map `*_a` można potem zbudować
-  paczkę w Kreatorze Paczek Map.
-- Wyniki `_o` i `_a` nie są ponownie optymalizowane, bo kolejne wypalanie tylko je rozmywa.
+### Map archive (`_a`)
+- A new option in Optimize Sceneries: "Archive the map (`_a`)". Layers are merged as in `_o`, together with the
+  default sceneries. Every scenery that stays a separate prop, and the polygon texture (with its edges from
+  `textures/edges`), get a copy named after the map, e.g. `<map>_a_s1.png` and `<map>_a.bmp`. Another pack or a game
+  update can no longer replace the files the map uses.
+- The copies are byte for byte, so the format, the transparency colour and the HD / classic choice stay unchanged.
+- Unused scenery entries are always removed, and missing files are reported in the result.
+- With all three layers turned off you get an archive without baking: just the file copies.
+- It also works in batch mode for a pack or the current filter, e.g. `tw_`: pick the quality (e.g. 4×) and the tiles
+  (2048 px) and you get `*_a.pms` maps.
+- A separate folder `exports/archived_maps/` (maps/, scenery-gfx/, textures/). A pack can then be built from the
+  `*_a` maps in the Map Pack Builder.
+- `_o` and `_a` results are not optimized again, because another bake only blurs them.
 
-### Jakość warstw
-- Tryb Auto wybiera 4×, gdy warstwy mieszczą się w limicie pamięci (wcześniej najwyżej 3×). Opisy jakości mówią,
-  że 4× zachowuje najwięcej detali scenerii HD.
+### Layer quality
+- Auto mode picks 4× when the layers fit in the memory limit (previously at most 3×). The quality descriptions say
+  that 4× keeps the most detail of HD sceneries.
 
-### Widok mapy
-- **Przypinanie widoku gracza:** przy włączonym narzędziu kliknięcie zostawia ramkę na mapie.
-  - Każda ramka ma przycisk usuwania, a przycisk z koszem usuwa wszystkie.
-  - Przypięte ramki i żołnierze są zapamiętywani osobno dla każdej mapy.
-- **Narzędzie „Żołnierz”:** sylwetka w prawdziwej skali, ok. 14 × 24 jednostki, ze szkieletem z animacji stania
-  OpenSoldat.
-  - Pokazuje też prostokąt, którym żołnierz koliduje z poligonami: 7 × 14.
-  - Staje na pierwszym podłożu pod kursorem; z Shiftem zostaje w powietrzu. Kliknięcie zostawia go na mapie.
-  - Z włączonym widokiem gracza ramka jest wyśrodkowana na żołnierzu, tak jak kamera w grze.
-- **Zaznaczanie kliknięciem:**
-  - Scenerie przezroczyste w klikniętym punkcie trafiają na koniec listy: puste fragmenty dużych obrazów oraz
-    ledwo widoczne mgły i chmury (poniżej ok. 16% krycia). Dzięki temu zaznacza się to, co faktycznie widać.
-  - Ponowne kliknięcie w to samo miejsce albo ↑/↓ wybiera obiekt pod spodem.
-  - Filtr Wszystko / Scenerie / Poligony decyduje, co zaznacza kliknięcie.
-  - Poligony nie wypadają już z listy, gdy w punkcie leży bardzo dużo scenerii.
+### Map view
+- **Pinning the player view:** with the tool on, a click leaves a frame on the map.
+  - Each frame has a remove button, and the trash button removes them all.
+  - Pinned frames and soldiers are remembered separately for each map.
+- **"Soldier" tool:** a true-scale figure, about 14 × 24 units, with a skeleton from the OpenSoldat standing
+  animation.
+  - It also shows the rectangle the soldier uses to collide with polygons: 7 × 14.
+  - It stands on the first ground below the cursor; with Shift it stays in the air. A click leaves it on the map.
+  - With the player view on, the frame is centred on the soldier, like the camera in the game.
+- **Click selection:**
+  - Sceneries that are transparent at the clicked point go to the end of the list: empty parts of large images and
+    barely visible fog and clouds (below about 16% opacity). A click selects what you actually see.
+  - Clicking the same place again, or ↑/↓, picks the object below.
+  - The All / Sceneries / Polygons filter decides what a click selects.
+  - Polygons no longer drop out of the list when many sceneries lie at the clicked point.
 
 ## 2.5.2 — 2026-11-02
 
-### Podgląd `_o`
-- Gdy powiększenie w oknie mapy przekracza rozdzielczość podglądanych warstw (np. ponad ok. 230% przy jakości 2×),
-  pasek podglądu wyjaśnia, że warstwy są wtedy tylko powiększane i wyglądają miękcej niż scenerie HD, oraz podaje
-  skalę gry (przycisk „Skala gry” — 225% przy 1080p). Przykład `tw_Doppleganger`: 83% propów ma tekstury HD
-  (co najmniej 3,5 piksela na jednostkę świata), więc przy 424% oryginał pokazuje więcej detali niż warstwa 2×; w skali
-  gry ostrość wynosi 97,4% przy 2× i 101,3% przy 3×.
-- Pasek podglądu pokazuje jakość, z którą podgląd został zbudowany (wcześniej — aktualnie wybraną w oknie).
-- Opis kafelków 4096 px mówi, że zużywają więcej pamięci tekstur: gorzej przycinają puste miejsca, przez co tryb
-  Auto może wybrać niższą jakość (`tw_Doppleganger`: 3× przy 2048 px, 2× przy 4096 px).
+### `_o` preview
+- When the zoom in the map window exceeds the resolution of the previewed layers (e.g. above about 230% at 2×
+  quality), the preview bar explains that the layers are then only magnified and look softer than HD sceneries, and
+  gives the game scale ("Game scale" button — 225% at 1080p). Example `tw_Doppleganger`: 83% of the props have HD
+  textures (at least 3.5 pixels per world unit), so at 424% the original shows more detail than a 2× layer; at game
+  scale the sharpness is 97.4% at 2× and 101.3% at 3×.
+- The preview bar shows the quality the preview was built with (previously the one currently selected in the
+  window).
+- The description of 4096 px tiles says that they use more texture memory: they crop empty space worse, so Auto mode
+  may pick a lower quality (`tw_Doppleganger`: 3× with 2048 px tiles, 2× with 4096 px tiles).
 
 ## 2.5.1 — 2026-11-02
 
-### Naprawione
-- **Poprawka 1.7.1 (`_f`, „najpierw napraw, potem sklej”) potrafiła zepsuć mapę**, np. pasy wody w `ctf_tw_hue`
-  kurczyły się do wysp, bo `water.png` mierzono domyślnym `water.bmp` 100×100. Wymiar, który nie jest potęgą
-  dwójki, pochodzi z pliku, którego naprawdę użył autor, a gra rysuje propy według wymiaru zapisanego w mapie —
-  takie różnice są teraz pokazywane z wyjaśnieniem, ale nie są zaznaczane do naprawy. Zalecane zostają klasyczne
-  błędy 1.7.1: rozmiary Power-of-Two ze starego MapMakera i powiększenia HD z PolyWorks. Plik 1×1 (zaślepka
-  brakującego obrazu) nigdy nie jest celem naprawy. Na całej kolekcji z zaleceń wypadło 77 takich przypadków.
-- Ponowna optymalizacja mapy, która już jest wynikiem `_o` (np. `ctf_tw_hue_o` → `ctf_tw_hue_o_f_o`), jest
-  zablokowana z wyjaśnieniem — tryb wsadowy już takie mapy pomijał.
-- Menu „Compare” nie jest już zasłaniane przez pasek podglądu `_f` / `_o`.
+### Fixed
+- **The 1.7.1 fix (`_f`, "fix first, then merge") could break a map**, e.g. the water strips in `ctf_tw_hue` shrank
+  into islands, because `water.png` was measured by the default 100×100 `water.bmp`. A size that is not a power of
+  two comes from the file the author really used, and the game draws props by the size stored in the map — such
+  differences are now shown with an explanation but not marked for repair. The classic 1.7.1 errors stay recommended:
+  Power-of-Two sizes from the old MapMaker and HD enlargements from PolyWorks. A 1×1 file (a placeholder for a
+  missing image) is never a repair target. Across the whole collection, 77 such cases dropped out of the
+  recommendations.
+- Optimizing a map that is already an `_o` result again (e.g. `ctf_tw_hue_o` → `ctf_tw_hue_o_f_o`) is blocked with
+  an explanation — batch mode already skipped such maps.
+- The "Compare" menu is no longer covered by the `_f` / `_o` preview bar.
 
-### Testy
-- 62 testy automatyczne (1 nowy).
+### Tests
+- 62 automated tests (1 new).
 
 ## 2.5.0 — 2026-11-01
 
-Dwa języki interfejsu.
+Two interface languages.
 
-### Języki
-- Interfejs po angielsku (domyślnie) i po polsku. Wybór w **Ustawieniach → Language / Język**; jest zapamiętany,
-  a zmiana przeładowuje aplikację. Przycisk „Źródła Map” w nagłówku nazywa się teraz „Ustawienia”.
-- Komunikaty serwera (błędy, ostrzeżenia, treść plików generowanych w paczkach, listy przywracania) przychodzą
-  w języku wybranym w interfejsie.
-- Polskie formy liczebników (1 mapa / 2 mapy / 5 map), liczby i daty w formacie wybranego języka.
-- Teksty w kodzie są po angielsku, polskie tłumaczenia w słownikach `src/client/i18n/pl/` i `src/server/i18nPl.ts`.
-- `README.md` po angielsku, z opisem dodatkowego narzędzia `soldat_map_dots.py` (Python 3.10+, numpy, Pillow);
-  skrypty startowe i `soldat_map_dots.py` wypisują komunikaty po angielsku.
-- Angielskie nazwy skryptów startowych: `Start Soldat Map Studio.bat` (dawniej `Uruchom Soldat Map Studio.bat`)
-  i `start.sh`.
+### Languages
+- The interface in English (default) and Polish. The choice is in **Settings → Language / Język**; it is remembered,
+  and changing it reloads the app. The "Map sources" button in the header is now called "Settings".
+- Server messages (errors, warnings, the content of files generated in packs, restore lists) arrive in the language
+  chosen in the interface.
+- Polish plural forms (1 mapa / 2 mapy / 5 map), and numbers and dates in the format of the chosen language.
+- Texts in the code are written in English; the Polish translations live in the dictionaries `src/client/i18n/pl/`
+  and `src/server/i18nPl.ts`.
+- `README.md` in English, with a description of the extra tool `soldat_map_dots.py` (Python 3.10+, numpy, Pillow);
+  the start scripts and `soldat_map_dots.py` print their messages in English.
+- English names of the start scripts: `Start Soldat Map Studio.bat` (formerly `Uruchom Soldat Map Studio.bat`) and
+  `start.sh`.
 
-### Testy
-- 61 testów automatycznych.
+### Tests
+- 61 automated tests.
 
 ## 2.4.0 — 2026-11-01
 
-Pierwsze wydanie z README, licencją i obsługą Linuksa.
+The first release with a README, a license and Linux support.
 
-### Ostrość `_o`
-- Warstwy są przy wypalaniu lekko wyostrzane, z siłą dobraną pomiarem osobno dla każdej jakości. Gra filtruje
-  sklejoną warstwę jeszcze raz przy wyświetlaniu (oryginalne scenerie tylko raz) i to dawało lekkie zmiękczenie.
-  Ostrość względem oryginału na `ctf_tw_hue` (ekran 1080p): 3× 96,7% → 99,7%, 4× 95,9% → 99,7%,
-  2× 91,9% → 99,1%, 1× 79,1% → 97,1%; średnia różnica kolorów taka sama albo mniejsza. Istniejące pliki `_o`
-  warto wygenerować ponownie.
+### `_o` sharpness
+- Layers are slightly sharpened when they are baked, with a strength measured separately for each quality. The game
+  filters the merged layer once more when it displays it (original sceneries only once), and that caused a slight
+  softening. Sharpness relative to the original on `ctf_tw_hue` (1080p screen): 3× 96.7% → 99.7%,
+  4× 95.9% → 99.7%, 2× 91.9% → 99.1%, 1× 79.1% → 97.1%; the average colour difference is the same or smaller.
+  Existing `_o` files are worth regenerating.
 
-### Linux i macOS
-- Skrypt `start.sh`: sprawdza Node.js, instaluje biblioteki, buduje interfejs i otwiera przeglądarkę.
-- Otwieranie folderów oraz okna wyboru folderu i pliku działają też na Linuksie (`xdg-open`, `zenity` lub
-  `kdialog`) i macOS. Gdy brakuje programu do okien, aplikacja mówi, co doinstalować; ścieżkę można też wpisać.
-- Folder gry jest wykrywany ze wszystkich bibliotek Steama (Windows; Linux — także Proton i Flatpak; macOS)
-  zamiast ścieżki wpisanej na stałe w kod.
+### Linux and macOS
+- The `start.sh` script checks Node.js, installs the libraries, builds the interface and opens the browser.
+- Opening folders and the folder and file pickers also work on Linux (`xdg-open`, `zenity` or `kdialog`) and macOS.
+  When the dialog program is missing, the app says what to install; the path can also be typed in.
+- The game folder is detected from all Steam libraries (Windows; Linux, including Proton and Flatpak; macOS) instead
+  of a path written into the code.
 
-### Projekt
-- `README.md` z instrukcją dla Windows i Linuksa, `LICENSE` (dowolne użycie; modyfikacje i wykorzystanie części
-  projektu wymagają podania TryHackX jako współautora), porządny `.gitignore`, robocze notatki usunięte
-  z repozytorium, w `package.json` licencja, autor i wymagana wersja Node (22.13+).
+### Project
+- `README.md` with instructions for Windows and Linux, `LICENSE` (any use; modified versions and projects that use
+  parts of the code must credit TryHackX as a co-author), and the license, the author and the required Node version
+  (22.13+) in `package.json`.
 
-### Testy
-- 59 testów automatycznych (1 nowy), `npm audit`: 0 podatności.
+### Tests
+- 59 automated tests (1 new), `npm audit`: 0 vulnerabilities.
 
 ## 2.3.2 — 2026-11-01
 
-Ostrość scenerii, tryb Auto i wielkość liter w nazwach plików.
+Scenery sharpness, Auto mode and letter case in file names.
 
-### Naprawione
-- **Scenerie w Studio i w warstwach `_o` były miększe niż w grze** (zgłoszenie: palmy na `ctf_tw_hue`). OpenSoldat
-  wybiera mipmapy o pół poziomu ostrzej (`r_mipmapbias` = −0,5), a renderer Studio tego nie robił. Teraz podgląd,
-  porównanie, screeny, raport wierności i wypalanie `_o` rysują scenerie tak jak gra. Ostrość `_o` względem oryginału
-  na ekranie 1080p: 3× 92,7% → 96,7%, 4× 93,2% → 95,9%. Istniejące pliki `_o` warto wygenerować ponownie.
-- **Auto wybierało 1× (w grze rozmyte) dla dużych map**, bo rozmiar warstw liczyło z prostokąta obejmującego całą
-  grupę scenerii. Teraz liczy tylko kafelki, w których coś jest — te same, które wypala Studio. Na testowej kolekcji
-  (2370 map do sklejenia): 3× dla 2031 map (wcześniej 1494), 1× tylko dla 120 (wcześniej 454). `ctf_tw_hue`: 2× zamiast 1×.
-- Wypalanie pomija puste kafelki; warstwa wymagająca ponad 500 kafelków jest odrzucana z komunikatem (taka mapa
-  i tak nie wczytałaby się w grze).
-- Plan `_o` mapy z propem o błędnych współrzędnych (`ctf_LaaF-Run`, x = −9,2·10¹⁸) zawieszał serwer (brak pamięci).
-  Takie propy zostają nietknięte („Poza mapą”).
-- Kategorie w panelu bocznym: zwykłe kliknięcie dodawało pozycję do zaznaczenia zamiast ją wybrać (np. tryb RSCS
-  i prefiks `tw_` naraz, co dawało pustą listę). Teraz kliknięcie wybiera tylko tę pozycję, Ctrl+klik dodaje kolejne,
-  a zaznaczone pozycje z różnych poziomów się sumują.
-- Opisy jakości zgodne z pomiarem: 3× najostrzejsze na 1080p, 2× nieco miękkie, 4× dla 1440p i 4K.
+### Fixed
+- **Sceneries in Map Studio and in `_o` layers were softer than in the game** (report: the palms on `ctf_tw_hue`).
+  OpenSoldat picks mipmaps half a level sharper (`r_mipmapbias` = −0.5), and the Map Studio renderer did not. Now the
+  preview, the comparison, screenshots, the fidelity report and `_o` baking draw sceneries the way the game does.
+  `_o` sharpness relative to the original on a 1080p screen: 3× 92.7% → 96.7%, 4× 93.2% → 95.9%. Existing `_o`
+  files are worth regenerating.
+- **Auto picked 1× (blurry in the game) for large maps**, because it computed the layer size from the rectangle
+  around the whole scenery group. Now it counts only the tiles that contain something — the same ones Map Studio
+  bakes. On the test collection (2370 maps to merge): 3× for 2031 maps (previously 1494), 1× for only 120
+  (previously 454). `ctf_tw_hue`: 2× instead of 1×.
+- Baking skips empty tiles; a layer that needs more than 500 tiles is rejected with a message (such a map would not
+  load in the game anyway).
+- The `_o` plan of a map with a prop at invalid coordinates (`ctf_LaaF-Run`, x = −9.2·10¹⁸) hung the server (out of
+  memory). Such props are left untouched ("Outside the map").
+- Categories in the sidebar: a plain click added an item to the selection instead of selecting it (e.g. the RSCS mode
+  and the `tw_` prefix at once, which gave an empty list). Now a click selects only that item, Ctrl+click adds more,
+  and selected items from different levels add up.
+- The quality descriptions match the measurements: 3× is the sharpest at 1080p, 2× is slightly soft, 4× is for
+  1440p and 4K.
 
-### Wielkość liter w nazwach plików (Linux)
-- Paczka z opcją „Napraw wielkość liter pod serwery Linux” zawiera plik pod każdą pisownią użytą w mapach
-  (np. `fx_P_cloud5.png` i `fx_p_cloud5.png`). Wcześniej trafiała tylko pierwsza, więc część map na serwerze
-  linuksowym nie znajdowała scenerii.
-- „Porządki” → „Wielkość liter (Linux)”: raport plików, których nazwa różni się wielkością liter od wpisów w mapach,
-  i zmiana nazwy tam, gdzie wszystkie mapy zapisują plik tak samo (lista zmian do cofnięcia w `data/backups/`).
-  Skrót „Napraw…” przy filtrze w panelu bocznym. Mapy nie są modyfikowane.
+### Letter case in file names (Linux)
+- A pack built with "Fix letter case for Linux servers" contains a file under every spelling the maps use (e.g.
+  `fx_P_cloud5.png` and `fx_p_cloud5.png`). Previously only the first one went in, so some maps on a Linux server
+  did not find their scenery.
+- "Clean-up" → "Letter case (Linux)": a report of files whose names differ in letter case from the entries in the
+  maps, and renaming where all maps spell the file the same way (the list of changes for undoing them is in
+  `data/backups/`). A "Fix…" shortcut next to the filter in the sidebar. Maps are not modified.
 
-### Raport wierności
-- Nowa miara „ostrość”. Średnia różnica pikseli prawie nie reaguje na rozmycie drobnych detali, więc raport mógł
-  pokazywać „Bardzo wysoka”, choć warstwy były wyraźnie miększe.
+### Fidelity report
+- A new "sharpness" measure. The average pixel difference barely reacts to blurred fine detail, so the report could
+  show "Very high" even though the layers were clearly softer.
 
-### Testy
-- 58 testów automatycznych (8 nowych).
+### Tests
+- 58 automated tests (8 new).
 
 ## 2.3.1 — 2026-11-01
 
-Domknięcie luk po 2.3.0.
+Closing the gaps left after 2.3.0.
 
-### Bezpieczeństwo
-- Zależności bez znanych podatności (`npm audit`: 0): `adm-zip` 0.6.1, `sharp` 0.35.5, `archiver` 8.0.0,
-  `minimatch` 11 (przez `overrides`).
-- Bezpieczne wypakowywanie paczek map z internetu: walidacja całego archiwum przed zapisem (zip-slip, dowiązania,
-  szyfrowanie, nieobsługiwana kompresja, „zip-bomby”), rozpakowanie do folderu tymczasowego.
+### Security
+- Dependencies without known vulnerabilities (`npm audit`: 0): `adm-zip` 0.6.1, `sharp` 0.35.5, `archiver` 8.0.0,
+  `minimatch` 11 (through `overrides`).
+- Safe extraction of map packs from the internet: the whole archive is validated before anything is written
+  (zip-slip, links, encryption, unsupported compression, zip bombs), and it is extracted into a temporary folder.
 
-### Naprawione (przegląd kodu 2.3.0)
-- Minimapa po zmianie mapy była pusta albo pokazywała poprzednią mapę.
-- Wznowiona seria screenów zaczyna od właściwej mapy i nie zmienia ustawień (wcześniej wymuszała „pomiń istniejące”).
-- Gwiazdka w liście z filtrem nie przeładowuje już mapy i nie czyści wierszy.
-- „Porządki”: przed przeniesieniem duplikatu sprawdzany jest dysk (kopia, która zostaje, musi istnieć i być identyczna),
-  raport nieużywanych scenerii działa na aktualnym indeksie, jedna operacja naraz.
-- Nazwa `_f_o` dla długich nazw map nie gubi już `_f` i nigdy nie powtarza nazwy źródła; zapis `_o` jest odrzucany,
-  gdy mapa zmieniła się od przygotowania planu.
-- Manifest CRC32 zgodny z zawartością paczki, dziennik serwera zapisuje się natychmiast, uszkodzone pliki ustawień
-  nie są nadpisywane, poprawki w tagach, wyszukiwaniu, menu „Porównaj” i obsłudze błędów okien.
-- Renderer nie usuwa już obiektów utraconego kontekstu WebGL (ostrzeżenia po resecie karty graficznej).
+### Fixed (code review of 2.3.0)
+- After switching maps, the minimap was empty or showed the previous map.
+- A resumed screenshot series starts from the right map and does not change the settings (previously it forced
+  "skip existing").
+- The star in a filtered list no longer reloads the map or clears the rows.
+- "Clean-up": before a duplicate is moved, the disk is checked (the copy that stays must exist and be identical), the
+  unused sceneries report works on the current index, and only one operation runs at a time.
+- The `_f_o` name of long map names no longer loses `_f` and never repeats the source name; saving `_o` is rejected
+  when the map changed after the plan was prepared.
+- The CRC32 manifest matches the pack content, the server log is written immediately, damaged settings files are
+  not overwritten, plus fixes in tags, search, the "Compare" menu and the error handling of dialogs.
+- The renderer no longer deletes objects of a lost WebGL context (warnings after a graphics card reset).
 
-### Testy
-- 50 testów automatycznych (18 nowych).
+### Tests
+- 50 automated tests (18 new).
 
 ## 2.3.0 — 2026-11-01
 
-Druga iteracja planu rozwoju.
+The second round of improvements.
 
-### Warsztat map
-- „Najpierw napraw wymiary scenerii 1.7.1, potem sklej” — `_f` i `_o` jednym kliknięciem (wynik `<mapa>_f_o`),
-  również w trybie wsadowym.
-- Miniatury „teraz / po” w tabeli diagnozy `_f`.
-- Okno potwierdzenia nadpisania informuje o kopii zapasowej (wcześniej błędnie straszyło „bezpowrotnym” usunięciem).
+### Map workshop
+- "Fix the 1.7.1 scenery sizes first, then merge": `_f` and `_o` in one click (result `<map>_f_o`), also in batch
+  mode.
+- "Now / after" thumbnails in the `_f` diagnosis table.
+- The overwrite confirmation mentions the backup (previously it wrongly warned of a "permanent" deletion).
 
-### Podgląd map
-- Obrysy scenerii z problemami 1.7.1 na mapie (przycisk „Problemy 1.7.1”).
-- Ramka „Widok gracza” (480 jednostek wysokości, wybór proporcji ekranu).
-- Minimapa z prostokątem widoku — kliknięcie przesuwa kamerę.
-- Porównanie dwóch wersji mapy suwakiem (oryginał / `_f` / `_o` / podgląd zmian).
+### Map preview
+- Outlines of sceneries with 1.7.1 problems on the map (the "1.7.1 issues" button).
+- A "Player view" frame (480 units high, with a choice of screen aspect ratio).
+- A minimap with the view rectangle — a click moves the camera.
+- Comparison of two versions of a map with a slider (original / `_f` / `_o` / change preview).
 
-### Biblioteka
-- Wyszukiwanie z filtrami: `props>300 tex:ananas prefix:ctf_cs_ is:fav -is:dup tag:turniej`.
-- Ulubione mapy i własne tagi.
-- „Porządki”: menedżer duplikatów CRC32 i raport nieużywanych scenerii — pliki trafiają do kopii zapasowej,
-  nigdy nie są kasowane.
+### Library
+- Search with filters: `props>300 tex:ananas prefix:ctf_cs_ is:fav -is:dup tag:tournament`.
+- Favorite maps and custom tags.
+- "Clean-up": a CRC32 duplicate manager and an unused sceneries report — files are moved to a backup, never deleted.
 
-### Paczki i zrzuty
-- Presety opcji paczek.
-- Manifest sum CRC32 map w paczce.
-- Wznawianie przerwanej serii screenów.
+### Packs and screenshots
+- Presets for pack options.
+- A manifest with the CRC32 checksums of the maps in the pack.
+- Resuming an interrupted screenshot series.
 
-### Inżynieria
-- Lokalne fonty (działa offline, bez Google Fonts).
-- Dziennik serwera w `data/logs/`.
-- Okna ładowane przy pierwszym otwarciu — mniejsza paczka startowa.
-- 32 testy automatyczne.
+### Engineering
+- Local fonts (works offline, without Google Fonts).
+- A server log in `data/logs/`.
+- Dialogs load when they are first opened, so the startup bundle is smaller.
+- 32 automated tests.
 
 ## 2.2.0 — 2026-11-01
 
-Pełny audyt kodu w dwóch fazach.
+A full code audit in two phases.
 
-### Naprawione — najważniejsze
-- **Rozmyte, bledsze scenerie w `_o`** (sople na `ctf_cs_office2`): warstwy były wypalane w 1 tekselu na jednostkę
-  świata, a gra pokazuje ~2,25 px/jednostkę. Nowa domyślna jakość „Auto” (do 3×), kompozycja w RGBA16F,
-  bezszwowe łączenie kafelków. Istniejące stare pliki `_o` warto wygenerować ponownie.
-- Naprawa mapy kończącej się na `_f` mogła **nadpisać oryginał**; `_f`/`_o` nadpisywały istniejące pliki bez pytania.
-- Zabezpieczenie przed stronami internetowymi odwołującymi się do lokalnego serwera (DNS rebinding).
-- Kodowanie cp1250 nazw scenerii było niepełne — znaki spoza polskiego alfabetu ginęły przy zapisie.
-- Skan indeksu potrafił „zawiesić się” na małych kolekcjach; nowe mapy `_f`/`_o` nie trafiały do listy.
-- Warsztat mógł zastosować poprawki `_f` poprzedniej mapy do nowo wybranej.
-- Rozpakowanie paczki nadpisywało `mapslist.txt` serwera (teraz `mapslist_<paczka>.txt`).
-- Pusty screen po utracie kontekstu WebGL, ciche błędy w trybach wsadowych i przy dodawaniu do paczki.
+### Fixed — the most important
+- **Blurry, paler sceneries in `_o`** (the icicles on `ctf_cs_office2`): layers were baked at 1 texel per world unit,
+  while the game shows about 2.25 px per unit. A new default quality "Auto" (up to 3×), composition in RGBA16F and
+  seamless joins between tiles. Existing old `_o` files are worth regenerating.
+- Fixing a map whose name ends in `_f` could **overwrite the original**; `_f`/`_o` overwrote existing files without
+  asking.
+- Protection against websites that reach the local server (DNS rebinding).
+- The cp1250 encoding of scenery names was incomplete — characters outside the Polish alphabet were lost on saving.
+- The index scan could "hang" on small collections; new `_f`/`_o` maps did not appear in the list.
+- The workshop could apply the `_f` fixes of the previous map to the newly selected one.
+- Extracting a pack overwrote the server's `mapslist.txt` (now `mapslist_<pack>.txt`).
+- An empty screenshot after a lost WebGL context, and silent errors in batch modes and when adding to a pack.
 
-### Nowe funkcje
-- Podgląd wyniku `_o` w oknie mapy przed zapisem + raport wierności w skali ekranu 1080p.
-- Wsadowa optymalizacja `_o` dla koszyka / filtra.
-- Kopie zapasowe każdego nadpisywanego pliku w `data/backups/`.
-- Inspektor obiektów pod kursorem (scenerie, poligony).
-- Wykrywanie map przekraczających limity silnika (500 propów, 5000 poligonów…) i nieczytelnych plików — kategoria
-  „Nie wczytają się w grze”.
-- Zapamiętywanie filtrów, widoku, warstw, paneli i koszyka między uruchomieniami; zwijane panele boczne.
+### New features
+- A preview of the `_o` result in the map window before saving, plus a fidelity report at 1080p screen scale.
+- Batch `_o` optimization for the basket or the filter.
+- Backups of every overwritten file in `data/backups/`.
+- An object inspector under the cursor (sceneries, polygons).
+- Detection of maps that exceed the engine limits (500 props, 5000 polygons…) and of unreadable files — the "Won't
+  load in game" category.
+- Filters, view, layers, panels and the basket are remembered between runs; collapsible side panels.
 
-### Wydajność
-- Budżet pamięci dekodowanych tekstur (384 MB), bez zbędnych kopii w `<canvas>`.
-- Szybszy test trafienia pod kursorem, mniej renderów listy, strumieniowy odczyt cache SQLite.
-- Cache konwertowanych obrazów na serwerze, asynchroniczne kopiowanie paczek, skaner `_f` nie blokuje serwera.
+### Performance
+- A memory budget for decoded textures (384 MB), without needless copies in `<canvas>`.
+- Faster hit testing under the cursor, fewer list renders, streamed reading of the SQLite cache.
+- A cache of converted images on the server, asynchronous pack copying, and the `_f` scanner no longer blocks the
+  server.
 
-### Inżynieria
-- `npm test` (22 testy) i `npm run typecheck`.
-- Skrypt startowy sprawdza wersję Node i sam przebudowuje interfejs po aktualizacji.
-- Jedna wersja aplikacji: 2.2.0.
+### Engineering
+- `npm test` (22 tests) and `npm run typecheck`.
+- The start script checks the Node version and rebuilds the interface by itself after an update.
+- A single app version: 2.2.0.

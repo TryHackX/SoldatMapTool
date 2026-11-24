@@ -367,7 +367,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
       .then((applied) => {
         if (!cancelled && applied) setCompareReady(true);
       })
-      .catch((err) => console.warn('[MapViewport] Błąd ładowania mapy do porównania:', err));
+      .catch((err) => console.warn('[MapViewport] Could not load the comparison map:', err));
     return () => {
       cancelled = true;
       renderer.destroy(true);
@@ -680,7 +680,7 @@ export const MapViewport: React.FC<MapViewportProps> = ({
         }
       })
       .catch((err) => {
-        console.warn('[MapViewport] Błąd ładowania mapy na GPU:', err);
+        console.warn('[MapViewport] Could not load the map onto the GPU:', err);
       });
 
     return () => {

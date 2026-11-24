@@ -1,6 +1,6 @@
 {
   "name": "soldat-map-studio",
-  "version": "2.8.0",
+  "version": "2.8.1",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "author": "TryHackX (https://github.com/TryHackX)",
@@ -12,7 +12,7 @@
     "node": ">=22.13"
   },
   "type": "module",
-  "description": "Soldat Map Studio - Zaawansowane pakowanie map (MPA Pro), przeglądarka po prefixach, klasyczny podgląd WebGL2 oraz generator Full-Size Screen (100% View)",
+  "description": "Soldat Map Studio - map library with a game-accurate WebGL2 preview, map editor and generators, scenery repair and layer optimization, server map packs and full-size map screenshots",
   "scripts": {
     "dev": "concurrently -k \"tsx watch src/server/index.ts\" \"vite\"",
     "build": "vite build",

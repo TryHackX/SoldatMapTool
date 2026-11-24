@@ -61,3 +61,6 @@ export interface ArchiveCleanerJob {
   outputPath?: string;
   error?: string;
 }
+
+/** File name of the map versions report in the report/ folder of an exported clean copy */
+export const MAP_VERSIONS_REPORT = 'map-versions.csv';
