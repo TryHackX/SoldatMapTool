@@ -10,7 +10,7 @@ import {
 } from '@shared/apiTypes';
 import { PmsMapData } from '@shared/pmsParser';
 import { isSameMapFamily, stripDerivedSuffix } from '@shared/mapFamily';
-import { CustomPrefixRule } from '@shared/prefixUtils';
+import { BuiltinPrefixOverrides, CustomPrefixRule } from '@shared/prefixUtils';
 import { parseSearchQuery } from '@shared/searchQuery';
 import { APP_VERSION } from '@shared/version';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -763,8 +763,11 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleSaveCustomRules = async (rules: CustomPrefixRule[]) => {
-    const nextMeta = await saveCustomPrefixRules(rules);
+  const handleSaveCustomRules = async (rules: CustomPrefixRule[], overrides: BuiltinPrefixOverrides) => {
+    if (!meta?.builtinPrefixOverrides && Object.keys(overrides).length) {
+      throw Error(t('Restart Map Studio to apply built-in prefix changes.'));
+    }
+    const nextMeta = await saveCustomPrefixRules(rules, overrides);
     applyMetaUpdate(nextMeta);
   };
 
@@ -1126,11 +1129,11 @@ export const App: React.FC = () => {
             type="button"
             onClick={() => setPrefixStudioState({ open: true, draftPrefix: null })}
             disabled={!meta}
-            title={t('Manage custom prefixes, clan categories and RSCS / Trenchwars rules')}
+            title={t('Manage prefixes')}
             className="px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs text-zinc-200 flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
           >
             <Tags className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="hidden lg:inline">{t('Custom Prefixes')}</span>
+            <span className="hidden lg:inline">{t('Manage prefixes')}</span>
             {meta && meta.customRules.length > 0 && (
               <span className="font-mono text-[10px] px-1 rounded bg-emerald-500/20 text-emerald-300">
                 {meta.customRules.length}
@@ -1597,6 +1600,7 @@ export const App: React.FC = () => {
         open={prefixStudioState.open}
         onClose={() => setPrefixStudioState({ open: false, draftPrefix: null })}
         customRules={meta?.customRules ?? []}
+        builtinPrefixOverrides={meta?.builtinPrefixOverrides ?? {}}
         discoveredSubprefixes={meta?.discoveredSubprefixes ?? []}
         initialDraftPrefix={prefixStudioState.draftPrefix}
         onSaveRules={handleSaveCustomRules}

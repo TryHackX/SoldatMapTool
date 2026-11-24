@@ -106,7 +106,8 @@ export class MapSqliteCache {
       }
       this.db.exec('COMMIT;');
     } catch (err) {
-      this.db.exec('ROLLBACK;');
+      // SQLite may have rolled back by itself (for example after SQLITE_FULL): keep the original error
+      try { this.db.exec('ROLLBACK;'); } catch { /* No open transaction */ }
       throw err;
     }
   }
@@ -122,7 +123,8 @@ export class MapSqliteCache {
       for (const key of pathKeys) stmt.run(key);
       this.db.exec('COMMIT;');
     } catch (err) {
-      this.db.exec('ROLLBACK;');
+      // SQLite may have rolled back by itself (for example after SQLITE_FULL): keep the original error
+      try { this.db.exec('ROLLBACK;'); } catch { /* No open transaction */ }
       throw err;
     }
   }

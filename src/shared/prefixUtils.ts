@@ -168,6 +168,27 @@ const BUILTIN_GROUP_MAP = new Map<string, ModeGroupDefinition>(
   BUILTIN_MODE_GROUPS.map((g) => [g.id, g])
 );
 
+/** Only deviations from the factory assignments. A null assignment disables the built-in match. */
+export type BuiltinPrefixOverrides = Record<string, string | null>;
+
+export function readBuiltinPrefixOverrides(raw: unknown, ignoreInvalid = false): BuiltinPrefixOverrides {
+  if (raw === undefined) return {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    if (ignoreInvalid) return {};
+    throw Error('Invalid built-in prefix assignments.');
+  }
+  const overrides: BuiltinPrefixOverrides = {};
+  for (const [prefix, group] of Object.entries(raw)) {
+    const original = BUILTIN_MODE_GROUPS.find(g => g.defaultPrefixes.includes(prefix));
+    if (!original || (group !== null && (typeof group !== 'string' || !BUILTIN_GROUP_MAP.has(group)))) {
+      if (ignoreInvalid) continue;
+      throw Error('Invalid built-in prefix assignments.');
+    }
+    if (group !== original.id) overrides[prefix] = group;
+  }
+  return overrides;
+}
+
 export interface CompiledClassifier {
   classify: (mapBaseName: string) => MapClassification;
   getGroupMeta: (groupId: string) => { id: string; name: string; shortName: string; badgeColor: string; isCustom: boolean };
@@ -224,7 +245,7 @@ function compileWildcardOrRegex(patternStr: string): RegExp | null {
  * Compiles built-in Soldat modes + user custom prefix/category rules into an ultra-fast
  * Longest-Prefix-First classifier capable of classifying 100,000 maps in ~15ms.
  */
-export function createMapClassifier(customRules: CustomPrefixRule[] = []): CompiledClassifier {
+export function createMapClassifier(customRules: CustomPrefixRule[] = [], overrides: BuiltinPrefixOverrides = {}): CompiledClassifier {
   const prefixEntries: PrefixMatcherEntry[] = [];
   const patternEntries: PatternMatcherEntry[] = [];
   const customGroupMeta = new Map<
@@ -237,8 +258,11 @@ export function createMapClassifier(customRules: CustomPrefixRule[] = []): Compi
   >();
 
   // 1. Register built-in mode prefixes
-  for (const grp of BUILTIN_MODE_GROUPS) {
-    for (const rawPfx of grp.defaultPrefixes) {
+  for (const original of BUILTIN_MODE_GROUPS) {
+    for (const rawPfx of original.defaultPrefixes) {
+      const assignment = overrides[rawPfx];
+      if (assignment === null) continue;
+      const grp = BUILTIN_GROUP_MAP.get(assignment ?? original.id)!;
       const pfx = rawPfx === '__none__' ? '__none__' : normalizePrefixToken(rawPfx);
       if (!pfx) continue;
       if (pfx !== '__none__') {
@@ -253,7 +277,7 @@ export function createMapClassifier(customRules: CustomPrefixRule[] = []): Compi
       }
       prefixMetaLookup.set(pfx, {
         prefix: pfx,
-        label: pfx === '__none__' ? 'No prefix (DM)' : pfx,
+        label: pfx === '__none__' ? '(no prefix)' : pfx,
         modeGroupId: grp.id,
         modeName: grp.name,
         badgeColor: grp.badgeColor,
@@ -298,7 +322,7 @@ export function createMapClassifier(customRules: CustomPrefixRule[] = []): Compi
       }
       prefixMetaLookup.set(pfx, {
         prefix: pfx,
-        label: pfx === '__none__' ? 'No prefix (DM)' : pfx,
+        label: pfx === '__none__' ? '(no prefix)' : pfx,
         modeGroupId: groupId,
         modeName: groupName,
         badgeColor,
@@ -387,7 +411,7 @@ export function createMapClassifier(customRules: CustomPrefixRule[] = []): Compi
     if (known) return known;
     return {
       prefix,
-      label: prefix === '__none__' ? 'No prefix (DM)' : prefix,
+      label: prefix === '__none__' ? '(no prefix)' : prefix,
       modeGroupId: 'other',
       modeName: 'Other / Custom Prefixes',
       badgeColor: '#64748b',
@@ -453,7 +477,7 @@ export function createMapClassifier(customRules: CustomPrefixRule[] = []): Compi
     // 3. Fallback: generic first-token prefix or __none__
     const genericMatch = normalizedForMatch.match(/^([a-z0-9!$-]{1,14}_)/);
     if (!genericMatch) {
-      const dmMeta = prefixMetaLookup.get('__none__')!;
+      const dmMeta = getPrefixMeta('__none__');
       return {
         prefix: '__none__',
         modeGroupId: dmMeta.modeGroupId,

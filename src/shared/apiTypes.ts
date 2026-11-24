@@ -1,6 +1,6 @@
 import type { StudioProjectData } from './studioProjectData';
 import { MapLimitViolation, PmsBounds } from './pmsParser';
-import { CustomPrefixRule } from './prefixUtils';
+import { BuiltinPrefixOverrides, CustomPrefixRule } from './prefixUtils';
 import { RgbaColor } from './soldatConstants';
 
 export type AssetStatus =
@@ -260,6 +260,7 @@ export interface IndexMetaResponse {
   soldatPath: string;
   extraSources: ExtraMapSource[];
   customRules: CustomPrefixRule[];
+  builtinPrefixOverrides: BuiltinPrefixOverrides;
   validSoldatDir: boolean;
   scanStatus: ScanProgressStatus;
   scanDurationMs: number;

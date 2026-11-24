@@ -67,10 +67,17 @@ export function createAdminRouter(dir: string) {
     if (setup) {
       const salt = randomBytes(24).toString('hex');
       const hash = await deriveKey(password, salt, 64) as Buffer;
+      const account = JSON.stringify({name: name.trim(), salt, hash: hash.toString('hex')});
       const temp = path.join(dir, randomUUID() + '.tmp');
-      fs.writeFileSync(temp, JSON.stringify({name: name.trim(), salt, hash: hash.toString('hex')}), {mode: 0o600, flag: 'wx'});
-      try { fs.linkSync(temp, accountFile); }
-      catch (err) {
+      fs.writeFileSync(temp, account, {mode: 0o600, flag: 'wx'});
+      try {
+        try { fs.linkSync(temp, accountFile); }
+        catch (err) {
+          if ((err as NodeJS.ErrnoException).code === 'EEXIST') throw err;
+          // Drives without hard links (FAT32, exFAT): an exclusive create still lets only one setup win
+          fs.writeFileSync(accountFile, account, {mode: 0o600, flag: 'wx'});
+        }
+      } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
         res.status(409).json({error: t('Reload the admin page.')}); return;
       } finally { fs.unlinkSync(temp); }

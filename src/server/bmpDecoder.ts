@@ -5,6 +5,9 @@
  * from 2002-2026 rely heavily on .bmp textures, edges, and sceneries.
  */
 
+/** 32 megapixels (128 MiB of RGBA), eight times the largest HD scenery size in Soldat 1.7.1 */
+const MAX_BMP_PIXELS = 32 * 1024 * 1024;
+
 export interface DecodedBmp {
   width: number;
   height: number;
@@ -62,7 +65,9 @@ export function decodeBmpToRgba(buf: Buffer): DecodedBmp {
     colorsUsed = dibHeaderSize >= 36 ? buf.readUInt32LE(46) : 0;
   }
 
-  if (width <= 0 || height <= 0 || width > 32768 || height > 32768) {
+  // The output buffer is allocated from the header alone (truncated files still decode partially), so a tiny
+  // file claiming 32768x32768 would allocate 4 GiB. Soldat graphics stay far below this pixel budget.
+  if (width <= 0 || height <= 0 || width > 32768 || height > 32768 || width * height > MAX_BMP_PIXELS) {
     throw new Error(`Invalid BMP dimensions: ${width}x${height}`);
   }
 

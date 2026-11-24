@@ -27,6 +27,11 @@ export function createArchiveJobs(cache:string,exportsDir:string,soldatRoot:()=>
     const file=path.join(dir(job.id),'job.json');
     fs.writeFileSync(file+'.tmp',JSON.stringify(job)); fs.renameSync(file+'.tmp',file);
   }
+  /** For worker events and startup: a full disk or a scanner holding job.json must not take the server down */
+  function persistQuietly(job:ArchiveCleanerJob) {
+    try{persist(job);}
+    catch(err){console.error('[Soldat Map Studio] Could not save the archive job state:',err);}
+  }
   function read(id:string) {
     if(!idPattern.test(id))return null;
     if(current?.id===id)return current;
@@ -45,8 +50,26 @@ export function createArchiveJobs(cache:string,exportsDir:string,soldatRoot:()=>
         current.error='Previous operation was interrupted. You can retry.';
         current.status=current.status==='exporting'?'ready':'failed';
       }
-      persist(current);
+      persistQuietly(current);
     }
+    void releaseStaleStorage();
+  }
+  /**
+   * A worker stopped together with the app leaves its staging copies behind: free the blob store of every job that
+   * cannot be exported again (an interrupted export stays 'ready' and keeps it) and drop half-written export folders.
+   */
+  async function releaseStaleStorage() {
+    try{
+      for(const id of await fs.promises.readdir(cache)){
+        const job=idPattern.test(id)?read(id):null;
+        if(job && ['complete','cancelled','failed'].includes(job.status)) await freeBlobs(job);
+      }
+    }catch{/* No jobs yet */}
+    try{
+      for(const name of await fs.promises.readdir(exportsDir)){
+        if(name.startsWith('.soldat-clean-')) await fs.promises.rm(path.join(exportsDir,name),{recursive:true,force:true,maxRetries:3});
+      }
+    }catch{/* No exports yet */}
   }
   async function freeBlobs(job:ArchiveCleanerJob) {
     // Only our UUID-owned staging store, never a path from source metadata.
@@ -74,7 +97,7 @@ export function createArchiveJobs(cache:string,exportsDir:string,soldatRoot:()=>
       if(exporting && message.status!=='complete'){
         message.status='ready'; // intact verified stage remains usable after a failed/cancelled export
       }
-      Object.assign(job,message,{progress:undefined});persist(job);
+      Object.assign(job,message,{progress:undefined});persistQuietly(job);
       if(['complete','cancelled','failed'].includes(job.status))void freeBlobs(job);
     }
     proc.on('message',(message:Partial<ArchiveCleanerJob>)=>{

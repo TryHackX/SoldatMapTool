@@ -2,12 +2,15 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SubprefixCountItem } from '@shared/apiTypes';
 import {
   BUILTIN_MODE_GROUPS,
+  type BuiltinPrefixOverrides,
   createMapClassifier,
   CustomPrefixRule,
   normalizePrefixToken,
+  readBuiltinPrefixOverrides,
   sanitizeCustomRules,
 } from '@shared/prefixUtils';
 import { useModalDismiss } from '../utils/useModalDismiss';
+import { BuiltinPrefixEditor } from './BuiltinPrefixEditor';
 import { t, tr, tText } from '../i18n';
 import {
   ArrowDown,
@@ -26,9 +29,10 @@ interface PrefixStudioModalProps {
   open: boolean;
   onClose: () => void;
   customRules: CustomPrefixRule[];
+  builtinPrefixOverrides: BuiltinPrefixOverrides;
   discoveredSubprefixes: SubprefixCountItem[];
   initialDraftPrefix?: string | null;
-  onSaveRules: (rules: CustomPrefixRule[]) => Promise<void>;
+  onSaveRules: (rules: CustomPrefixRule[], overrides: BuiltinPrefixOverrides) => Promise<void>;
 }
 
 const PRESET_COLORS = [
@@ -52,11 +56,13 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
   open,
   onClose,
   customRules,
+  builtinPrefixOverrides,
   discoveredSubprefixes,
   initialDraftPrefix,
   onSaveRules,
 }) => {
   const [rules, setRules] = useState<CustomPrefixRule[]>(customRules);
+  const [overrides, setOverrides] = useState(builtinPrefixOverrides);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   // Form fields for new / edited rule
@@ -82,6 +88,7 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
     if (initializedForOpenRef.current) return;
     initializedForOpenRef.current = true;
     setRules(customRules);
+    setOverrides(builtinPrefixOverrides);
     setError(null);
 
     if (initialDraftPrefix) {
@@ -97,7 +104,7 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
     } else {
       resetForm();
     }
-  }, [open, customRules, initialDraftPrefix]);
+  }, [open, customRules, builtinPrefixOverrides, initialDraftPrefix]);
 
   const resetForm = () => {
     setEditingId(null);
@@ -108,7 +115,7 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
     setBadgeColor('#a855f7');
   };
 
-  const liveClassifier = useMemo(() => createMapClassifier(rules), [rules]);
+  const liveClassifier = useMemo(() => createMapClassifier(rules, overrides), [rules, overrides]);
   const liveTestResult = useMemo(
     () => (testMapName.trim() ? liveClassifier.classify(testMapName.trim()) : null),
     [liveClassifier, testMapName]
@@ -190,7 +197,7 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
   };
 
   const handleExportJson = () => {
-    const blob = new Blob([JSON.stringify(rules, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({customRules:rules, builtinPrefixOverrides:overrides}, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -208,22 +215,26 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
     reader.onload = () => {
       try {
         const parsed = JSON.parse(String(reader.result || '[]'));
-        if (!Array.isArray(parsed)) throw new Error(t('The JSON file must contain an array of rules.'));
-        const valid = sanitizeCustomRules(parsed);
-        if (valid.length === 0 && parsed.length > 0) {
+        const legacy = Array.isArray(parsed);
+        const input = legacy ? parsed : parsed?.customRules;
+        if (!Array.isArray(input)) throw new Error(t('The JSON file must contain an array of rules.'));
+        const incoming = legacy ? undefined : readBuiltinPrefixOverrides(parsed.builtinPrefixOverrides);
+        const valid = sanitizeCustomRules(input);
+        if (valid.length === 0 && input.length > 0) {
           throw new Error(t('The file contains no valid rule (a name and a prefix or pattern are required).'));
         }
         setRules(valid);
+        if (incoming) setOverrides(incoming);
         setError(
-          valid.length < parsed.length
+          valid.length < input.length
             ? t('Imported {valid} of {total} rules — invalid entries were skipped.', {
                 valid: valid.length,
-                total: parsed.length,
+                total: input.length,
               })
             : null
         );
       } catch (err) {
-        setError(err instanceof Error ? err.message : t('Invalid JSON file.'));
+        setError(err instanceof Error ? t(err.message) : t('Invalid JSON file.'));
       }
     };
     reader.readAsText(file);
@@ -234,10 +245,10 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
     setSaving(true);
     setError(null);
     try {
-      await onSaveRules(rules);
+      await onSaveRules(rules, overrides);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(err instanceof Error ? t(err.message) : String(err));
     } finally {
       setSaving(false);
     }
@@ -450,7 +461,7 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
           </div>
 
           {/* Right Column: Active Custom Rules + Built-in Reference + Live Tester */}
-          <div className="col-span-7 p-4 flex flex-col min-h-0 space-y-4 text-xs">
+          <div className="col-span-7 p-4 flex flex-col min-h-0 overflow-y-auto space-y-4 text-xs">
             {/* Live Classifier Tester */}
             <div className="bg-zinc-950 border border-zinc-800 rounded-lg p-3 flex items-center justify-between gap-3">
               <div className="flex-1">
@@ -486,8 +497,9 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
               )}
             </div>
 
+            <BuiltinPrefixEditor overrides={overrides} onChange={setOverrides}/>
             {/* User Custom Rules List */}
-            <div className="flex-1 min-h-0 flex flex-col bg-zinc-950/70 border border-zinc-800 rounded-lg overflow-hidden">
+            <div className="min-h-36 shrink-0 flex flex-col bg-zinc-950/70 border border-zinc-800 rounded-lg overflow-hidden">
               <div className="px-3 py-2 bg-zinc-900/70 border-b border-zinc-800 flex items-center justify-between">
                 <span className="font-semibold text-zinc-200">
                   {t('Your custom rules and prefixes ({n})', { n: rules.length })}
@@ -588,28 +600,6 @@ export const PrefixStudioModal: React.FC<PrefixStudioModalProps> = ({
               </div>
             </div>
 
-            {/* Built-in Compound Modes Summary Reference */}
-            <div className="bg-zinc-950/60 border border-zinc-800 rounded-lg p-2.5 max-h-36 overflow-y-auto">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-1.5">
-                {t('Built-in compound modes (always active automatically)')}
-              </div>
-              <div className="grid grid-cols-2 gap-1.5 text-[11px]">
-                {BUILTIN_MODE_GROUPS.filter((g) => g.defaultPrefixes.length > 0).map((g) => (
-                  <div key={g.id} className="bg-zinc-900/60 rounded px-2 py-1 truncate">
-                    <span
-                      className="inline-block w-2 h-2 rounded-full mr-1.5"
-                      style={{ backgroundColor: g.badgeColor }}
-                    />
-                    <strong className="text-zinc-200">{tText(g.shortName)}:</strong>{' '}
-                    <span className="font-mono text-[10px] text-zinc-400">
-                      {g.defaultPrefixes
-                        .map((p) => (p === '__none__' ? t('(no prefix)') : p))
-                        .join(', ')}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
           </div>
         </div>
 

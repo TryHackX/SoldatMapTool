@@ -44,7 +44,7 @@ import {
   OptimizeMapOptions,
   PackBuildOptions,
 } from '../shared/apiTypes';
-import { CustomPrefixRule, sanitizeCustomRules } from '../shared/prefixUtils';
+import { BuiltinPrefixOverrides, CustomPrefixRule, readBuiltinPrefixOverrides, sanitizeCustomRules } from '../shared/prefixUtils';
 import { makeDerivedMapName, parsePmsSummary } from '../shared/pmsParser';
 import { APP_VERSION } from '../shared/version';
 import { i18nMiddleware, t } from './i18n';
@@ -84,6 +84,7 @@ interface AppConfig {
   soldatPath: string;
   extraSources: ExtraMapSource[];
   customRules: CustomPrefixRule[];
+  builtinPrefixOverrides: BuiltinPrefixOverrides;
 }
 
 function loadConfig(): AppConfig {
@@ -94,6 +95,7 @@ function loadConfig(): AppConfig {
     soldatPath: typeof parsed?.soldatPath === 'string' && parsed.soldatPath.trim() || DEFAULT_SOLDAT_PATH,
     extraSources: normalizeSources(sources),
     customRules: sanitizeCustomRules(parsed?.customRules),
+    builtinPrefixOverrides: readBuiltinPrefixOverrides(parsed?.builtinPrefixOverrides, true),
   };
 }
 
@@ -122,7 +124,8 @@ const scanner = new SoldatMapScanner(
   appConfig.extraSources,
   appConfig.customRules,
   CACHE_DIR,
-  THUMB_DIR
+  THUMB_DIR,
+  appConfig.builtinPrefixOverrides
 );
 const userData = new UserDataStore(path.join(DATA_DIR, 'user-data.json'));
 const packPresets = new PackPresetStore(path.join(DATA_DIR, 'pack-presets.json'));
@@ -157,6 +160,13 @@ app.use((req, res, next) => {
   const hostName = hostHeader.replace(/:\d+$/, '');
   if (!LOOPBACK_HOSTNAMES.has(hostName)) {
     res.status(403).json({ error: t('Access is only allowed from this computer (127.0.0.1 / localhost).') });
+    return;
+  }
+  // Images, scripts and links from other pages send no Origin header, but browsers mark them with
+  // Sec-Fetch-Site. Requests without the header (typed URLs, scripts such as restart.mjs) stay allowed.
+  const fetchSite = req.headers['sec-fetch-site'];
+  if (req.path.startsWith('/api/') && (fetchSite === 'cross-site' || fetchSite === 'same-site')) {
+    res.status(403).json({ error: t('A request from a foreign site was blocked.') });
     return;
   }
   const origin = req.headers.origin;
@@ -308,19 +318,21 @@ app.post('/api/config', async (req, res) => {
 });
 
 app.get('/api/prefix-rules', (_req, res) => {
-  res.json({ customRules: appConfig.customRules });
+  res.json({ customRules: appConfig.customRules, builtinPrefixOverrides: appConfig.builtinPrefixOverrides });
 });
 
 app.post('/api/prefix-rules', (req, res) => {
   try {
-    const rules = sanitizeCustomRules(req.body?.customRules);
     const previous = appConfig;
-    const next = { ...previous, customRules: rules };
-    const meta = scanner.updateCustomRules(rules);
+    const rules = req.body?.customRules === undefined ? previous.customRules : sanitizeCustomRules(req.body.customRules);
+    const overrides = req.body?.builtinPrefixOverrides === undefined ? previous.builtinPrefixOverrides :
+      readBuiltinPrefixOverrides(req.body.builtinPrefixOverrides);
+    const next = { ...previous, customRules: rules, builtinPrefixOverrides: overrides };
+    const meta = scanner.updateCustomRules(rules, overrides);
     try {
       saveConfig(next);
     } catch (error) {
-      scanner.updateCustomRules(previous.customRules);
+      scanner.updateCustomRules(previous.customRules, previous.builtinPrefixOverrides);
       throw error;
     }
     appConfig = next;
@@ -1239,6 +1251,7 @@ app.post('/api/editor/drafts/:draftId', (req, res) => {
       sketch: req.body?.sketch,
       projectFile: req.body?.projectFile === true,
       sourceMapId: typeof req.body?.sourceMapId === 'string' ? req.body.sourceMapId : null,
+      assetMapId: req.body?.assetMapId,
       baseName: String(req.body?.baseName || 'untitled'),
       pmsBase64: String(req.body?.pmsBase64 || ''),
     });
@@ -1280,8 +1293,12 @@ app.post('/api/editor/prefabs', (req, res) => {
 });
 
 app.delete('/api/editor/prefabs/:id', (req, res) => {
-  editorService.deletePrefab(req.params.id);
-  res.json({ ok: true });
+  try {
+    editorService.deletePrefab(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 // 9. System helpers: file manager and native pickers (Windows, Linux, macOS — see platform.ts)
@@ -1332,6 +1349,19 @@ if (fs.existsSync(clientDist)) {
     res.sendFile(path.join(clientDist, 'index.html'));
   });
 }
+
+// Errors that escape a route (malformed JSON, a body over the limit, a failed download) get a short JSON reply
+// instead of Express's HTML error page, which would show the stack trace with local paths
+app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) {
+    next(err);
+    return;
+  }
+  const status = Number((err as { status?: unknown })?.status);
+  const code = Number.isInteger(status) && status >= 400 && status < 600 ? status : 500;
+  if (code >= 500) console.error('[Soldat Map Studio] Unhandled error:', err);
+  res.status(code).json({ error: err instanceof Error ? err.message : t('Unexpected server error.') });
+});
 
 const server = app.listen(PORT, '127.0.0.1', () => {
   console.log(`[Soldat Map Studio v${APP_VERSION}] Server running on http://127.0.0.1:${PORT}`);

@@ -20,6 +20,7 @@ import {
 import { checkSoldatMapLimits, parsePmsSummary, PmsSummaryData, soldatCrc32 } from '../shared/pmsParser';
 import {
   BUILTIN_MODE_GROUPS,
+  BuiltinPrefixOverrides,
   createMapClassifier,
   CustomPrefixRule,
 } from '../shared/prefixUtils';
@@ -152,6 +153,7 @@ export class SoldatMapScanner {
   private soldatPath: string;
   private extraSources: ExtraMapSource[];
   private customRules: CustomPrefixRule[];
+  private classifier: ReturnType<typeof createMapClassifier>;
   private thumbDir: string;
   private sqliteCache: MapSqliteCache;
   private resolver: SoldatAssetResolver;
@@ -191,11 +193,13 @@ export class SoldatMapScanner {
     extraSources: ExtraMapSource[],
     customRules: CustomPrefixRule[],
     cacheDir: string,
-    thumbDir: string
+    thumbDir: string,
+    private builtinPrefixOverrides: BuiltinPrefixOverrides = {}
   ) {
     this.soldatPath = soldatPath;
     this.extraSources = extraSources;
     this.customRules = customRules;
+    this.classifier = createMapClassifier(customRules, builtinPrefixOverrides);
     this.thumbDir = thumbDir;
     this.sqliteCache = new MapSqliteCache(cacheDir);
     this.resolver = new SoldatAssetResolver(soldatPath, extraSources);
@@ -303,10 +307,20 @@ export class SoldatMapScanner {
    * Re-classifies all indexed maps in RAM in ~10ms when user creates/edits custom prefixes!
    * Zero disk I/O required!
    */
-  public updateCustomRules(customRules: CustomPrefixRule[]): IndexMetaResponse {
-    const classifier = createMapClassifier(customRules);
+  /** The summary cache only speeds up the next start, so a failed write (full disk, locked file) must not abort a scan */
+  private writeCache(write: () => void): void {
+    try {
+      write();
+    } catch (err) {
+      console.warn('[Soldat Map Studio] Could not update the map cache:', err);
+    }
+  }
+
+  public updateCustomRules(customRules: CustomPrefixRule[], overrides = this.builtinPrefixOverrides): IndexMetaResponse {
+    this.classifier = createMapClassifier(customRules, overrides);
     this.customRules = customRules;
-    this.applyClassification(this.defaultSortedList, classifier);
+    this.builtinPrefixOverrides = overrides;
+    this.applyClassification(this.defaultSortedList, this.classifier);
     this.cachedMeta = this.buildMetaSnapshot(this.scanStatus.durationMs);
     return this.cachedMeta;
   }
@@ -537,8 +551,7 @@ export class SoldatMapScanner {
         this.scanStatus.phase = 'indexing';
         this.scanStatus.totalFiles = discovered.length;
 
-        const rulesAtScanStart = this.customRules;
-        const classifier = createMapClassifier(rulesAtScanStart);
+        const classifier = this.classifier;
         const nextIndexed = new Map<string, InternalIndexedMap>();
         const pendingDbUpserts: Array<{
           pathKey: string;
@@ -595,7 +608,7 @@ export class SoldatMapScanner {
           }
 
           if (pendingDbUpserts.length >= DB_FLUSH_SIZE) {
-            this.sqliteCache.upsertBatch(pendingDbUpserts);
+            this.writeCache(() => this.sqliteCache.upsertBatch(pendingDbUpserts));
             pendingDbUpserts.length = 0;
           }
 
@@ -626,7 +639,7 @@ export class SoldatMapScanner {
         }
 
         if (pendingDbUpserts.length > 0) {
-          this.sqliteCache.upsertBatch(pendingDbUpserts);
+          this.writeCache(() => this.sqliteCache.upsertBatch(pendingDbUpserts));
           pendingDbUpserts.length = 0;
         }
 
@@ -686,8 +699,8 @@ export class SoldatMapScanner {
         );
 
         // Prefix rules edited while this scan ran must win over the classifier captured at its start
-        if (this.customRules !== rulesAtScanStart) {
-          this.applyClassification(sorted, createMapClassifier(this.customRules));
+        if (this.classifier !== classifier) {
+          this.applyClassification(sorted, this.classifier);
         }
 
         this.indexedById = nextIndexed;
@@ -705,7 +718,7 @@ export class SoldatMapScanner {
         }
         if (stalePathKeys.length > 0) {
           for (const key of stalePathKeys) this.memorySummaryCache.delete(key);
-          this.sqliteCache.deleteKeys(stalePathKeys);
+          this.writeCache(() => this.sqliteCache.deleteKeys(stalePathKeys));
         }
 
         const durationMs = Math.round((performance.now() - t0) * 10) / 10;
@@ -868,7 +881,7 @@ export class SoldatMapScanner {
     const validSoldatDir =
       fs.existsSync(this.soldatPath) && fs.existsSync(path.join(this.soldatPath, 'maps'));
 
-    const classifier = createMapClassifier(this.customRules);
+    const classifier = this.classifier;
     const prefixCounts = new Map<string, number>();
     const groupPrefixCounts = new Map<string, Map<string, number>>();
     const subprefixCounts = new Map<string, { parentPrefix: string; count: number }>();
@@ -994,6 +1007,7 @@ export class SoldatMapScanner {
       soldatPath: this.soldatPath,
       extraSources: this.extraSources,
       customRules: this.customRules,
+      builtinPrefixOverrides: this.builtinPrefixOverrides,
       validSoldatDir,
       scanStatus: { ...this.scanStatus },
       scanDurationMs,

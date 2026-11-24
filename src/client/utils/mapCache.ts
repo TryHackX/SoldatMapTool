@@ -10,7 +10,7 @@ import {
   ScanProgressStatus,
 } from '@shared/apiTypes';
 import { parsePmsFull, PmsMapData } from '@shared/pmsParser';
-import { CustomPrefixRule } from '@shared/prefixUtils';
+import { BuiltinPrefixOverrides, CustomPrefixRule } from '@shared/prefixUtils';
 import { t } from '../i18n';
 import { setMapAssetSource, thumbnailUrls } from '../renderer/mapAssetSource';
 
@@ -168,19 +168,23 @@ export async function queryMatchingMapCompacts(
 }
 
 export async function saveCustomPrefixRules(
-  customRules: CustomPrefixRule[]
+  customRules: CustomPrefixRule[], builtinPrefixOverrides: BuiltinPrefixOverrides
 ): Promise<IndexMetaResponse> {
   const res = await fetch('/api/prefix-rules', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ customRules }),
+    body: JSON.stringify({ customRules, builtinPrefixOverrides }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || `HTTP ${res.status}`);
   }
+  const meta: IndexMetaResponse = await res.json();
+  if (!meta.builtinPrefixOverrides && Object.keys(builtinPrefixOverrides).length) {
+    throw Error(t('Restart Map Studio to apply built-in prefix changes.'));
+  }
   mapDetailsLru.clear();
-  return await res.json();
+  return meta;
 }
 
 export async function saveAppConfig(

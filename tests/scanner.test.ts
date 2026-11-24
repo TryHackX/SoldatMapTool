@@ -67,3 +67,26 @@ test('sidebar selections on different levels add up instead of excluding each ot
   assert.deepEqual(ids, ['ctf_cs_alpha', 'tw_bravo']);
   assert.deepEqual(scanner.queryMatchingIds({ prefixes: ['kz_'] }), ['kz_charlie']);
 });
+
+test('built-in prefix edits update the sidebar, search and startup classification and can be reset', async () => {
+  const env = makeTempSoldat(['awp_demo','ka_arena','ctf_cs_alpha','Arena']);
+  const rules = [{id:'clan',name:'Clan',prefixes:['zz_'],priority:15,enabled:true,badgeColor:'#334455'}];
+  const scanner = new SoldatMapScanner(env.root, [], rules, env.cache, env.thumbs);
+  await scanner.scanAsync(true);
+  const changes = {awp_:null,ka_:'weapon_arena',ctf_cs_:null,__none__:null};
+  const meta = scanner.updateCustomRules(rules,changes);
+  assert.deepEqual(meta.builtinPrefixOverrides,changes);
+  assert.deepEqual(scanner.queryMatchingIds({modeGroupIds:['rscs']}),[]);
+  assert.deepEqual(scanner.queryMatchingIds({modeGroupIds:['weapon_arena']}),['ka_arena']);
+  assert.equal(scanner.getMapEntry('ctf_cs_alpha')?.prefix,'ctf_');
+  assert.equal(scanner.getMapEntry('awp_demo')?.modeGroupId,'other');
+  assert.equal(scanner.getMapEntry('Arena')?.modeGroupId,'other');
+  assert.equal(meta.prefixes.find(p=>p.prefix==='ka_')?.modeGroupId,'weapon_arena');
+  const restarted = new SoldatMapScanner(env.root, [], rules, env.cache, env.thumbs,changes);
+  await restarted.scanAsync(true);
+  assert.equal(restarted.getMapEntry('ka_arena')?.modeGroupId,'weapon_arena');
+  const reset = restarted.updateCustomRules(rules,{});
+  assert.deepEqual(reset.customRules,rules);
+  assert.equal(restarted.queryMatchingIds({modeGroupIds:['rscs']}).length,3);
+  assert.equal(restarted.getMapEntry('Arena')?.modeGroupId,'dm');
+});

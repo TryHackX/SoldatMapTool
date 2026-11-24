@@ -363,11 +363,11 @@ export const PrefixSidebar: React.FC<PrefixSidebarProps> = ({
           <button
             type="button"
             onClick={() => onOpenPrefixStudio()}
-            title={t('Add custom prefixes, clan categories or RSCS / Trenchwars rules')}
+            title={t('Manage prefixes')}
             className="px-2 py-0.5 rounded bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/35 text-emerald-300 text-[10px] font-semibold flex items-center gap-1 cursor-pointer"
           >
             <Tags className="w-3 h-3" />
-            {t('+ Custom prefix')}
+            {t('Manage prefixes')}
           </button>
         </div>
 

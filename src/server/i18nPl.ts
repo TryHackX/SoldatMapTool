@@ -212,4 +212,5 @@ export const SERVER_PL: Record<string, string | readonly [string, string, string
   'Enter a prefab name.': 'Podaj nazwę prefabrykatu.',
   'Prefab has no elements.': 'Prefabrykat nie zawiera żadnych obiektów.',
   'You can save at most {max} prefabs.': 'Można zapisać najwyżej {max} prefabrykatów.',
+  'Unexpected server error.': 'Nieoczekiwany błąd serwera.',
 };

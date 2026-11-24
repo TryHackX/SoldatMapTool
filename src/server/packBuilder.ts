@@ -335,16 +335,19 @@ function collectPackPlan(
     }
   }
 
-  if (options.generateMapsListTxt && selectedMaps.length > 0) {
-    const content = generateMapsListContent(selectedMaps);
+  // The map list and the README describe the map files that really go into the pack
+  const packedMaps = packedMapEntries(filesMap.values(), selectedMaps);
+
+  if (options.generateMapsListTxt && packedMaps.length > 0) {
+    const content = generateMapsListContent(packedMaps);
     const listName = packMapsListName(options.packName || 'Soldat_Map_Pack');
     filesMap.set(listName.toLowerCase(), {
       archivePath: listName,
       diskPath: '<generated>',
       category: 'generated',
       sizeBytes: Buffer.byteLength(content, 'utf-8'),
-      usedByMapsCount: selectedMaps.length,
-      sampleMaps: selectedMaps.slice(0, 6).map((m) => m.baseName),
+      usedByMapsCount: packedMaps.length,
+      sampleMaps: packedMaps.slice(0, 6).map((m) => m.baseName),
     });
   }
 
@@ -364,10 +367,10 @@ function collectPackPlan(
     });
   }
 
-  if (options.generateReadmeManifest && selectedMaps.length > 0) {
+  if (options.generateReadmeManifest && packedMaps.length > 0) {
     const content = generateManifestContent(
       options.packName || 'Soldat_Map_Pack',
-      selectedMaps,
+      packedMaps,
       allMissingWarnings
     );
     filesMap.set('readme_pack.txt', {
@@ -375,8 +378,8 @@ function collectPackPlan(
       diskPath: '<generated>',
       category: 'generated',
       sizeBytes: Buffer.byteLength(content, 'utf-8'),
-      usedByMapsCount: selectedMaps.length,
-      sampleMaps: selectedMaps.slice(0, 6).map((m) => m.baseName),
+      usedByMapsCount: packedMaps.length,
+      sampleMaps: packedMaps.slice(0, 6).map((m) => m.baseName),
     });
   }
 
@@ -551,9 +554,21 @@ function generatedFileContent(
   files: PackPreviewFile[]
 ): string {
   const lower = archivePath.toLowerCase();
-  if (lower.startsWith('mapslist')) return generateMapsListContent(maps);
+  if (lower.startsWith('mapslist')) return generateMapsListContent(packedMapEntries(files, maps));
   if (lower.startsWith('maps_crc32')) return generateCrcManifestContent(packName, crcManifestEntries(files, maps, true));
-  return generateManifestContent(packName, maps, warnings);
+  return generateManifestContent(packName, packedMapEntries(files, maps), warnings);
+}
+
+/** Selected maps whose file goes into the pack, in pack order: two selected maps with the same file name count once */
+function packedMapEntries(files: Iterable<PackPreviewFile>, maps: MapIndexEntry[]): MapIndexEntry[] {
+  const byPath = new Map(maps.map((m) => [diskPathKey(m.fullPath), m]));
+  const packed: MapIndexEntry[] = [];
+  for (const f of files) {
+    if (f.category !== 'map') continue;
+    const map = byPath.get(diskPathKey(f.diskPath));
+    if (map) packed.push(map);
+  }
+  return packed;
 }
 
 function generateMapsListContent(maps: MapIndexEntry[]): string {

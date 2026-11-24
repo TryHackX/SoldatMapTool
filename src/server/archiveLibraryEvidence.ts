@@ -214,7 +214,8 @@ export async function buildArchiveLibraryEvidence(roots:readonly string[],option
         continue;
       }
       if (!e.isFile()) continue;
-      if (supportedPack.test(name) && !/\.part0*(?:[2-9]|\d{2,})\.rar$/i.test(name)) { await catalog.scanPack(file); continue; }
+      // Later volumes of a multi-part RAR are read through the first one (.part1, .part01 or .part001)
+      if (supportedPack.test(name) && !/\.part0*(?:[2-9]|[1-9]\d+)\.rar$/i.test(name)) { await catalog.scanPack(file); continue; }
       const k=kind??(selected && name.endsWith('.pms')?'map':undefined);
       if (!k || (k==='map'?!name.endsWith('.pms'):!supportedImage.test(name))) continue;
       const stat=await fs.stat(file);

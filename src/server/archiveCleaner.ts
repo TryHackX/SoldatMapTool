@@ -109,6 +109,9 @@ const digest = (bytes: Buffer | Uint8Array | string) => crypto.createHash('sha25
 const folderOf = { scenery: 'scenery-gfx', texture: 'textures', edge: 'textures/edges' } as const;
 const isInstalled=(file:CatalogFile)=>file.scope==='@installed' || file.scope==='@installed/downloads';
 const unknownMapDate=Date.UTC(1980,0,1); // Earliest ZIP date, earlier than every Soldat release.
+/** A damaged archive time (a ZIP extra field or RAR/7z time of 0xFF..., year 30828) would win every version choice
+ * and cannot be written back by fs.utimes on Windows: anything later than tomorrow counts as unknown */
+const knownTime=(ms:number)=>Number.isFinite(ms) && ms<=Date.now()+86400000 ? ms : 0;
 export function shortenArchiveMapNames(rows:ArchiveCleanMap[]) {
     const names=[...new Set(rows.flatMap(r=>r.output?[r.output]:[]))].sort();
     const reserved=new Set(names.filter(n=>n.length<=20).map(n=>n.toLowerCase()));
@@ -359,7 +362,7 @@ async function analyzeWithArtwork(root:string, workDir:string, options:ArchiveCl
             throw Error('Conflicting indexed digest: ' + entry.path);
         // One materialized path may represent many original archive member names and scopes.
         const file: CatalogFile = { kind: entry.kind as CatalogFile['kind'], name: entry.name, path: entry.path, scope: entry.scope,
-            mtimeMs: Number.isFinite(entry.mtimeMs) ? entry.mtimeMs : 0, size: entry.size, sha256: hash };
+            mtimeMs: knownTime(entry.mtimeMs), size: entry.size, sha256: hash };
         totalFiles++;
         if (file.kind === 'map')
             files.push(file);
@@ -642,6 +645,8 @@ async function analyzeWithArtwork(root:string, workDir:string, options:ArchiveCl
                 if ((e as NodeJS.ErrnoException).code)
                     throw e;
                 res.error = 'edge/' + res.edge.name + ' · ' + textError(e);
+                // Every map using this texture is blocked, so its copy belongs in review/unreferenced, not textures/
+                if (res.output) res.output.referenced = false;
                 continue;
             }
             res.edgeOutput = { name: name.slice(0, -res.extension.length) + edgeExt, folder: 'textures/edges', sha256: edgeHash, source: res.edge.path, referenced: true };
@@ -784,7 +789,7 @@ export async function exportCleanArchive(plan: ArchiveCleanPlan, destination: st
             for await (const line of createInterface({input,crlfDelay:Infinity})) {
                 const entry=JSON.parse(line) as CatalogFile;
                 const row=entry.kind==='map' && bySource.get(entry.path);
-                if (row) row.sourceMtimeMs=entry.mtimeMs;
+                if (row) row.sourceMtimeMs=knownTime(entry.mtimeMs);
             }
         } finally { input.destroy(); }
         await recoverIndexedMapDates(plan.sourceRoot,plan.maps,options.signal);

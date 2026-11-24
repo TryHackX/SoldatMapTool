@@ -7,9 +7,9 @@ computer: a small Node.js server reads the game folder and the interface opens i
 ## Features
 
 - **Map library** — an index of tens of thousands of maps (SQLite), grouped by game mode and prefix (CTF, RSCS,
-  Trenchwars, Climb, INF, HTF…), custom prefixes and categories, search with filters
-  (`props>300 tex:ananas is:fav -is:dup`), favorites, tags, detection of missing files, CRC32 duplicates and maps
-  the game won't load (engine limits).
+  Trenchwars, Climb, INF, HTF…), custom prefixes and categories, built-in prefixes you can move to another group or
+  turn off (**Manage prefixes**), search with filters (`props>300 tex:ananas is:fav -is:dup`), favorites, tags,
+  detection of missing files, verified duplicates and maps the game won't load (engine limits).
 - **Similar maps** — compare selected maps by terrain silhouette and scenery images to find work-in-progress
   copies, renamed versions and near duplicates.
 - **Game-accurate 1:1 preview** (WebGL2) — sceneries, polygons, edges, background, spawn points, flags, bot

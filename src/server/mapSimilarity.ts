@@ -155,7 +155,9 @@ export async function searchSimilarMaps(entries:readonly MapIndexEntry[],opts:Op
   const total=maps.length*2;
   const visuals=new VisualGroups(),fileCache=new Map<string,{image:SpriteSignature;group:number}|null>();
   const pool:Features[]=[];
-  for(const map of maps){
+  // Chosen maps go first, so the image budget below can never leave them without their scenery pictures
+  const ordered=selected?[...maps.filter(m=>selected.has(m.id)),...maps.filter(m=>!selected.has(m.id))]:maps;
+  for(const map of ordered){
     opts.signal.throwIfAborted();
     const key=nameKey(map.baseName);
     const assets=map.sceneryAssets.filter(a=>a.usedCount>0).sort((a,b)=>b.usedCount-a.usedCount||cmp(a.referencedName,b.referencedName));

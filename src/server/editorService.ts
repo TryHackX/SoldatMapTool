@@ -22,6 +22,7 @@ import {
 } from '../shared/pmsParser';
 import { readStudioProjectData } from '../shared/studioProjectData';
 import { t } from './i18n';
+import { readJsonStoreFile } from './jsonStoreFile';
 import {
   BackupSession,
   GeneratedOutputRegistry,
@@ -392,17 +393,18 @@ export class SoldatMapEditorService {
   // Reusable Prefabs (stored in data/editor-prefabs.json)
   // ---------------------------------------------------------------------------
 
+  /**
+   * A missing file is an empty library. Read errors propagate, so a file that is locked for a moment is never
+   * replaced by a nearly empty one on the next save or delete; damaged contents are kept aside as a .broken copy.
+   */
   public listPrefabs(): EditorPrefabItem[] {
-    if (!fs.existsSync(this.prefabsFile)) return [];
-    try {
-      const parsed = JSON.parse(fs.readFileSync(this.prefabsFile, 'utf-8'));
-      if (Array.isArray(parsed)) {
-        return parsed.sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
-      }
-    } catch {
-      // Ignore
+    const parsed = readJsonStoreFile(this.prefabsFile);
+    if (parsed === null) return [];
+    if (!Array.isArray(parsed)) {
+      fs.renameSync(this.prefabsFile, this.prefabsFile + '.broken-' + crypto.randomUUID());
+      return [];
     }
-    return [];
+    return (parsed as EditorPrefabItem[]).sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
   }
 
   public savePrefab(body: {

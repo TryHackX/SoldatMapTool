@@ -1,5 +1,40 @@
 # Changelog
 
+## 2.8.2 — 2026-11-24
+
+### Built-in prefixes
+- **Custom Prefixes** is now **Manage prefixes**, with a new **Built-in prefixes** section: pick a default group, move
+  any of its prefixes to another group or turn it off, and restore one group or all of them.
+- The changes apply at once to the sidebar, search and the next start. The JSON export of the rules includes them,
+  and older rule files still import.
+- Maps without a prefix are labelled "(no prefix)"; when that assignment is turned off, they move to Other.
+
+### Fixed
+- Saving or deleting a prefab could wipe the whole prefab library when its file was locked for a moment or damaged.
+  Now the save stops with an error, and a damaged file is kept aside as a `.broken` copy.
+- A recovered editor draft of a project keeps its link to the package graphics (the autosave dropped it).
+- Clean archive:
+  - storage left by a job that was interrupted by closing the app (a copy of every map and asset, often several GB,
+    and half-written export folders) is freed on the next start;
+  - a failed write of the job state (full disk, a file held by a scanner) no longer stops the server;
+  - artwork libraries with multi-part RAR sets named `.part01.rar` are read instead of skipped;
+  - damaged archive dates far in the future no longer win the choice of map version or break the export;
+  - a texture whose edge could not be converted goes to `review/unreferenced/` instead of the playable `textures/`.
+- Similar maps: the chosen maps always get their scenery images compared, even in very large libraries.
+- Server map packs: the map list and the README name each packed map once when two selected maps share a file name.
+- A failed write of the map cache (full disk, locked file) no longer stops the library scan.
+- Setting up the local administrator works on drives without hard links (FAT32, exFAT).
+- Errors from saving prefix rules are translated in the Polish interface.
+
+### Security
+- Requests that other websites trigger through images, scripts or links (marked cross-site by the browser) are
+  rejected on `/api`.
+- A BMP file that claims a huge image is rejected instead of allocating gigabytes of memory.
+- Unexpected server errors return a short JSON message instead of an HTML page with the stack trace.
+
+### Tests
+- 357 automated tests (4 new).
+
 ## 2.8.1 — 2026-11-24
 
 ### Documentation and texts in English
